@@ -1,0 +1,47 @@
+{
+  "compilerOptions": {
+    // For default values, see here:
+    // https://www.typescriptlang.org/docs/handbook/compiler-options.html
+
+    "lib": ["ES2019"],
+
+    "module": "commonjs",
+
+    /* This is needed for TypeScript References to work; a useful tool */
+    "composite": true,
+
+    /* We always want .d.ts files to be emitted for external packages re-using types */
+    "declaration": true,
+
+    /* We also want .d.ts.map files so Jump To Source in VS Code works */
+    "declarationMap": true,
+
+    /* It is frustrating navigating a codebase with inconsistent file names */
+    "forceConsistentCasingInFileNames": true,
+
+    /* As a default, we like to build modules for bleeding-edge compatible outputs */
+    // "module": "esnext",
+
+    /* Node module resolution is the more recent version */
+    "moduleResolution": "node",
+
+    /* This is useful for detecting potentially buggy code */
+    "noImplicitReturns": true,
+
+    /* There is very rarely any reason to keep comments in emitted code */
+    "removeComments": true,
+
+    /* We often reference small-medium sized .json files in our source code */
+    "resolveJsonModule": true,
+
+    /* Having source maps is incredibly useful when developing */
+    "sourceMap": true,
+
+    /* TypeScript offers many benefits, we should benefit from them and not drop down into JS */
+    "strict": true,
+
+    /* We like using bleeding-edge language features */
+    "target": "ES2019",
+    "esModuleInterop": true
+  }
+}
