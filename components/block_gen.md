@@ -109,6 +109,10 @@ def generate_rollup_chain(l1_chain: List[Block], sequencer_timeout) -> List[Bloc
     return l2_chain
 ```
 
+The following diagram depicts 3 epochs with `sequencer_timeout=2`:
+
+![Block Generation](../assets/sequencer-block-gen.svg)
+
 ## Simple Sequencer Full Block Generation
 Now that we have all block inputs, it is possible to run the Ethereum state transition function to generate all remaining fields. Transforming block inputs into full rollup blocks requires processing transactions in the EVM, storing state, etc. Everything we are used to when running a node.
 
