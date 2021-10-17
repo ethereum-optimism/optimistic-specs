@@ -33,26 +33,24 @@ def generate_rollup_chain(l1_chain: List[Block], sequencer_timeout) -> List[Bloc
 
 # Generate a single epoch of the rollup chain. There is 1 epoch for every L1 block.
 # Epochs have 1 deposit block and can have variable numbers of sequencer blocks.
-# In the worst case you must wait until the `sequencer_timeout` to determine an
-# epoch's blocks.
+# We must wait until the `sequencer_timeout` to determine an epoch's blocks.
 def generate_rollup_epoch(
             root_block: Block,
-            subsequent_blocks: List[Block],
+            previous_blocks: List[Block],
             sequencer_timeout) -> List[Block]:
-    assert len(subsequent_blocks) >= sequencer_timeout, \
-        "Cannot determine epoch blocks until sequencer timeout has passed"
-    deposit_block = generate_deposit_block(root_block)
+    assert len(previous_blocks) == min(sequencer_timeout, root_block["block_number"] - 1), \
+        "Cannot generate epoch without all preceding blocks up to sequencer_timeout."
+    deposit_block = generate_deposit_block(previous_blocks[0])
     l2_chain: List[Block] = [deposit_block]
     # Determine all sequencer blocks
-    last_target_epoch = 0
-    for block in subsequent_blocks:
+    last_target_epoch = -1
+    for block in previous_blocks:
         batch: SequencerBatch = extract_batch(block)
         if batch == None:
             continue
         for seq_block in batch:
             # Update the last_target_epoch
-            if (seq_block["target_epoch"] > last_target_epoch and
-                seq_block["target_epoch"] < block["block_number"]):
+            if seq_block["target_epoch"] > last_target_epoch:
                 last_target_epoch = seq_block["target_epoch"]
             # Ignore the block if it is targeting the wrong epoch
             if last_target_epoch != root_block["block_number"]:
