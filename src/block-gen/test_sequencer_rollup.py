@@ -38,17 +38,17 @@ def test_extract_batch_with_single_sequencer_block():
 
 
 def test_generate_rollup_epoch_with_single_sequencer_block():
-    # We make a root block which will be the root for the epoch
-    root_block = gen_dummy_block_with_deposit(0)
-    # Next create another L1 block which can hold the sequencer txs
-    sequencer_block = gen_dummy_sequencer_block(0)
-    subsequent_block = gen_dummy_block(1)
+    # Create the start block of the epoch
+    start_block = gen_dummy_block_with_deposit(0)
+    # Next create a sequencer block and put it in the root block
+    sequencer_block = gen_dummy_sequencer_block(1)
+    root_block = gen_dummy_block(1)
     batch: SequencerBatch = [sequencer_block]
-    subsequent_block["txs"][0]["data"] = pickle.dumps(batch)
+    root_block["txs"][0]["data"] = pickle.dumps(batch)
     # Finally let's generate the l2 epoch which should contain a deposit & sequencer block
-    got_epoch = generate_rollup_epoch(root_block, [subsequent_block], 1)
+    got_epoch = generate_rollup_epoch([start_block, root_block])
     # Check it against what we expect
-    deposit_block = generate_deposit_block(root_block)
+    deposit_block = generate_deposit_block(start_block)
     expected_epoch = [deposit_block, sequencer_block]
     assert got_epoch == expected_epoch
 
@@ -73,7 +73,7 @@ def test_generate_rollup_chain():
     got_l2_chain = generate_rollup_chain(l1_chain, sequencer_timeout)
     expected_l2_chain: List[Block] = []
     for rollup_block in l2_chain:
-        if rollup_block["block_number"] > l1_chain[-1]["block_number"] - sequencer_timeout:
+        if rollup_block["block_number"] > l1_chain[-1]["block_number"]:
             break
         expected_l2_chain.append(rollup_block)
     # Now that we've filtered out the un-finalized l2 blocks, let's make
@@ -89,9 +89,8 @@ def make_pending_batch(
             sequencer_timeout: int
             ) -> SequencerBatch:
     latest_l2_block_num = l2_chain[-1]["block_number"]
-    latest_finalized_l1_block_num = latest_l1_block["block_number"] - sequencer_timeout
-    smallest_possible_epoch = max(latest_l2_block_num, latest_finalized_l1_block_num)
-    largest_possible_epoch = latest_l1_block["block_number"]
+    smallest_possible_epoch = max(latest_l2_block_num, latest_l1_block["block_number"])
+    largest_possible_epoch = latest_l1_block["block_number"] + sequencer_timeout
     # We'll have some fun and make the sequencer blocks random.
     epoch = random.randint(smallest_possible_epoch, largest_possible_epoch)
     sequencer_block = gen_dummy_sequencer_block(epoch)

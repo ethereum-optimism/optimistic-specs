@@ -24,27 +24,24 @@ SequencerBatch = NewType("SequencerBatch", List[SequencerBlock])
 # Generate the full rullup chain
 def generate_rollup_chain(l1_chain: List[Block], sequencer_timeout) -> List[Block]:
     l2_chain: List[Block] = []
-    for i in range(0, len(l1_chain) - sequencer_timeout):
-        root_block = l1_chain[i]
-        subsequent_blocks = l1_chain[i+1:i+1+sequencer_timeout]
-        l2_blocks = generate_rollup_epoch(root_block, subsequent_blocks, sequencer_timeout)
+    for i in range(0, len(l1_chain)):
+        start_block = max(0, i - sequencer_timeout)
+        l2_blocks = generate_rollup_epoch(l1_chain[start_block:i+1])
         l2_chain += l2_blocks
     return l2_chain
 
 # Generate a single epoch of the rollup chain. There is 1 epoch for every L1 block.
 # Epochs have 1 deposit block and can have variable numbers of sequencer blocks.
 # We must wait until the `sequencer_timeout` to determine an epoch's blocks.
-def generate_rollup_epoch(
-            root_block: Block,
-            previous_blocks: List[Block],
-            sequencer_timeout) -> List[Block]:
-    assert len(previous_blocks) == min(sequencer_timeout, root_block["block_number"] - 1), \
-        "Cannot generate epoch without all preceding blocks up to sequencer_timeout."
-    deposit_block = generate_deposit_block(previous_blocks[0])
+def generate_rollup_epoch(l1_blocks: List[Block]) -> List[Block]:
+    root_block = l1_blocks[-1]
+    # The first block is always the deposit so handle it differently.
+    deposit_block = generate_deposit_block(l1_blocks[0])
     l2_chain: List[Block] = [deposit_block]
     # Determine all sequencer blocks
     last_target_epoch = -1
-    for block in previous_blocks:
+    # Iterate over the rest of the blocks
+    for block in l1_blocks[1:]:
         batch: SequencerBatch = extract_batch(block)
         if batch == None:
             continue
