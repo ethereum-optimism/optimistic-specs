@@ -57,8 +57,9 @@ def test_generate_rollup_chain():
     l1_chain: List[Block] = []
     l2_chain: List[Block] = []
     pending_batch: SequencerBatch = []
-    sequencer_timeout: int = 10
-    num_l1_blocks: int = 100
+    # sequencer_timeout: int = 10
+    sequencer_timeout: int = 2
+    num_l1_blocks: int = 2
     for i in range(num_l1_blocks):
         block = gen_dummy_block_with_deposit(i)
         if len(pending_batch) != 0:
@@ -67,7 +68,8 @@ def test_generate_rollup_chain():
         # Append a deposit block for the newly added block
         l2_chain.append(generate_deposit_block(block))
         # Generate a pending batch that we will append to the next block
-        pending_batch = make_pending_batch(block, l2_chain, sequencer_timeout)
+        pending_batch = make_pending_batch(block, sequencer_timeout)
+        # pending_batch = make_random_pending_batch(block, l2_chain, sequencer_timeout)
         l2_chain += pending_batch
     # Generate the whole rollup chain
     got_l2_chain = generate_rollup_chain(l1_chain, sequencer_timeout)
@@ -85,11 +87,22 @@ def test_generate_rollup_chain():
 
 def make_pending_batch(
             latest_l1_block: Block,
+            sequencer_timeout: int
+            ) -> SequencerBatch:
+    epoch = latest_l1_block["block_number"] + sequencer_timeout // 2
+    sequencer_block = gen_dummy_sequencer_block(epoch)
+    return [sequencer_block]
+
+def make_random_pending_batch(
+            latest_l1_block: Block,
             l2_chain: List[Block],
             sequencer_timeout: int
             ) -> SequencerBatch:
     latest_l2_block_num = l2_chain[-1]["block_number"]
-    smallest_possible_epoch = max(latest_l2_block_num, latest_l1_block["block_number"])
+    # The epoch can not be earlier than:
+    # 1) The latest epoch we referenced in L2; or
+    # 2) The **next** block after the latest block on L1
+    smallest_possible_epoch = max(latest_l2_block_num, latest_l1_block["block_number"] + 1)
     largest_possible_epoch = latest_l1_block["block_number"] + sequencer_timeout
     # We'll have some fun and make the sequencer blocks random.
     epoch = random.randint(smallest_possible_epoch, largest_possible_epoch)
