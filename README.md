@@ -9,6 +9,7 @@ You will find that several pages are incomplete or [under discussion](https://gi
 
 ## Specification structure
 
+- [Introduction](./introduction.md)
 - [Overview](./overview.md)
 - Components:
   - [Layer 1 Contracts](./components/layer1.md)
