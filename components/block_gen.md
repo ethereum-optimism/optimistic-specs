@@ -21,14 +21,15 @@ In this document we define a block generation function which is designed to be:
 2. Support sequencers and sequencer consensus.
 3. Resilient to the sequencer losing connection to L1.
 
-## Simple Sequencer Block Input Generation
+## Sequencer Block Input Generation
+
 There are two types of blocks in the simple sequencer block generation algorithm:
 
 1. Deposit block
 2. Sequencer block
 
 ### Deposit Blocks
-For every L1 block (after the deployment of the rollup) an L2 deposit block is created. These deposit blocks contain both `UserDeposit`s and `BlockDeposits`. User deposits are L1 user initiated actions which are carried out on L2, providing the rollup liveness guarantees. Block deposits deposit contextual information about the L1 block (eg. `blockhash` and `timestamp`).
+For every L1 block (after the deployment of the rollup) an L2 deposit block is created. These deposit blocks contain both a `ContextDeposit` and any number of `UserDeposit`s. User deposits are L1 user initiated actions which are carried out on L2, providing the rollup liveness guarantees. Context deposits set contextual information about the latest L1 block (eg. `blockhash` and `timestamp`).
 
 ```python
 class Deposit:
@@ -41,60 +42,31 @@ class UserDeposit(Deposit):
     target:      Address
     data:        bytes
 
-class BlockDeposit(Deposit):
+class ContextDeposit(Deposit):
     blockHash:   bytes32
     blockNumber: uint64
     timestamp:   uint64
     baseFee:     uint64
 ```
 
-Every time a deposit block is added to the rollup chain it marks the beginning of a new `epoch`. Each epoch contains **one** deposit block, and zero to many **sequencer blocks**.
+Each rollup epoch contains **one** deposit block, and zero to many **sequencer blocks**.
 
 ### Sequencer Blocks
 The sequencer is able to submit blocks which target a particular rollup epoch. They can submit up to `MAX_SEQUENCER_BLOCKS_PER_EPOCH` number of sequencer blocks every epoch. Additionally, they must assign a `target_epoch` to their blocks which satisfies:
 
 ```python
-assert target_epoch > current_l1_block_number - sequencer_timeout, \
-    "Sequencer must submit their blocks before the sequencer_timeout."
-assert target_epoch < current_l1_block_number \
-    "Sequencer cannot target future epochs."
+assert target_epoch > current_l1_block_number, \
+    "Sequencer must submit their blocks to be included in future epochs."
+assert target_epoch < current_l1_block_number + sequencing_window \
+    "Sequencer cannot target epochs too far into the future."
 ```
 
 ### Epoch Block Input Generation
 Each epoch's block inputs can be independently generated using the following function:
 
-```python
-# Generate a single epoch of the rollup chain. There is 1 epoch for every L1 block.
-# Epochs have 1 deposit block and can have variable numbers of sequencer blocks.
-# In the worst case you must wait until the `sequencer_timeout` to determine an
-# epoch's blocks.
-def generate_rollup_epoch(
-            root_block: Block,
-            subsequent_blocks: List[Block],
-            sequencer_timeout) -> List[Block]:
-    assert len(subsequent_blocks) >= sequencer_timeout, \
-        "Cannot determine epoch blocks until sequencer timeout has passed"
-    deposit_block = generate_deposit_block(root_block)
-    l2_chain: List[Block] = [deposit_block]
-    # Determine all sequencer blocks
-    last_target_epoch = 0
-    for block in subsequent_blocks:
-        batch: SequencerBatch = extract_batch(block)
-        if batch == None:
-            continue
-        for seq_block in batch:
-            # Update the last_target_epoch
-            if (seq_block["target_epoch"] > last_target_epoch and
-                seq_block["target_epoch"] < block["block_number"]):
-                last_target_epoch = seq_block["target_epoch"]
-            # Ignore the block if it is targeting the wrong epoch
-            if last_target_epoch != root_block["block_number"]:
-                continue
-            # We've found a sequencer block for this epoch so append it!
-            l2_chain.append(seq_block)
-
-    return l2_chain
-```
+- Given n blocks where n=sequencing_window:
+    - start out by turning the first block in the range into a deposit block.
+    - then iterate over all subsequent blocks, checking if the sequencer has posted any blocks which target the epoch in question. For each of these blocks, add them to the epoch.
 
 After having generated each epoch it is possible to stich all epochs together to form the full rollup chain.
 ```python
