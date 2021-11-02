@@ -23,16 +23,18 @@ In this document we define a block generation function which is designed to be:
 
 ## Rollup Epochs
 
-The rollup chain is subdivided into epochs. Each L1 block marks the beginning of a new epoch. In fact, the `epoch_number` is **equal** to the `l1_block_number`. Epochs contain one to many rollup blocks.
+The rollup chain is subdivided into epochs. There is a 1:1 correspondence between L1 block numbers and epoch numbers. For L1 block number `n`, there is a corresponding rollup epoch `n` which can only be generated after L1 block number `n` is added to the L1 chain. Epoch contain one to many rollup blocks.
 
 ### Types of Blocks within Epochs
 
-Within these epochs, there are two types of blocks:
+Within these epochs, there are two block types:
 
 1. Deposit block
 2. Sequencer block
 
-Deposit blocks contain contextual information about L1 such as the block hash, as well as transactions initiated on L1 by any user or contract. On the other hand, sequencer blocks are all submitted by the sequencer. Sequencer blocks target _future_ epochs which satisfy the following two conditions:
+Deposit blocks contain contextual information about L1 such as the block hash. They also contain transactions initiated on L1 by any user or contract.
+
+Sequencer blocks are submitted by the sequencer and target _future_ epochs which satisfy the following two conditions:
 
 1. Target epoch is larger than the current L1 block number.
 2. Target epoch is less than the current L1 block number PLUS `sequencing_window_size`.
@@ -41,26 +43,22 @@ The ability for the sequencer to append sequencer blocks to future epochs allows
 
 ### Epoch Structure
 
-Each epoch contains **1** deposit block and zero to many sequencer blocks. For epoch `n` the deposit block is generated using L1 block number `n - (sequencing_window_size + 1)`. The epoch's sequencer blocks are retrieved from any of the L1 blocks ranging from `n - sequencing_window_size` to `n`.
+Each epoch contains **1** deposit block and zero to many sequencer blocks. For epoch `n` the deposit block is generated using L1 block number `n - (sequencing_window_size + 1)`. The epoch's sequencer blocks are contained in any of the L1 blocks ranging from `n - sequencing_window_size` to `n`. This a range of blocks is called the "sequencing window".
 
-The following diagram demonstrates from which L1 blocks the L2 rollup blocks are generated:
+The following diagram demonstrates the correspondence between L1 blocks and rollup blocks (ie L2 blocks):
 
 ![Block Generation](../assets/sequencer-block-gen.svg)
 
 ## Deposit Blocks in Depth
 
-For every L1 block (after the deployment of the rollup) an L2 deposit block is created. These deposit blocks contain both a `ContextDeposit` and any number of `UserDeposit`s. User deposits are L1 user initiated actions which are carried out on L2, providing the rollup liveness guarantees. Context deposits set contextual information about the latest L1 block (eg. `blockhash` and `timestamp`).
+For every L1 block (after the rollup's genesis) an L2 deposit block is created. These deposit blocks contain both a `ContextDeposit` and any number of `UserDeposit`s. Context deposits set contextual information about the latest L1 block (eg. `blockHash` and `timestamp`), and user deposits are L1 user initiated L2 transactions which guarantee liveness of the rollup chain even with a censoring sequencer.
 
-Deposit blocks are simply a list of deposits:
+The types of deposit blocks are as follows:
 
 ```python
 class DepositBlock:
     deposits: List[Deposit]
-```
 
-And the types of deposits are:
-
-```python
 class Deposit:
     feedIndex: uint64
     GasLimit:  uint64
@@ -80,9 +78,9 @@ class ContextDeposit(Deposit):
 
 ### Deposit Block Generation
 
-The function `generate_deposit_block(l1_block_number)` is defined roughly as:
+The function `generate_deposit_block(l1_block_number)` is defined as:
 
-- Generate the `ContextDeposit` by using the L1 block body. Specifically the L1 block's `blockHash`, `blockNumber`, `timestamp`, and `baseFee`.
+- Generate the `ContextDeposit` using the L1 block body. Specifically the L1 block's `blockHash`, `blockNumber`, `timestamp`, and `baseFee`.
 - Get all events emitted by the `DepositFeed` contract at block `l1_block_number`.
     - For each event, generate a new `UserDeposit` based on the emitted calldata. All fields should be emitted by DepositFeed contract.
 
@@ -101,17 +99,17 @@ class SequencerBlock:
     transactions: List[Transaction]  # A list of transactions in the block
 ```
 
-These sequencer blocks must be validated as properly formatted. These checks are:
+These sequencer blocks must be validated as properly formatted. These validity checks are:
 
-1. The `target_epoch` must be within the sequencing window (introduced in the previous sections)
-2. The `sequencer_suggested_timestamp` must be monotonic & within an acceptable range.
-3. The `transactions` must all be correctly formatted (eg. contain valid signatures).
+1. `target_epoch` must be within the sequencing window (introduced in the previous sections)
+2. `sequencer_suggested_timestamp` must be monotonic & within an acceptable range.
+3. `transactions` must all be correctly formatted (eg. contain valid signatures).
 
-If any of these checks fail the block must be skipped or ignored. Otherwise, all transactions in the sequencer block will be executed in the rollup chain.
+If any of these checks fail the block must be skipped or ignored. Otherwise, all transactions in the sequencer block will be executed.
 
-### Timestamps in Depth
+## Timestamps in Depth
 
-Time can be manipulated by the sequencer; however, it must stay within reasonable bounds and must be monotonic (ie. can never go backwards). The specific conditions that must pass are:
+Time can be manipulated by the sequencer; however, it must stay within reasonable bounds and must be monotonic (ie. can never go backwards). The specific conditions that must be met are:
 
 ```python
 # last_l1_timestamp is the L1 timestamp set during the last ContextDeposit
@@ -121,8 +119,8 @@ Time can be manipulated by the sequencer; however, it must stay within reasonabl
 min_timestamp = max(last_l1_timestamp, last_timestamp)
 max_timestamp = last_l1_timestamp + sequencing_window_size * average_l1_block_time
 
-assert sequencer_suggested_timestamp > min_timestamp
-assert sequencer_suggested_timestamp < max_timestamp
+assert sequencer_suggested_timestamp >= min_timestamp
+assert sequencer_suggested_timestamp <= max_timestamp
 ```
 
 The timestamp exposed on the rollup chain is:
@@ -134,31 +132,16 @@ def timestamp():
 ```
 
 
----
-
-The sequencer is able to submit blocks which target a particular rollup epoch. They can submit up to `MAX_SEQUENCER_BLOCKS_PER_EPOCH` number of sequencer blocks every epoch. Additionally, they must assign a `target_epoch` to their blocks which satisfies:
-
-```python
-assert target_epoch > current_l1_block_number, \
-    "Sequencer must submit their blocks to be included in future epochs."
-assert target_epoch < current_l1_block_number + sequencing_window_size \
-    "Sequencer cannot target epochs too far into the future."
-```
-
 ## Epoch Block Input Generation
 An epoch's block inputs can be generated using the following function:
 
-- To generate the blocks in epoch `n`, supply L1 blocks `n - sequencing_window_size - 1` through `n`. We will return `epoch_rollup_blocks` which is a list of rollup blocks in epoch `n`.
+- To generate the blocks in epoch `n`, supply L1 blocks `n - (sequencing_window_size + 1)` through `n`. This function returns a list of all rollup blocks in epoch `n`. We will call this list `epoch_rollup_blocks`.
 - The first block input for the epoch is always the deposit block.
     - Generate the block input with `generate_deposit_block(l1_blocks[0])` (function defined above).
     - Append the deposit block to `epoch_rollup_blocks`
-- All other block inputs are sequencer blocks included within the supplied L1 blocks. For each L1 block supplied as input:
+- To generate all of the sequencer blocks, for each block in `l1_blocks`:
     - Extract the valid sequencer blocks
     - If they are targeting epoch `n`, append the sequencer block to `epoch_rollup_blocks`.
 - Return `epoch_rollup_blocks`.
 
 After having generated each epoch it is possible to stich all epochs together to form the full rollup chain.
-
-#### Footnote: Fraud Proof Block Generation
-
-Inside of the fraud proof we use the `generate_rollup_epoch(..)` function to narrow in on a single L2 block state transition as the first step of the fraud proof. After that we evaluate a single L2 block. (This is because the fraud proof witness generation is slow so we need to split it up).
