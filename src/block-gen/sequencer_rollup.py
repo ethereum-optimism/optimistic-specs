@@ -21,7 +21,7 @@ SequencerBatch = NewType("SequencerBatch", List[SequencerBlock])
 
 #################### Functions ####################
 
-# Generate the full rullup chain
+# Generate the full rollup chain
 def generate_rollup_chain(l1_chain: List[Block], sequencer_timeout) -> List[Block]:
     l2_chain: List[Block] = []
     for i in range(0, len(l1_chain) - sequencer_timeout):
