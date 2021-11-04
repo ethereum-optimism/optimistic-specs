@@ -33,7 +33,7 @@ def generate_rollup_chain(l1_chain: List[Block], sequencer_timeout) -> List[Bloc
 
 # Generate a single epoch of the rollup chain. There is 1 epoch for every L1 block.
 # Epochs have 1 deposit block and can have variable numbers of sequencer blocks.
-# In the worst case you must wait until the `sequencer_timeout` to determine an
+# In the worst case you must wait up to `sequencer_timeout` L1 blocks to determine an
 # epoch's blocks.
 def generate_rollup_epoch(
             root_block: Block,
