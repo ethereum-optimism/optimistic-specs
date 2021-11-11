@@ -20,11 +20,14 @@ provide context for the rest of the specification.
 
 ### What is Ethereum scalability?
 
-Ethereum's limited resources, specifically bandwidth, computation, and storage, constrain the number of transactions which
-can be processed on the network, leading to extremely high fees. Scaling
-Ethereum means increasing the number of useful transactions the Ethereum network can process, by increasing the supply of these limited resources. This also means the fees can be made much lower.
+Ethereum's limited resources, specifically bandwidth, computation, and storage,
+constrain the number of transactions which can be processed on the network,
+leading to extremely high fees. Scaling Ethereum means increasing the number of
+useful transactions the Ethereum network can process, by increasing the supply
+of these limited resources. This also means the fees can be made much lower.
 
-You can [follow this link][rollup-scale] to learn more about how rollups help solve Ethereum scalability.
+You can [follow this link][rollup-scale] to learn more about how rollups help
+solve Ethereum scalability.
 
 [rollup-scale]: https://hackmd.io/@norswap/rollups
 
@@ -105,10 +108,10 @@ signature from the sequencer to ensure the legitimacy of the data.
 
 ## User Transactions and The Sequencer
 
-As a user, once you have [bridged] (\*) some ETH over to Optimistic Ethereum, you will
-probably interact with it though your wallet, such as Metamask. Add the network
-(chainID 10, [JSON-RPC] endpoint `https://mainnet.optimism.io/`) and you're good
-to go.
+As a user, once you have [bridged] (\*) some ETH over to Optimistic Ethereum,
+you will probably interact with it though your wallet, such as Metamask. Add the
+network (chainID 10, [JSON-RPC] endpoint `https://mainnet.optimism.io/`) and
+you're good to go.
 
 (\*) L1 -> L2 deposits will be explained later.
 
@@ -143,15 +146,24 @@ Optimistic Ethereum has two kind of blocks:
 2. L2 sequencer blocks
 
 As it confirms transactions, the sequencer accumulates these transaction in a
-"batch". The transactions in such batches will become *L2 sequencer block* once
-posted to the Optimistic Ethereum contracts on L1. Please note that there is no
-simple mapping between batches and sequencer blocks: a batch may "contain"
+"batch". The transactions in such batches will become **_L2 sequencer block_**
+once posted to the Optimistic Ethereum contracts on L1. Please note that there
+is no simple mapping between batches and sequencer blocks: a batch may "contain"
 multiple blocks or even partial blocks. Batches are simply a means of grouping
 transactions together for submitting transactions to L1.
 
-*L2 deposit blocks*, on the other hand, arise from L1 blocks. There is one L2
-deposit block per L1 block. These deposit blocks are implicitly created by the
-sequencer whenever it posts a batch to a new L1 block.
+The sequencer decides which L@ sequencer block a transaction belongs to,
+although this decision is constrained by the protocol. For instance, block
+numbers assigned to transactions increase monotonically. See the section [on the
+`NUMBER` opcode](#NUMBER) for more details.
+
+Just like batches, L1 blocks can contain multiple L2 blocks, or even partial
+blocks. They can also have received zero, one, or many batches from the
+sequencer.
+
+**_L2 deposit blocks_**, on the other hand, arise from L1 blocks. There is one
+L2 deposit block per L1 block. These deposit blocks are implicitly created by
+the sequencer whenever it posts a batch to a new L1 block.
 
 **TODO:** Implicitly? Needs a link to an explanation of how data feeds are materialized.
 
@@ -166,11 +178,9 @@ L2 deposit blocks comprise two types of data:
 These L2 transactions that have been "enqueued" on L1 are called *deposits*.
 
 These transactions have two main uses:
-
 - Ensure that the rollup remains live even if the sequencer goes down or starts
   censoring L2 transactions. Consequently, funds can never remain stuck on the
   rollup.
-
 - Deposit ETH and ERC-20 tokens onto the rollup. This is achieved by sending the
   token to a contract which locks it, then submits a L2 transaction (on L1)
   instructing a L2 contract to mint an equivalent L2 token. The transaction
@@ -194,75 +204,85 @@ opcodes must be made precise, namely `TIMESTAMP`, `NUMBER`, `BLOCKHASH`,
 
 #### `NUMBER`
 
-Indicates the L2 block number, which is the number of the L2 block that this
-transaction will end up in.
+The sequencer numbers L2 blocks sequentially. If there were only sequencer
+blocks, this would be trivial. The fact that the sequencer must "insert" deposit
+blocks in the L2 block stream makes this a little bit more complicated.
 
-Blocks are numbered sequentially by the sequencer. Given the presence of both
-sequencer and deposit blocks, some explanation on block numbering is in order.
+To "insert" a deposit block in the block stream, the sequencer *skips over it*
+by skipping a block number. For instance, if a batch contains a transaction
+whose assigned block number is `X`, followed by a transaction whose assigned
+block number is `X+2`, this indicates that:
 
-At any given point, the sequencer knows the last block on which it has
-successfully submitted a batch, which we'll refer to as `last_batch_L1_block`.
+- The first transacton is the final transaction of the L2 sequencer block with
+  number `X`.
+- The second transaction is the first transaction of the L2 sequencer block with
+  number `X+2`.
+- There is a deposit block with number `X+1`, which is the oldest deposit block
+  that hasn't yet been included in the L2 block stream.
 
-From this block, it is possible to derive the highest L2 block number associated
-with a L2 transaction posted on L1. We'll call this
-`last_batch_sequencer_L2_block_number`.
+**TODO:** is this true? or does the sequencer signal the insertion point for deposit blocks more explicitly
 
-Assuming the sequencer just submitted this batch, it can then proceed to confirm
-transactions, assigning them a block number B such that`B >=
-last_batch_L2_block_number`.
+To see the kind of problem that can occur, consider the naive procedure where
+the smart contract handling new batches enforces that the batch "skips over"
+every deposit block associated with L1 blocks coming before `B`, and otherwise
+rejects the batch. There are a few issues with this. This protocol is both too
+strict and too loose.
 
-Just like batches, L1 blocks can contain multiple L2 blocks, or even partial
-blocks. They can also have received zero, one, or many batches from the
-sequencer.
+First, the procedure is too strict: the sequencer doesn't directly control which
+block the batch will be posted on. This makes it very easy for the batch to land
+on an L1 block whose parent was unknown to the sequencer. This could occur for a
+variety of reason, including poor network conditions and malicious L1 block
+withholding. This could lead to a lot of wasted batch submission transactions.
 
-Periodically, the sequencer sends a batch of transactions to L1. The sequencer
-may only delay sending a batch for up to `S` blocks, where `S` is the
-*sequencing window*, also known as *sequencer block submission window* and
-*force inclusion window*.
+Second, the procedure is not strict enough: under this protocol, the sequencer
+is allowed to infinitely postpone the inclusion of deposit blocks, as long as it
+also does not post a batch to L1.
 
-If the sequencer does not post any batch for `S` blocks, anybody can force the
-creation of the deposit block implied by the L1 block at `C - S` where `C` is
-the current L1 block number.
+To solve these issues, we introduce for each L1 block a *sequencing window* of
+size `S > 1` during which the sequencer **must** include the deposit block.
 
-**TODO:** "anybody can force" — is this accurate or does this also happen
-implicitly in the L2 block feed?
+The *sequencing window* is also called the *sequencer block submission window*
+(for obvious reasons), but also the *force inclusion period*. This is because if
+the sequence fails to include the deposit block generated by the L1 block `B`
+within the sequencing window `[B+1, B+S]`, then validators will consider that
+deposit block to be forcefully included, and will assign it the block number
+`X+1` where `X` is the last known L2 block.
 
-But the sequencing window serves another role, related to the notion of *epoch*.
+It's interesting to consider what this last block `X` might be. It might be the
+highest-number L2 sequencer block for which a transaction was posted by the
+sequencer within the `[B,B+S]` L1 block range (not a typo, this is `S+1` sized
+range). However, it could also be another force-included deposit block. For
+instance, if the `[B,B+S-1]` L1 block range does not include the deposit block
+generated by the `B-1` L1 block (via a sequencer block skipping over it), then
+the previous L2 block `X` is the forcefully included deposit block for L1 block
+`B-1`.
 
-The L2 block stream is divided into epochs, which each contain a deposit block,
-followed by zero or more sequencer blocks. The deposit block for epoch `E` is
-the one generated by the L1 block with number `E`.
+In any case, it is sufficient to look a the `[B,B+S]` L1 block range to
+determine the block number (and the execution result) of the deposit block
+generated by the L1 block `B`.
 
-Within the sequencing window `S`, the sequencer is allowed to add sequencer
-blocks to the epoch. This means that blocks in the inclusive range `[E+1, E+S]`
-are all susceptible to contain sequencer blocks for epoch `E`.
+Also note that the sequencer not submitting any batches during the sequencing
+window `[B,B+S]` is merely a special case of the force inclusion mechanism,
+which ensures that the L2 chain remains live, even if the sequencer goes down.
+Even if the sequencer could never go down, the force inclusion mechanism is
+required to prevent the sequencer from censoring L2 transactions, which can now
+be forcefully included via L1.
+
+If the sequencer violates these conditions, for instance if it keeps posting
+batches after the L1 block `B+S` without skipping a block number for the forced
+inclusion of the deposit block, then this is considered to be fraud, and can be
+proved as such via a [fraud proof].
+
+[fraud proof]: TODO
+
+**TODO:** link fraud proof index page
+
+Finally, a bit of jargon. We call an *epoch* the sequence of L2 block starting
+with a deposit block and containing zero or more L2 sequencing block until the
+next deposit block, which marks the start of the next epoch. Epoch `E` is the
+epoch staring with the deposit block generated by the L1 block with number `E`.
 
 **TODO:** what do we pick as the actual sequencing window?
-
-Clearly, the sequencing window for neighbouring epochs overlap. The sequencer is
-free to skip to the next epoch `E` at any time during in its sequencing window
-(`[E+1, E+S]`). It does so by either submitting a batch containing at least one
-transaction whose block number is `>= X+2`, where `X` is the L2 block number of
-the previous sequencer block. The deposit block for `E` will have number `X+1`.
-If there is at least one transaction with block number `X+2`, it belongs to the
-first sequencer block for the epoch. If such a transaction does not exist, the
-block with number `X+2` is another deposit block (for epoch `E+1`), and the
-epoch `E` does not have have any sequencer block.
-
-An important consequence of this is that validators can see deposit blocks long
-before their inclusion in the L2 chain, but do not know their block number and
-cannot execute them, as yet unseen sequencer blocks may come first. Only when
-the sequencer "skips over" the deposit block (as explained in the previous
-paragraph) can the deposit block be considered part of the chain.
-
-If the sequencer fails to skip over the deposit block within its sequencing
-window (and not submitting any batch for the duration of the window is merely a
-special case of this), then the deposit block will be forcefully included after
-the last L2 block seen on chain. This block will necessarily appear within the
-L1 block range `[E, E+S]` (for epoch `E` and sequencing window size `S`), as if
-this range does not include any sequencer block, then it will at least contain
-the forced deposit block for epoch `E-1`. Also note that the last L2 block can
-still be this forced `E-1` deposit block, even if `[E, E+S]` is not empty.
 
 #### `TIMESTAMP`
 
@@ -270,7 +290,6 @@ The timestamp should be **approximately** equivalent to the time at which the
 block was "conceived".
 
 - For deposit blocks, this is the timestamp of the L1 block it belongs to.
-
 - For sequencer blocks, this is (approximately) the time at which the decided to
   assign newly received transactions to a new sequencer block
 
