@@ -28,7 +28,7 @@
 ![Architecture Diagram](./assets/architecture.svg)
 
 ### L1 Components
-- **Feeds**: ("Data availability layer"): A **feed** is an append-only log of data (e.g. of deposits, or sequencer batches). Feeds can be computed as functions of L1 block data. The definition of these functions can be found in the [block generation spec][block-gen]. Optimistic Ethereum has three primary feeds:
+- **Feeds**: ("Data availability layer"): A **feed** is an append-only log of data (e.g. of deposits, or sequencer batches). Feeds can be computed as functions of L1 block data. The definition of these functions can be found in the [block derivation spec][block-derivation]. Optimistic Ethereum has three primary feeds:
   - **Deposit Feed**: A feed of L2 transactions which originated as smart contract calls in the L1 state which emitted an event. Deposits are guaranteed to be reflected in the L2 state within the *sequencing window*.
   - **Sequencer Feed**: A feed of L2 transactions which are submitted by the sequencer to L1 in batches. Includes L2 tx calldata, *as well as time and ordering information.*
   - **L2 Block Feed**: A feed of canonical L2 block inputs (i.e. L2 blocks, but without the `stateRoot`, `receiptsRoot`, `gasUsed`, ...) which should be executed by L2 nodes and enforced in fraud proofs.
@@ -111,4 +111,4 @@
   - Finalizes pre-confirmed sequencer transactions onto L1
   - Writes to sequencer feed
 
-[block-gen]: ./components/rollup_node/block_gen.md
+[block-derivation]: ./components/rollup_node/block_derivation.md
