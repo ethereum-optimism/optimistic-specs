@@ -37,7 +37,7 @@
     - All entries are deterministically indexable by off-chain parties.
     - The fraud proof VM can find any feed entry in a bounded number of steps, such that the off-chain indexing is sufficient to generate a witness for verifing any individual step on-chain.
   - Note: a "feed" may not necessarily correspond to an on-chain contract (e.g. which stores a hash of each entry). Instead, a feed refers to the actual log of data which is derivable from L1, which may or may not use a contract. For more info, check out [this discussion.](https://github.com/ethereum-optimism/optimistic-specs/issues/14)
-- **L2 Block Oracle**: A cryptoeconomic light client of the L2. Will finalize hashes of the L2 state on L1, once the dispute period has passed. Used to validate withdrawals. *(Note: contract separation is not yet final)*
+- **L2 State Oracle**: A cryptoeconomic light client of the L2. Will finalize hashes of the L2 state on L1, once the dispute period has passed. Used to validate withdrawals. *(Note: contract separation is not yet final)*
   - **Proposal Manager**: Handles conflicting state proposals to determine malicious party
     - Maintains a set of ongoing optimistic proposals of the L2 state
     - Ensures that state proposers are sufficiently bonded
