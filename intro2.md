@@ -100,7 +100,7 @@ Verifiers monitor L1 for rollup data. They serve three purpose:
 
 1. Verifying rollup integrity and disputing invalid assertions.
 2. Serving rollup data to users; and
-3. Propagate the L2 state among validators (\*)
+3. Propagate the L2 state among verifiers (\*)
 
 In order for the network to remain secure there must be at least one honest
 verifier who is able to verify the integrity of the rollup chain & serve
@@ -153,7 +153,7 @@ Optimistic Ethereum has two kind of blocks:
 2. L2 sequencer blocks
 
 As users submit transactions, the sequencer confirms them and accumulates them
-in **L2 sequencer blocks**. The sequencer includes these blocks in *batches*
+in **_L2 sequencer blocks_**. The sequencer includes these blocks in *batches*
 which it then submits to L1 (as calldata of a contract call to the *sequencer
 block feed contract*).
 
@@ -171,9 +171,8 @@ implicitly defines one L2 deposit block, which comprises the following data:
    - block number
    - timestamp
    - base fee
-2. L2 transactions submitted on L1
-
-These L2 transactions that have been submitted L1 are called *deposits*.
+2. L2 transactions submitted on L1 (which we call *deposits*) to the *deposit
+   feed contract*
 
 These transactions have two main uses:
 - Ensure that the rollup remains live even if the sequencer goes down or starts
