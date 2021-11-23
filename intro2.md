@@ -10,11 +10,8 @@ provide context for the rest of the specification.
 1. [Foundations](#foundations)
 1. [Network Participants](#network-participants)
 1. [User Transactions and The Sequencer](#user-transactions-and-the-sequencer)
-1. [L2 Batches and Blocks](#l2-batches-and-blocks)
-1. [L2 Block Properties](#l2-block-properties)
-1. [L1 Components Overview](#l1-components-overview)
-   - [Data Feeds](#data-feeds)
-   - [Fraud Proof Manager](#fraud-proof-manager)
+1. [L2 Blocks, Batches & Epochs](#l2-blocks-batches--epochs)
+1. [L2 Chain Derivation](#l2-chain-derivation)
 
 ## Foundations
 
@@ -103,37 +100,38 @@ Verifiers monitor L1 for rollup data. They serve three purpose:
 3. Propagate the L2 state among verifiers (\*)
 
 In order for the network to remain secure there must be at least one honest
-verifier who is able to verify the integrity of the rollup chain & serve
-blockchain data to users.
+verifier who is able to verify the integrity of the L2 chain & serve blockchain
+data to users.
 
 (\*) It's important to note that a validator does not rely on this data to
-validate the rollup — only access to the L1 chain is required. However, getting
-the most recent L2 state allows validators to serve the state to users, and to
-pre-validate transactions that should soon be posted to L1. L2 state propagation
-uses the same mechanism as L1 state sync, but must additionally include a
-signature from the sequencer to ensure the legitimacy of the data.
+validate the L2 chain — only access to the L1 chain is required. However,
+getting the most recent L2 state allows validators to serve the state to users,
+and to pre-validate transactions that should soon be posted to L1. L2 state
+propagation uses the same mechanism as L1 state sync, but must additionally
+include a signature from the sequencer to ensure the legitimacy of the data.
 
 ## User Transactions and The Sequencer
 
 As a user, once you have [bridged] (\*) some ETH over to Optimistic Ethereum,
 you will probably interact with it though your wallet, such as Metamask. Add the
-network (chainID 10, [JSON-RPC] endpoint `https://mainnet.optimism.io/`) and
+network ([chainID 10][chainlist], [JSON-RPC] endpoint `https://mainnet.optimism.io/`) and
 you're good to go.
 
 (\*) L1 -> L2 deposits will be explained later.
 
 [bridged]: https://www.optimism.io/apps/bridges
 [JSON-RPC]: https://github.com/ethereum/execution-apis
+[chainlist]: https://chainlist.org/
 
 When you send a transaction, it is sent to the sequencer. The sequencer will
 verify your transaction, execute it if valid, and confirm it. This happens much
 faster than on Ethereum mainnet (around ~1s).
 
-There is currently a single sequencer operated by Optimism PBC. We expect future
-versions of this specification to introduce sequencer decentralization. However,
-despite the sequencer being decentralized, trust is not required. As we will
-see, the sequencer posts its results on Ethereum mainnet (henceforth: layer 1 or
-L1), where they can be permissionlessly challenged with a fraud proof. If the
+There is currently a single sequencer. We expect future versions of this
+specification to introduce sequencer decentralization. However, despite the
+sequencer being decentralized, trust is not required. As we will see, the
+sequencer posts its results on Ethereum mainnet (henceforth: layer 1 or L1),
+where they can be permissionlessly challenged with a fraud proof. If the
 sequencer temporarily goes down, Optimism will remain live because users are
 able to submit L2 transactions on L1 (of course, this implies the loss of the
 increased throughput and lower fees).
@@ -157,8 +155,6 @@ in **_L2 sequencer blocks_**. The sequencer includes these blocks in *batches*
 which it then submits to L1 (as calldata of a contract call to the *sequencer
 block feed contract*).
 
-**TODO:** contract name is speculative
-
 A batch may contain multiple block or even partial blocks: the start of a block
 can be at the end of a batch while the rest of the block can be at the start of
 the next batch.
@@ -174,10 +170,10 @@ implicitly defines one L2 deposit block, which comprises the following data:
 2. L2 transactions submitted on L1 (which we call *deposits*) to the *deposit
    feed contract*
 
-These transactions have two main uses:
-- Ensure that the rollup remains live even if the sequencer goes down or starts
+Deposits have two main uses:
+- Ensure that the L2 chain remains live even if the sequencer goes down or starts
   censoring L2 transactions. Consequently, funds can never remain stuck on the
-  rollup.
+  rollup (as users can initiate a withdrawal from L1).
 - Deposit ETH and ERC-20 tokens onto the rollup ("bridging"). This is achieved
   by sending the token to a contract which locks it, then sending a L2
   transaction (on L1) instructing a L2 contract to mint an equivalent L2 token.
@@ -185,33 +181,37 @@ These transactions have two main uses:
   the L2 contract only allows minting if the transaction was submitted by an
   authorized L1 contract.
 
-  Anybody can operate such a pair of contracts, but Optimism PBC operates the
-  bridge for ETH and some blue chip tokens ([the gateway]). See also other
-  [trusted bridge providers].
+  Anybody can deploy such a pair of contracts. See thelist of [recommended
+  bridge providers].
 
-[the gateway]: https://gateway.optimism.io/
-[trusted bridge providers]: https://www.optimism.io/apps/bridges
+Note that "deposits" should be understood as "transaction deposits", although
+one major use case is to deposit (bridge) tokens to the L2 chain.
+
+[recommended bridge providers]: https://www.optimism.io/apps/bridges
 
 Finally, we have **epochs**. There is one epoch per L1 block. Each epoch starts
 with the L2 deposit block generated by the L1 block, followed by zero or more L2
 sequencer blocks. The epoch number is equal to the L1 block number.
 
-**TODO:** are we agreed on epoch number == L1 block number?
+**TODO:** there is some pushback in favour of making the epoch number equal to
+the L1 block number + the sequencing window size.
 
 For every L2 sequencer block, the sequencer chooses the epoch in which the block
 will appear. Successive blocks must belong to epochs with monotonically
-increasing numbers, and the chosen epochs must respecting sequencing window
-constraints (see next section).
+increasing numbers, and the chosen epochs must respect sequencing window
+constraints (see next section). Note that the epoch of an L2 sequencer block is
+not stored explicitly on L1, but is simply derived by looking at the latest
+deposit block that precedes it.
 
 ## L2 Chain Derivation
 
 The canonical L2 blockchain is derived from the L1 blockchain. For this purpose,
 the sequencer and verifiers read:
 
-- the L2 sequencer blocks posted on L1 by the sequencer, to the *L2 sequencer
-  block feed contract*
+- the L2 sequencer blocks posted on L1 by the sequencer, in the calldata of
+  transactions to the *L2 sequencer block feed address*
 - L1 block properties (number, timestamp, basefee, ...)
-- L2 transactions submitted on L1 (**TODO:** where?)
+- deposits (L2 transactions submitted on L1) recorded in the *L2 deposit feed contract*
 
 We derive an L2 deposit block from each L1 block. The L2 deposit block contains
 the L1 block properties and the L2 transactions submitted on L1. This deposit
@@ -223,6 +223,8 @@ L1 within the epoch's *sequencing window*.
 
 Each epoch derived from L1 block number `B` has a sequencing window of constant
 size `S`, such that its sequencing window is the L1 block range `[B+1,B+S]`.
+
+`S` is the same for all blocks and is fixed by the protocol. (TBD)
 
 It is illegal for the sequencer to submit a sequencer block for epoch `B` after
 L1 block `B+S`. If he does anyway, that block (or the block chunk, if the block
