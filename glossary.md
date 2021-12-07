@@ -2,22 +2,22 @@
 
 ------------------------------------------------------------------------------------------------------------------------
 
-# General Terms
+## General Terms
 
-## Layer 1 (L1)
+### Layer 1 (L1)
 
 [L1]: /glossary.md#layer-1-L1
 
 Refers the Ethereum blockchain, used in contrast to [layer 2][L2], which refers to Optimistic Ethereum.
 
-## Layer 2 (L2)
+### Layer 2 (L2)
 
 [L2]: /glossary.md#layer-2-L2
 
 Refers to the Optimistic Ethereum blockchain (specified in this repository), used in contrast to [layer 1][L1], which
 refers to the Ethereum blockchain.
 
-## Block
+### Block
 
 [block]: /glossary.md#block
 
@@ -31,13 +31,13 @@ It is useful to distinguish between input block properties, which are known befo
 block, and output block properties, which are derived after executing the block's transactions. These include various
 [Merkle roots][Merkle root] that notably commit to the L2 state and to the log events emitted during the execution.
 
-## EOA
+### EOA
 
 [EOA]: /glossary.md#EOA
 
 "Externally Owned Account", an Ethereum term to designate addresses operated by users, as opposed to contract addresses.
 
-## Merkle Root
+### Merkle Root
 
 [Merkle root]: /glossary.md#merkle-roots
 
@@ -46,7 +46,7 @@ structure that maps keys to values. The root hash of a MPT is a commitment to th
 proof to be constructed for any key-value mapping encoded in the tree. Such a proof is called a Merkle proof, and can be
 verified against the Merkle root.
 
-## Chain Re-Organization
+### Chain Re-Organization
 
 [reorg]: /glossary.md#chain-re-organization
 
@@ -56,7 +56,7 @@ the [fork choice rule]) to a block that is not a child of the previous head.
 L1 re-orgs can happen because of network conditions or attacks. L2 re-orgs are a consequence of L1 re-orgs, mediated via
 [L2 chain derivation][derivation].
 
-## Predeployed Contract ("Predeploy")
+### Predeployed Contract ("Predeploy")
 
 [predeploy]: /glossary.md#predeployed-contract-predeploy
 
@@ -66,7 +66,7 @@ Optimistic Ethereum has the following predeploys:
 
 - [L1 Attributes Predeployed Contract][l1-attr-predeploy]
 
-## Receipt
+### Receipt
 
 [receipt]: /glossary.md#receipt
 
@@ -80,15 +80,15 @@ Receipts are specified in the [yellow paper (pdf)][yellow] section 4.3.1.
 
 ------------------------------------------------------------------------------------------------------------------------
 
-# L2 Chain Concepts
+## L2 Chain Concepts
 
-## L2 Chain Inception
+### L2 Chain Inception
 
 [L2 chain inception]: /glossary.md#L2-chain-inception
 
 The L1 block number for which the first block of the L2 chain was generated.
 
-## Rollup Node
+### Rollup Node
 
 [rollup node]: /glossary.md#rollup-node
 
@@ -97,14 +97,14 @@ associated [receipts][receipt]). This is done by its [rollup driver] component.
 
 - cf. [Rollup Node Specification](/rollup-node.md)
 
-## Rollup Driver
+### Rollup Driver
 
 [rollup driver]: /glossary.md#rollup-driver
 
 The rollup driver is the [rollup node] component responsible for [deriving the L2 chain][derivation] from the L1 chain
 (L1 [blocks][block] and their associated [receipts][receipt]).
 
-## L2 Chain Derivation
+### L2 Chain Derivation
 
 [derivation]:  /glossary.md#L2-chain-derivation
 
@@ -113,7 +113,7 @@ A process that reads [L2 derivation inputs][deriv-inputs] from L1 in order to de
 cf. [L2 Chain Derivation (in Rollup Node
 Specification)](/rollup-node.md#l2-chain-derivation)
 
-## L2 Derivation Inputs
+### L2 Derivation Inputs
 
 [deriv-inputs]: /glossary.md#l2-chain-derivation-inputs
 
@@ -127,7 +127,7 @@ Chain derivation attributes include:
   - basefee
 - [deposits]
 
-## Payload Attributes
+### Payload Attributes
 
 [payload attributes]: /glossary.md#payload-attributes
 
@@ -144,7 +144,7 @@ cf. [Execution Engine Specification](TODO)
 Payload attributes were historically called "L2 block inputs" in the L2 spec and you might still hear some people using
 this term.
 
-## L1 Attributes Transaction
+### L1 Attributes Transaction
 
 [l1-attributes-tx]: /glossary.md#l1-attributes-transaction
 
@@ -162,7 +162,7 @@ attributes])
 > **TODO** We might wish to make this a "normal transaction" if deposits end up
 > not carrying a signature.
 
-## L1 Attributes Predeployed Contract
+### L1 Attributes Predeployed Contract
 
 [l1-attr-predeploy]: /glossary.md#l1-attributes-predeployed-contract
 
@@ -173,7 +173,7 @@ cf. [L1 Attributes Predeployed Contract Specification](TODO)
 
 > **TODO LINK** L1 attributes predeployed contract spec
 
-## Deposits
+### Deposits
 
 [deposits]: /glossary.md#deposits
 
@@ -185,7 +185,7 @@ understood as "a transaction *deposited* to L2".
 
 Deposits are one kind of [L2 derivation input][deriv-input].
 
-## Deposit Feed Contract
+### Deposit Feed Contract
 
 [deposit-feed]: /glossary.md#deposit-feed-contract
 
@@ -202,9 +202,9 @@ cf. [Deposit Feed Contract Specification](TODO)
 
 ------------------------------------------------------------------------------------------------------------------------
 
-# Execution Engine Concepts
+## Execution Engine Concepts
 
-## Execution Engine
+### Execution Engine
 
 [execution engine]: /glossary.md#execution-engine
 
