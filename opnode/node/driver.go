@@ -25,9 +25,11 @@ func (item *InputItem) CheckReceipts() bool {
 
 type DepositTransaction struct {
 	Sender common.Address
-	To     common.Address
-	Value  uint256.Int
-	Data   []byte
+	// TODO some flag/bool for contract-deploy transaction. Or it can be *To with nil
+	Flags uint8
+	To    common.Address
+	Value uint256.Int
+	Data  []byte
 }
 
 func (dep *DepositTransaction) Decode(data []byte) (valid bool) {
@@ -37,16 +39,6 @@ func (dep *DepositTransaction) Decode(data []byte) (valid bool) {
 
 type OpaqueTransaction []byte
 
-type L2Block struct {
-	Beneficiary  common.Address
-	Transactions []OpaqueTransaction
-}
-
-func (dep *L2Block) Decode(data []byte) (valid bool) {
-	// TODO
-	return false
-}
-
 type OutputItem struct {
 	// TODO: convert to L1 attributes deposit
 	L1BlockHash   common.Hash
@@ -54,9 +46,6 @@ type OutputItem struct {
 
 	// To be converted to full block with Engine API
 	UserDepositTxs []*DepositTransaction
-
-	// For sequencer rollup later on.
-	L2Blocks []*L2Block
 }
 
 var DepositGatewayAddr = common.HexToAddress("0xaaaaaaaaaTODO")
@@ -91,14 +80,7 @@ func Derive(input InputItem) (out OutputItem) {
 
 	for _, tx := range input.Block.Transactions() {
 		if to := tx.To(); to != nil && *to == BatchSubmissionAddr {
-			// TODO: check if account is allowed to submit batches
-			var bl L2Block
-			if !bl.Decode(tx.Data()) {
-				// skip bad blocks
-				// TODO: warn about bad sequencer block data
-				continue
-			}
-			out.L2Blocks = append(out.L2Blocks, &bl)
+			// TODO: parse L2 block data from transaction
 		}
 	}
 	return
