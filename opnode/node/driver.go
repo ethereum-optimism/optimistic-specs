@@ -77,11 +77,5 @@ func Derive(input InputItem) (out OutputItem) {
 			}
 		}
 	}
-
-	for _, tx := range input.Block.Transactions() {
-		if to := tx.To(); to != nil && *to == BatchSubmissionAddr {
-			// TODO: parse L2 block data from transaction
-		}
-	}
 	return
 }
