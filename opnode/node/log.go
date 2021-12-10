@@ -2,10 +2,10 @@ package node
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/log"
 	"os"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/log"
 	"golang.org/x/term"
 )
 
@@ -49,12 +49,11 @@ func (lf LogFormat) String() string {
 func (lf *LogFormat) Set(v string) error {
 	switch v {
 	case "json", "json-pretty", "terminal", "text":
+		*lf = LogFormat(v)
 		return nil
 	default:
 		return fmt.Errorf("unrecognized log format: %s", v)
 	}
-	*lf = LogFormat(v)
-	return nil
 }
 
 func (lf *LogFormat) Type() string {
