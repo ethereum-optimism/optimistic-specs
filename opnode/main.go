@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/ethereum-optimism/optimistic-specs/opnode/node"
 	"io"
 	"os"
 	"os/signal"
 	"time"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/node"
 	"github.com/protolambda/ask"
 )
 
@@ -26,7 +26,6 @@ func (c *MainCmd) Cmd(route string) (cmd interface{}, err error) {
 	default:
 		return nil, ask.UnrecognizedErr
 	}
-	return
 }
 
 // TODO: we can support additional utils etc.
@@ -55,7 +54,7 @@ func main() {
 		return nil
 	}
 
-	starter := make(chan start, 0)
+	starter := make(chan start)
 
 	// run command in the background, so we can stop it at any time
 	go func() {
@@ -69,17 +68,15 @@ func main() {
 			if cmd, err := start.cmd, start.err; err == nil {
 				// if the command is long-running and closeable later on, then have the interrupt close it.
 				if cl, ok := cmd.Command.(io.Closer); ok {
-					select {
-					case <-interrupt:
-						err := cl.Close()
-						cancel()
-						if err != nil {
-							_, _ = fmt.Fprintf(os.Stderr, "failed to close node gracefully. Exiting in 5 seconds. %v", err.Error())
-							<-time.After(time.Second * 5)
-							os.Exit(1)
-						}
-						os.Exit(0)
+					<-interrupt
+					err := cl.Close()
+					cancel()
+					if err != nil {
+						_, _ = fmt.Fprintf(os.Stderr, "failed to close node gracefully. Exiting in 5 seconds. %v", err.Error())
+						<-time.After(time.Second * 5)
+						os.Exit(1)
 					}
+					os.Exit(0)
 				} else {
 					os.Exit(0)
 				}

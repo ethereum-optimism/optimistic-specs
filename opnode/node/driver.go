@@ -71,10 +71,11 @@ func Derive(input InputItem) (out OutputItem) {
 					continue
 				}
 				out.UserDepositTxs = append(out.UserDepositTxs, &tx)
-			} else {
-				// TODO: logs from other addresses may still be converted to other types of deposit txs,
-				// if we implement payment for this type of L1 -> L2 subscription service.
 			}
+			//else {
+			// TODO: logs from other addresses may still be converted to other types of deposit txs,
+			// if we implement payment for this type of L1 -> L2 subscription service.
+			//}
 		}
 	}
 	return
