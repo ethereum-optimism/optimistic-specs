@@ -2,8 +2,9 @@ package node
 
 import (
 	"context"
-	"github.com/ethereum/go-ethereum/rpc"
 	"time"
+
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
 type OpNodeCmd struct {
