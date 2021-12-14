@@ -9,9 +9,6 @@ import (
 	"golang.org/x/term"
 )
 
-// alias, so we can swap the logger later easily if necessary
-type Logger = log.Logger
-
 type LogLvl string
 
 func (lvl LogLvl) String() string {
@@ -85,7 +82,7 @@ func (c *LogCmd) Default() {
 	c.Format = "text"
 }
 
-func (c *LogCmd) Create() Logger {
+func (c *LogCmd) Create() log.Logger {
 	handler := log.StreamHandler(os.Stdout, c.Format.Format(c.Color))
 	handler = log.SyncHandler(handler)
 	log.LvlFilterHandler(c.LogLvl.Lvl(), handler)
