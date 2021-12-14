@@ -1,8 +1,9 @@
-package node
+package l2
 
 import (
 	"context"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"reflect"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -177,7 +178,7 @@ type ForkchoiceUpdatedResult struct {
 	PayloadID PayloadID `json:"payloadId"`
 }
 
-func GetPayload(ctx context.Context, cl *rpc.Client, log Logger, payloadId PayloadID) (*ExecutionPayload, error) {
+func GetPayload(ctx context.Context, cl *rpc.Client, log log.Logger, payloadId PayloadID) (*ExecutionPayload, error) {
 	e := log.New("payload_id", payloadId)
 	e.Debug("getting payload")
 	var result ExecutionPayload
@@ -200,7 +201,7 @@ func GetPayload(ctx context.Context, cl *rpc.Client, log Logger, payloadId Paylo
 	return &result, nil
 }
 
-func ExecutePayload(ctx context.Context, cl *rpc.Client, log Logger, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
+func ExecutePayload(ctx context.Context, cl *rpc.Client, log log.Logger, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
 	e := log.New("block_hash", payload.BlockHash)
 	e.Debug("sending payload for execution")
 	var result ExecutePayloadResult
@@ -213,7 +214,7 @@ func ExecutePayload(ctx context.Context, cl *rpc.Client, log Logger, payload *Ex
 	return &result, nil
 }
 
-func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log Logger, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
+func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log log.Logger, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
 	e := log.New("state", state, "attr", attr)
 	e.Debug("Sharing forkchoice-updated signal")
 

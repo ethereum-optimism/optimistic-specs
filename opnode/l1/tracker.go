@@ -1,7 +1,8 @@
-package node
+package l1
 
 import (
 	"context"
+	"github.com/ethereum/go-ethereum/log"
 	"sync"
 	"time"
 
@@ -43,6 +44,9 @@ type L1Tracker struct {
 	parents map[BlockID]BlockID
 	// last seen head height, may not be the max height (total difficult != height)
 	head BlockID
+
+	// feed of BlockID
+	headChanges event.Feed
 }
 
 func (l1t *L1Tracker) HeadSignal(id BlockID) {
@@ -50,6 +54,11 @@ func (l1t *L1Tracker) HeadSignal(id BlockID) {
 	defer l1t.Unlock()
 
 	l1t.head = id
+	l1t.headChanges.Send(id)
+}
+
+func (l1t *L1Tracker) WatchHeads(ch chan<- BlockID) ethereum.Subscription {
+	return l1t.headChanges.Subscribe(ch)
 }
 
 func (l1t *L1Tracker) Parent(id BlockID, parent BlockID) {
@@ -173,6 +182,8 @@ type L1Maintainer interface {
 	Pull(lastSeen BlockID) (next BlockID, mode ChainMode)
 	// Prune everything older than the given block number
 	Prune(number uint64)
+	// WatchHeads subscribes to get head updates
+	WatchHeads(chan<- BlockID) ethereum.Subscription
 }
 
 // SubL1Node wraps a new-head subscription from ChainReader to feed the given L1Maintainer
@@ -196,6 +207,8 @@ func SubL1Node(ctx context.Context, chr ethereum.ChainReader, l1m L1Maintainer) 
 				l1m.HeadSignal(self)
 			case err := <-sub.Err():
 				return err
+			case <-ctx.Done():
+				return ctx.Err()
 			case <-quit:
 				return nil
 			}
@@ -207,10 +220,10 @@ func SubL1Node(ctx context.Context, chr ethereum.ChainReader, l1m L1Maintainer) 
 // TODO: move to configuration? Setting to 4 hours of 14 second blocks for now.
 const PruneL1Distance = 4 * 60 * 60 / 14
 
-func NewTracker(lastL1Head BlockID) *L1Tracker {
+func NewTracker() *L1Tracker {
 	return &L1Tracker{
 		parents: make(map[BlockID]BlockID),
-		head:    lastL1Head,
+		// head is zeroed and will be filled later
 	}
 }
 
@@ -228,12 +241,7 @@ type LocalView interface {
 
 // L1HeaderSync fetches missing data for L1 maintainer, and detects head changes / reorgs,
 // to then instruct the local view to process a given L1 block.
-func L1HeaderSync(ctx context.Context, chr ethereum.ChainReader, l1m L1Maintainer, log Logger, local LocalView) error {
-	sub, err := SubL1Node(ctx, chr, l1m)
-	if err != nil {
-		return err
-	}
-
+func L1HeaderSync(ctx context.Context, chr ethereum.ChainReader, l1m L1Maintainer, log log.Logger, local LocalView) ethereum.Subscription {
 	syncStep := func(lastLocal BlockID) (nextLocal BlockID, fastNext bool) {
 		id, mode := l1m.Pull(lastLocal)
 		if mode == ChainNoop {
@@ -280,32 +288,44 @@ func L1HeaderSync(ctx context.Context, chr ethereum.ChainReader, l1m L1Maintaine
 	pullTicker := time.NewTicker(pullCold)
 	defer pullTicker.Stop()
 
+	// Whenever we get a new head, start syncing at faster pace again
+	heads := make(chan BlockID, 10)
+	headsSub := l1m.WatchHeads(heads)
+
 	// Pruning saves memory, we don't need to cache block data deeper than the maximum expected L1 reorg depth
 	pruneTicker := time.NewTicker(time.Minute * 2)
 	defer pruneTicker.Stop()
 
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case err := <-sub.Err():
-			return err
-		case <-pullTicker.C:
-			lastLocal := local.LastL1()
-			nextLocal, fastNext := syncStep(lastLocal)
-			if fastNext {
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		defer headsSub.Unsubscribe()
+		for {
+			select {
+			case err := <-headsSub.Err():
+				return err
+			case <-heads:
+				// new head, resume sync
 				pullTicker.Reset(pullHot)
-			} else {
-				pullTicker.Reset(pullCold)
-			}
-			if lastLocal != nextLocal {
-				local.ProcessL1(nextLocal)
-			}
-		case <-pruneTicker.C:
-			height := local.LastL1().Number
-			if height > PruneL1Distance {
-				l1m.Prune(height - PruneL1Distance)
+			case <-pullTicker.C:
+				lastLocal := local.LastL1()
+				nextLocal, fastNext := syncStep(lastLocal)
+				if fastNext {
+					pullTicker.Reset(pullHot)
+				} else {
+					pullTicker.Reset(pullCold)
+				}
+				if lastLocal != nextLocal {
+					local.ProcessL1(nextLocal)
+				}
+			case <-pruneTicker.C:
+				height := local.LastL1().Number
+				if height > PruneL1Distance {
+					l1m.Prune(height - PruneL1Distance)
+				}
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-quit:
+				return nil
 			}
 		}
-	}
+	})
 }
