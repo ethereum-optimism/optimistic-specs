@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
+
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
@@ -18,7 +20,9 @@ type OpNodeCmd struct {
 
 	log Logger
 
-	l1Node   *rpc.Client
+	// wraps *rpc.Client, provides eth namespace
+	l1Node *ethclient.Client
+	// Raw RPC client, separate bindings
 	l2Engine *rpc.Client
 
 	ctx   context.Context
@@ -44,13 +48,17 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 	if err != nil {
 		return err
 	}
-	c.l1Node = l1Node
+	// TODO: we may need to authenticate the connection with L1
+	// l1Node.SetHeader()
+	c.l1Node = ethclient.NewClient(l1Node)
 
 	// L2 exec engine: updated by this OpNode (L2 consensus layer node)
 	engine, err := rpc.DialContext(ctx, c.L2EngineAddr)
 	if err != nil {
 		return err
 	}
+	// TODO: we may need to authenticate the connection with L2
+	// engine.SetHeader()
 	c.l2Engine = engine
 
 	// TODO: maybe spin up an API server
