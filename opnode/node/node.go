@@ -3,7 +3,8 @@ package node
 import (
 	"context"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l1"
-	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"time"
@@ -25,13 +26,13 @@ type OpNodeCmd struct {
 	log log.Logger
 
 	// wraps *rpc.Client, provides eth namespace
+	// TODO: multiple L1 data sources
 	l1Node *ethclient.Client
-	// Raw RPC client, separate bindings
-	l2Engine *rpc.Client
+
+	// engines to keep synced
+	l2Engines []*l2.L2Engine
 
 	l1Maintainer l1.L1Maintainer
-
-	downloadRequests chan l1.BlockID
 
 	ctx   context.Context
 	close chan chan error
@@ -67,21 +68,13 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 	}
 	// TODO: we may need to authenticate the connection with L2
 	// engine.SetHeader()
-	c.l2Engine = engine
+	c.l2Engines = append(c.l2Engines, &l2.L2Engine{RPC: engine, L1Head: l1.BlockID{}})
 
 	// TODO: maybe spin up an API server
 	//  (to get debug data, change runtime settings like logging, serve pprof, get peering info, node health, etc.)
 
 	// TODO: determine L1 starting point from L2 node
 	c.l1Maintainer = l1.NewTracker()
-
-	// TODO improve request scheduling
-	c.downloadRequests = make(chan common.Hash, 100)
-
-	downloader := l1.NewDownloader(c.ctx, c.l1Node, c.log, c.downloadRequests)
-
-	// TODO: transform and apply blocks to L2
-	//downloader.Listen()
 
 	c.close = make(chan chan error)
 
@@ -96,8 +89,23 @@ func (c *OpNodeCmd) RunNode() {
 	heartbeat := time.NewTicker(time.Millisecond * 700)
 	defer heartbeat.Stop()
 
-	// start syncing headers in the background, based on head signals
-	headerSyncSub := l1.L1HeaderSync(c.ctx, c.l1Node, c.l1Maintainer, c.log, c)
+	var unsub []func()
+	mergeSub := func(sub ethereum.Subscription, errMsg string) {
+		unsub = append(unsub, sub.Unsubscribe)
+		go func() {
+			err, ok := <-sub.Err()
+			if !ok {
+				return
+			}
+			c.log.Error(errMsg, "err", err)
+		}()
+	}
+
+	for _, eng := range c.l2Engines {
+		// start syncing headers in the background, based on head signals
+		l1HeaderSyncSub := l1.L1HeaderSync(c.ctx, c.l1Node, c.l1Maintainer, c.log, eng)
+		mergeSub(l1HeaderSyncSub, "header sync unexpectedly failed")
+	}
 
 	// Keep subscribed to the L1 heads, which keeps the L1 maintainer pointing to the best headers to sync
 	l1HeadsSub := event.ResubscribeErr(time.Second*10, func(ctx context.Context, err error) (event.Subscription, error) {
@@ -106,13 +114,10 @@ func (c *OpNodeCmd) RunNode() {
 		}
 		return l1.SubL1Node(c.ctx, c.l1Node, c.l1Maintainer)
 	})
+	mergeSub(l1HeadsSub, "l1 heads subscription failed")
 
 	for {
 		select {
-		case err := <-headerSyncSub.Err():
-			c.log.Error("header sync unexpectedly failed", "err", err)
-		case err := <-l1HeadsSub.Err():
-			c.log.Error("l1 heads subscription failed", "err", err)
 		case <-heartbeat.C:
 			// TODO poll data, process blocks, etc.
 
@@ -120,22 +125,21 @@ func (c *OpNodeCmd) RunNode() {
 
 		case done := <-c.close:
 			c.log.Info("Closing OpNode")
-			headerSyncSub.Unsubscribe()
-			l1HeadsSub.Unsubscribe()
+			// close all tasks
+			for _, f := range unsub {
+				f()
+			}
+			// close L1 data source
 			c.l1Node.Close()
-			c.l2Engine.Close()
+			// close L2 engines
+			for _, eng := range c.l2Engines {
+				eng.Close()
+			}
+			// signal back everything closed without error
 			done <- nil
 			return
 		}
 	}
-}
-
-func (c *OpNodeCmd) LastL1() l1.BlockID {
-
-}
-
-func (c *OpNodeCmd) ProcessL1(id l1.BlockID) {
-
 }
 
 func (c *OpNodeCmd) Close() error {
