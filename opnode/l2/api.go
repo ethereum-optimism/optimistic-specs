@@ -179,17 +179,27 @@ type ForkchoiceUpdatedResult struct {
 }
 
 type EngineAPI interface {
-	// TODO: refactor to get logger from context.
-	GetPayload(ctx context.Context, log log.Logger, payloadId PayloadID) (*ExecutionPayload, error)
-	ExecutePayload(ctx context.Context, log log.Logger, payload *ExecutionPayload) (*ExecutePayloadResult, error)
-	ForkchoiceUpdated(ctx context.Context, log log.Logger, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error)
+	GetPayload(ctx context.Context, payloadId PayloadID) (*ExecutionPayload, error)
+	ExecutePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error)
+	ForkchoiceUpdated(ctx context.Context, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error)
+	Close()
 }
 
-func GetPayload(ctx context.Context, cl *rpc.Client, log log.Logger, payloadId PayloadID) (*ExecutionPayload, error) {
+type RPCBackend interface {
+	CallContext(ctx context.Context, result interface{}, method string, args ...interface{}) error
+	Close()
+}
+
+type EngineClient struct {
+	RPCBackend
+	Log log.Logger
+}
+
+func (el *EngineClient) GetPayload(ctx context.Context, payloadId PayloadID) (*ExecutionPayload, error) {
 	e := log.New("payload_id", payloadId)
 	e.Debug("getting payload")
 	var result ExecutionPayload
-	err := cl.CallContext(ctx, &result, "engine_getPayloadV1", payloadId)
+	err := el.CallContext(ctx, &result, "engine_getPayloadV1", payloadId)
 	if err != nil {
 		e = log.New("payload_id", "err", err)
 		if rpcErr, ok := err.(rpc.Error); ok {
@@ -208,11 +218,11 @@ func GetPayload(ctx context.Context, cl *rpc.Client, log log.Logger, payloadId P
 	return &result, nil
 }
 
-func ExecutePayload(ctx context.Context, cl *rpc.Client, log log.Logger, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
+func (el *EngineClient) ExecutePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error) {
 	e := log.New("block_hash", payload.BlockHash)
 	e.Debug("sending payload for execution")
 	var result ExecutePayloadResult
-	err := cl.CallContext(ctx, &result, "engine_executePayloadV1", payload)
+	err := el.CallContext(ctx, &result, "engine_executePayloadV1", payload)
 	if err != nil {
 		e.Error("Payload execution failed", "err", err)
 		return nil, err
@@ -221,12 +231,12 @@ func ExecutePayload(ctx context.Context, cl *rpc.Client, log log.Logger, payload
 	return &result, nil
 }
 
-func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log log.Logger, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
+func (el *EngineClient) ForkchoiceUpdated(ctx context.Context, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error) {
 	e := log.New("state", state, "attr", attr)
 	e.Debug("Sharing forkchoice-updated signal")
 
 	var result ForkchoiceUpdatedResult
-	err := cl.CallContext(ctx, &result, "engine_forkchoiceUpdatedV1", state, attr)
+	err := el.CallContext(ctx, &result, "engine_forkchoiceUpdatedV1", state, attr)
 	if err == nil {
 		e.Debug("Shared forkchoice-updated signal")
 		if attr != nil {
@@ -243,6 +253,10 @@ func ForkchoiceUpdated(ctx context.Context, cl *rpc.Client, log log.Logger, stat
 		}
 		return result, err
 	}
+}
+
+func (el *EngineClient) Close() {
+	el.RPCBackend.Close()
 }
 
 func BlockToPayload(bl *types.Block, random Bytes32) (*ExecutionPayload, error) {
