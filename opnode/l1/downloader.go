@@ -12,11 +12,6 @@ import (
 	"time"
 )
 
-type ChainReaderWithReceipts interface {
-	ethereum.ChainReader
-	ethereum.TransactionReader
-}
-
 type blockAndReceipts struct {
 	// Track if we finished (with error or not). May increment >1 when other sub-tasks fail.
 	// First field, aligned atomic changes.
@@ -59,6 +54,11 @@ type Downloader interface {
 	AddReceiptWorkers(n int) int
 }
 
+type DownloadSource interface {
+	BlockSource
+	ReceiptSource
+}
+
 type downloader struct {
 	// cache of ongoing/completed block tasks: block hash -> block
 	cache     map[common.Hash]*blockAndReceipts
@@ -68,10 +68,10 @@ type downloader struct {
 	receiptWorkers     []ethereum.Subscription
 	receiptWorkersLock sync.Mutex
 
-	chr ChainReaderWithReceipts
+	chr DownloadSource
 }
 
-func NewDownloader(chr ChainReaderWithReceipts) Downloader {
+func NewDownloader(chr DownloadSource) Downloader {
 	return &downloader{
 		cache:        make(map[common.Hash]*blockAndReceipts),
 		receiptTasks: make(chan *receiptTask, 100),
