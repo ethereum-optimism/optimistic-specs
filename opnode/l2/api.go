@@ -178,6 +178,13 @@ type ForkchoiceUpdatedResult struct {
 	PayloadID PayloadID `json:"payloadId"`
 }
 
+type EngineAPI interface {
+	// TODO: refactor to get logger from context.
+	GetPayload(ctx context.Context, log log.Logger, payloadId PayloadID) (*ExecutionPayload, error)
+	ExecutePayload(ctx context.Context, log log.Logger, payload *ExecutionPayload) (*ExecutePayloadResult, error)
+	ForkchoiceUpdated(ctx context.Context, log log.Logger, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error)
+}
+
 func GetPayload(ctx context.Context, cl *rpc.Client, log log.Logger, payloadId PayloadID) (*ExecutionPayload, error) {
 	e := log.New("payload_id", payloadId)
 	e.Debug("getting payload")
