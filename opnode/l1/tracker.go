@@ -187,9 +187,9 @@ type Tracker interface {
 }
 
 // WatchHeadChanges wraps a new-head subscription from ChainReader to feed the given Tracker
-func WatchHeadChanges(ctx context.Context, chr ethereum.ChainReader, tr Tracker) (ethereum.Subscription, error) {
+func WatchHeadChanges(ctx context.Context, src NewHeadSource, tr Tracker) (ethereum.Subscription, error) {
 	headChanges := make(chan *types.Header)
-	sub, err := chr.SubscribeNewHead(ctx, headChanges)
+	sub, err := src.SubscribeNewHead(ctx, headChanges)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +241,7 @@ type LocalView interface {
 
 // HeaderSync fetches missing data for L1 tracker, and detects head changes / reorgs,
 // to then instruct the local view to process a given L1 block.
-func HeaderSync(ctx context.Context, chr ethereum.ChainReader, tr Tracker,
+func HeaderSync(ctx context.Context, src HeaderSource, tr Tracker,
 	log log.Logger, dl Downloader, local LocalView) ethereum.Subscription {
 
 	syncStep := func(lastLocal BlockID) (nextLocal BlockID, fastNext bool) {
@@ -262,7 +262,7 @@ func HeaderSync(ctx context.Context, chr ethereum.ChainReader, tr Tracker,
 			log.Info("searching for history of L1 chain", "hash", id.Hash, "height", id.Number)
 		}
 
-		header, err := chr.HeaderByHash(ctx, id.Hash)
+		header, err := src.HeaderByHash(ctx, id.Hash)
 		if err != nil {
 			log.Error("failed to fetch L1 header", "hash", id.Hash, "height", id.Number, "err", err)
 

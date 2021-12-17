@@ -5,24 +5,23 @@ import (
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l1"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
-	"github.com/ethereum/go-ethereum/rpc"
 	"time"
 )
 
-type L2Engine struct {
+type Engine struct {
 	Ctx context.Context
 	Log log.Logger
 	// Raw RPC client, separate bindings
-	RPC *rpc.Client
+	RPC EngineAPI
 	// track where the l2 engine is at
 	L1Head l1.BlockID
 }
 
-func (c *L2Engine) LastL1() l1.BlockID {
+func (c *Engine) LastL1() l1.BlockID {
 	return c.L1Head
 }
 
-func (c *L2Engine) ProcessL1(dl l1.Downloader, finalized common.Hash, id l1.BlockID) {
+func (c *Engine) ProcessL1(dl l1.Downloader, finalized common.Hash, id l1.BlockID) {
 	if id == c.L1Head {
 		// no-op, already processed it
 		return
@@ -62,7 +61,7 @@ func (c *L2Engine) ProcessL1(dl l1.Downloader, finalized common.Hash, id l1.Bloc
 	}
 
 	ctx, _ = context.WithTimeout(c.Ctx, time.Second*5)
-	execRes, err := ExecutePayload(ctx, c.RPC, c.Log, payload)
+	execRes, err := c.RPC.ExecutePayload(ctx, payload)
 	if err != nil {
 		c.Log.Error("failed to execute payload", "nr", id.Number, "hash", id.Hash)
 		return
@@ -80,7 +79,7 @@ func (c *L2Engine) ProcessL1(dl l1.Downloader, finalized common.Hash, id l1.Bloc
 	}
 
 	ctx, _ = context.WithTimeout(c.Ctx, time.Second*5)
-	fcRes, err := ForkchoiceUpdated(ctx, c.RPC, c.Log, &ForkchoiceState{
+	fcRes, err := c.RPC.ForkchoiceUpdated(ctx, &ForkchoiceState{
 		HeadBlockHash:      Bytes32(id.Hash), // no difference yet between Head and Safe, no data ahead of L1 yet.
 		SafeBlockHash:      Bytes32(id.Hash),
 		FinalizedBlockHash: Bytes32(finalized),
@@ -100,6 +99,6 @@ func (c *L2Engine) ProcessL1(dl l1.Downloader, finalized common.Hash, id l1.Bloc
 	}
 }
 
-func (c *L2Engine) Close() {
+func (c *Engine) Close() {
 	c.RPC.Close()
 }
