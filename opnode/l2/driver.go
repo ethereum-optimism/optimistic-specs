@@ -1,6 +1,8 @@
-package driver
+package l2
 
 import (
+	"context"
+	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie"
@@ -79,4 +81,8 @@ func Derive(input InputItem) (out OutputItem) {
 		}
 	}
 	return
+}
+
+func PlaceholderDerive(ctx context.Context, l1Block *types.Block, receipts []*types.Receipt) (*ExecutionPayload, error) {
+	return nil, fmt.Errorf("TODO")
 }
