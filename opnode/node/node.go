@@ -32,7 +32,8 @@ type OpNodeCmd struct {
 	// engines to keep synced
 	l2Engines []*l2.L2Engine
 
-	l1Maintainer l1.L1Maintainer
+	l1Tracker    l1.Tracker
+	l1Downloader l1.Downloader
 
 	ctx   context.Context
 	close chan chan error
@@ -74,7 +75,7 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 	//  (to get debug data, change runtime settings like logging, serve pprof, get peering info, node health, etc.)
 
 	// TODO: determine L1 starting point from L2 node
-	c.l1Maintainer = l1.NewTracker()
+	c.l1Tracker = l1.NewTracker()
 
 	c.close = make(chan chan error)
 
@@ -101,9 +102,12 @@ func (c *OpNodeCmd) RunNode() {
 		}()
 	}
 
+	// We download receipts in parallel
+	c.l1Downloader.AddReceiptWorkers(4)
+
 	for _, eng := range c.l2Engines {
 		// start syncing headers in the background, based on head signals
-		l1HeaderSyncSub := l1.L1HeaderSync(c.ctx, c.l1Node, c.l1Maintainer, c.log, eng)
+		l1HeaderSyncSub := l1.HeaderSync(c.ctx, c.l1Node, c.l1Tracker, c.log, c.l1Downloader, eng)
 		mergeSub(l1HeaderSyncSub, "header sync unexpectedly failed")
 	}
 
@@ -112,16 +116,20 @@ func (c *OpNodeCmd) RunNode() {
 		if err != nil {
 			c.log.Warn("resubscribing after failed L1 subscription", "err", err)
 		}
-		return l1.SubL1Node(c.ctx, c.l1Node, c.l1Maintainer)
+		return l1.WatchHeadChanges(c.ctx, c.l1Node, c.l1Tracker)
 	})
 	mergeSub(l1HeadsSub, "l1 heads subscription failed")
 
+	// feed from tracker, as fed with head events from above subscription
+	l1Heads := make(chan l1.BlockID)
+	mergeSub(c.l1Tracker.WatchHeads(l1Heads), "l1 heads info feed unexpectedly failed")
+
 	for {
 		select {
+		case l1Head := <-l1Heads:
+			c.log.Info("New Layer1 head: nr %10d, hash %s", l1Head.Number, l1Head.Hash)
 		case <-heartbeat.C:
-			// TODO poll data, process blocks, etc.
-
-		// TODO: open a channel with L1 RPC to listen for new blocks and reorgs?
+			// TODO log info like latest L1/L2 head of engines
 
 		case done := <-c.close:
 			c.log.Info("Closing OpNode")
