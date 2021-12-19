@@ -3,12 +3,13 @@ package node
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l1"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
-	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 
