@@ -68,6 +68,12 @@ func (tr *tracker) Parent(id BlockID, parent BlockID) {
 	tr.parents[id] = parent
 }
 
+func (tr *tracker) Head() BlockID {
+	tr.Lock()
+	defer tr.Unlock()
+	return tr.head
+}
+
 func (tr *tracker) Pull(lastLocal BlockID) (next BlockID, mode ChainMode) {
 	tr.Lock()
 	defer tr.Unlock()
@@ -175,6 +181,8 @@ type Tracker interface {
 	Parent(id BlockID, parent BlockID)
 	// HeadSignal informs future Pull calls which chain to follow
 	HeadSignal(id BlockID)
+	// Head returns the latest L1 head
+	Head() BlockID
 	// Pull the block to process on top of the last chain view.
 	//
 	// Depending on the returned chain-mode, this may mean extension, reorg,
