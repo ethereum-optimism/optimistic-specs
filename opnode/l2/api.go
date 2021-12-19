@@ -3,8 +3,9 @@ package l2
 import (
 	"context"
 	"fmt"
-	"github.com/ethereum/go-ethereum/log"
 	"reflect"
+
+	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"

@@ -3,13 +3,14 @@ package l1
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
-	"sync"
-	"sync/atomic"
-	"time"
 )
 
 type blockAndReceipts struct {
@@ -89,7 +90,8 @@ func (l1t *downloader) Fetch(ctx context.Context, id BlockID) (*types.Block, []*
 
 		// pull the block in the background
 		go func() {
-			ctx, _ := context.WithTimeout(ctx, time.Second*10)
+			ctx, cancel := context.WithTimeout(ctx, time.Second*10)
+			defer cancel()
 			bl, err := l1t.chr.BlockByHash(ctx, id.Hash)
 			if err != nil {
 				bnr.Finish(fmt.Errorf("failed to download block %s: %v", id.Hash, err))
@@ -98,7 +100,7 @@ func (l1t *downloader) Fetch(ctx context.Context, id BlockID) (*types.Block, []*
 
 			txs := bl.Transactions()
 			bnr.Block = bl
-			bnr.Receipts = make([]*types.Receipt, len(txs), len(txs))
+			bnr.Receipts = make([]*types.Receipt, len(txs))
 
 			for i, tx := range txs {
 				l1t.receiptTasks <- &receiptTask{BlockHash: id.Hash, TxHash: tx.Hash(), TxIndex: uint64(i), Dest: bnr}
@@ -134,7 +136,8 @@ func (l1t *downloader) newReceiptWorker() ethereum.Subscription {
 					continue
 				}
 				// limit fetching to the task as a whole, and constrain to 10 seconds for receipt itself
-				ctx, _ := context.WithTimeout(task.Dest.ctx, time.Second*10)
+				ctx, cancel := context.WithTimeout(task.Dest.ctx, time.Second*10)
+				defer cancel()
 				receipt, err := l1t.chr.TransactionReceipt(ctx, task.TxHash)
 				if err != nil {
 					// if a single receipt fails out of the whole block, we can retry a few times.

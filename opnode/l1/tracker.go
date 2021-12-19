@@ -2,15 +2,20 @@ package l1
 
 import (
 	"context"
-	"github.com/ethereum/go-ethereum/log"
 	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
 )
+
+// Confirmation depth: how far reorgs *of L1 blocks* are supported.
+// TODO: move to configuration? Setting to 4 hours of 14 second blocks for now.
+const PruneL1Distance = 4 * 60 * 60 / 14
 
 type ChainMode uint
 
@@ -173,14 +178,19 @@ func (tr *tracker) Prune(number uint64) {
 	}
 }
 
-// Tracker is a *cache* of chain connections.
-// It helps quickly decide which blocks to pull down, and resolves reorgs.
-// It does not track the past *processed* L1 blocks, it is robust against change.
-type Tracker interface {
+// SignalTracker tracks a graph of blocks using only edges and head information
+type SignalTracker interface {
 	// Parent inserts a link into the chain between the block and its parent.
 	Parent(id BlockID, parent BlockID)
 	// HeadSignal informs future Pull calls which chain to follow
 	HeadSignal(id BlockID)
+}
+
+// Tracker is a *cache* of chain connections.
+// It helps quickly decide which blocks to pull down, and resolves reorgs.
+// It does not track the past *processed* L1 blocks, it is robust against change.
+type Tracker interface {
+	SignalTracker
 	// Head returns the latest L1 head
 	Head() BlockID
 	// Pull the block to process on top of the last chain view.
@@ -195,8 +205,8 @@ type Tracker interface {
 }
 
 // WatchHeadChanges wraps a new-head subscription from ChainReader to feed the given Tracker
-func WatchHeadChanges(ctx context.Context, src NewHeadSource, tr Tracker) (ethereum.Subscription, error) {
-	headChanges := make(chan *types.Header)
+func WatchHeadChanges(ctx context.Context, src NewHeadSource, tr SignalTracker) (ethereum.Subscription, error) {
+	headChanges := make(chan *types.Header, 10)
 	sub, err := src.SubscribeNewHead(ctx, headChanges)
 	if err != nil {
 		return nil, err
@@ -223,10 +233,6 @@ func WatchHeadChanges(ctx context.Context, src NewHeadSource, tr Tracker) (ether
 		}
 	}), nil
 }
-
-// Confirmation depth: how far reorgs *of L1 blocks* are supported.
-// TODO: move to configuration? Setting to 4 hours of 14 second blocks for now.
-const PruneL1Distance = 4 * 60 * 60 / 14
 
 func NewTracker() Tracker {
 	return &tracker{

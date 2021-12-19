@@ -2,10 +2,11 @@ package l2
 
 import (
 	"context"
+	"time"
+
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l1"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
-	"time"
 )
 
 type Engine struct {
@@ -32,7 +33,8 @@ func (c *Engine) ProcessL1(dl l1.Downloader, finalized common.Hash, id l1.BlockI
 		c.Log.Info("Deferring processing, block too far out", "last", c.L1Head.Number, "nr", id.Number, "hash", id.Hash)
 		return
 	}
-	ctx, _ := context.WithTimeout(c.Ctx, time.Second*20)
+	ctx, cancel := context.WithTimeout(c.Ctx, time.Second*20)
+	defer cancel()
 	bl, receipts, err := dl.Fetch(ctx, id)
 	if err != nil {
 		c.Log.Warn("failed to fetch block with receipts", "nr", id.Number, "hash", id.Hash)
@@ -60,7 +62,8 @@ func (c *Engine) ProcessL1(dl l1.Downloader, finalized common.Hash, id l1.BlockI
 		return
 	}
 
-	ctx, _ = context.WithTimeout(c.Ctx, time.Second*5)
+	ctx, cancel = context.WithTimeout(c.Ctx, time.Second*5)
+	defer cancel()
 	execRes, err := c.RPC.ExecutePayload(ctx, payload)
 	if err != nil {
 		c.Log.Error("failed to execute payload", "nr", id.Number, "hash", id.Hash)
@@ -69,16 +72,19 @@ func (c *Engine) ProcessL1(dl l1.Downloader, finalized common.Hash, id l1.BlockI
 	switch execRes.Status {
 	case ExecutionValid:
 		c.Log.Info("Executed new payload", "nr", id.Number, "hash", id.Hash)
-		break
 	case ExecutionSyncing:
 		c.Log.Info("Failed to execute payload, node is syncing", "nr", id.Number, "hash", id.Hash)
 		return
 	case ExecutionInvalid:
 		c.Log.Error("Execution payload was INVALID! Ignoring bad block", "nr", id.Number, "hash", id.Hash)
 		return
+	default:
+		c.Log.Error("Unknown execution status", "nr", id.Number, "hash", id.Hash)
+		return
 	}
 
-	ctx, _ = context.WithTimeout(c.Ctx, time.Second*5)
+	ctx, cancel = context.WithTimeout(c.Ctx, time.Second*5)
+	defer cancel()
 	fcRes, err := c.RPC.ForkchoiceUpdated(ctx, &ForkchoiceState{
 		HeadBlockHash:      Bytes32(id.Hash), // no difference yet between Head and Safe, no data ahead of L1 yet.
 		SafeBlockHash:      Bytes32(id.Hash),
