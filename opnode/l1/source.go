@@ -2,10 +2,11 @@ package l1
 
 import (
 	"context"
+	"sync/atomic"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"sync/atomic"
 )
 
 type NewHeadSource interface {
@@ -36,7 +37,7 @@ type Source interface {
 
 type NewHeadFn func(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error)
 
-func (fn NewHeadFn) HeaderByHash(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
+func (fn NewHeadFn) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
 	return fn(ctx, ch)
 }
 
@@ -48,13 +49,13 @@ func (fn HeaderFn) HeaderByHash(ctx context.Context, hash common.Hash) (*types.H
 
 type ReceiptFn func(ctx context.Context, txHash common.Hash) (*types.Receipt, error)
 
-func (fn ReceiptFn) HeaderByHash(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
+func (fn ReceiptFn) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
 	return fn(ctx, txHash)
 }
 
 type BlockFn func(ctx context.Context, hash common.Hash) (*types.Block, error)
 
-func (fn BlockFn) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
+func (fn BlockFn) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
 	return fn(ctx, hash)
 }
 

@@ -2,9 +2,10 @@ package l1
 
 import (
 	"crypto/rand"
+	"testing"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestTracker_HeadSignal(t *testing.T) {
@@ -56,7 +57,7 @@ func TestTracker_WatchHeads(t *testing.T) {
 }
 
 func rndID(n uint64) (out BlockID) {
-	rand.Read(out.Hash[:])
+	_, _ = rand.Read(out.Hash[:])
 	out.Number = n
 	return
 }
