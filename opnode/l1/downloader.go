@@ -33,7 +33,12 @@ type blockAndReceipts struct {
 	feed event.Feed
 }
 
-func (bl *blockAndReceipts) Finish(err error) {
+// wrappedErr wraps an error, since event.Feed cannot handle nil errors otherwise (reflection on nil)
+type wrappedErr struct {
+	error
+}
+
+func (bl *blockAndReceipts) Finish(err wrappedErr) {
 	if atomic.AddUint32(&bl.finished, 1) == 1 {
 		bl.feed.Send(err)
 	}
@@ -85,7 +90,7 @@ func (l1t *downloader) Fetch(ctx context.Context, id BlockID) (*types.Block, []*
 	l1t.cacheLock.Lock()
 	bnr, ok := l1t.cache[id.Hash]
 	if !ok {
-		bnr = new(blockAndReceipts)
+		bnr = &blockAndReceipts{ctx: ctx}
 		l1t.cache[id.Hash] = bnr
 
 		// pull the block in the background
@@ -94,7 +99,7 @@ func (l1t *downloader) Fetch(ctx context.Context, id BlockID) (*types.Block, []*
 			defer cancel()
 			bl, err := l1t.chr.BlockByHash(ctx, id.Hash)
 			if err != nil {
-				bnr.Finish(fmt.Errorf("failed to download block %s: %v", id.Hash, err))
+				bnr.Finish(wrappedErr{fmt.Errorf("failed to download block %s: %v", id.Hash, err)})
 				return
 			}
 
@@ -105,16 +110,21 @@ func (l1t *downloader) Fetch(ctx context.Context, id BlockID) (*types.Block, []*
 			for i, tx := range txs {
 				l1t.receiptTasks <- &receiptTask{BlockHash: id.Hash, TxHash: tx.Hash(), TxIndex: uint64(i), Dest: bnr}
 			}
+
+			// no receipts to fetch? Then we are done!
+			if len(txs) == 0 {
+				bnr.Finish(wrappedErr{nil})
+			}
 		}()
 	}
 	l1t.cacheLock.Unlock()
 
-	ch := make(chan error)
+	ch := make(chan wrappedErr)
 	sub := bnr.feed.Subscribe(ch)
 	select {
-	case err := <-ch:
-		if err != nil {
-			return nil, nil, err
+	case wErr := <-ch:
+		if wErr.error != nil {
+			return nil, nil, wErr.error
 		}
 		return bnr.Block, bnr.Receipts, nil
 	case err := <-sub.Err():
@@ -143,7 +153,7 @@ func (l1t *downloader) newReceiptWorker() ethereum.Subscription {
 					// if a single receipt fails out of the whole block, we can retry a few times.
 					if task.Retry >= maxReceiptRetry {
 						// Failed to get the receipt too many times, block fails!
-						task.Dest.Finish(fmt.Errorf("failed to download receipt again, and reached max %d retries: %v", maxReceiptRetry, err))
+						task.Dest.Finish(wrappedErr{fmt.Errorf("failed to download receipt again, and reached max %d retries: %v", maxReceiptRetry, err)})
 						continue
 					} else {
 						task.Retry += 1
@@ -152,7 +162,7 @@ func (l1t *downloader) newReceiptWorker() ethereum.Subscription {
 							// all good, retry scheduled successfully
 						default:
 							// failed to schedule, too much receipt work, stop block to relieve pressure.
-							task.Dest.Finish(fmt.Errorf("receipt downloader too busy, not downloading receipt again (%d retries): %v", task.Retry, err))
+							task.Dest.Finish(wrappedErr{fmt.Errorf("receipt downloader too busy, not downloading receipt again (%d retries): %v", task.Retry, err)})
 							continue
 						}
 						continue
@@ -163,7 +173,7 @@ func (l1t *downloader) newReceiptWorker() ethereum.Subscription {
 				total := atomic.AddUint32(&task.Dest.DownloadedReceipts, 1)
 				if total == uint32(len(task.Dest.Receipts)) {
 					// block completed without error!
-					task.Dest.Finish(nil)
+					task.Dest.Finish(wrappedErr{nil})
 					continue
 				}
 				// task completed, but block is not complete without other receipt tasks finishing first
