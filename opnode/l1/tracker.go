@@ -268,12 +268,19 @@ func HeaderSync(ctx context.Context, src HeaderSource, tr Tracker,
 		switch mode {
 		case ChainExtend:
 			log.Info("fetching extended L1 chain", "hash", id.Hash, "height", id.Number)
+			return id, true
 		case ChainUndo:
 			log.Info("rewinding L1 chain", "hash", id.Hash, "height", id.Number)
+			return id, false // rewinding on the same chain is always a single step, no fast next step
 		case ChainReorg:
 			log.Info("reorging L1 chain", "hash", id.Hash, "height", id.Number)
+			return id, true
 		case ChainMissing:
 			log.Info("searching for history of L1 chain", "hash", id.Hash, "height", id.Number)
+			// Backtrack necessary, try fetch 1 header.
+			// The local view (of the engine) might fail to progress,
+			// but the tracker will sync the missing chain,
+			// and the next sync step will present a better block to process.
 		}
 
 		header, err := src.HeaderByHash(ctx, id.Hash)
