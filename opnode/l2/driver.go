@@ -1,174 +1,199 @@
 package l2
 
 import (
+	"context"
+	"encoding/binary"
+	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/holiman/uint256"
+	"math/big"
 )
 
 var (
 	DepositEventABI     = "TransactionDeposited(address,address,uint256,uint256,bool,bytes)"
 	DepositEventABIHash = crypto.Keccak256Hash([]byte(DepositEventABI))
 	DepositContractAddr = common.HexToAddress("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001")
-	SequencerAddr       = common.HexToAddress("0x4242424242424242424242424242424242424242") // TODO pick address
-	BatchSubmissionAddr = common.HexToAddress("0x0000000000000000000000006f7074696d69736d") // TODO pick address
+	L1InfoFuncSignature = "setL1BlockValues(uint256 _number, uint256 _timestamp, uint256 _basefee, bytes32 _hash)"
+	L1InfoFuncBytes4    = crypto.Keccak256([]byte(L1InfoFuncSignature))[:4]
+	L1InfoPredeployAddr = common.HexToAddress("0x4242424242424242424242424242424242424242")
 )
 
-// A transaction submitted to the deposit contract on L1.
-type DepositTransaction struct {
-	From       common.Address
-	To         common.Address // 0 with IsCreation == true nil for the empty/nil address (∅)
-	Value      uint256.Int
-	GasLimit   uint256.Int
-	IsCreation bool
-	Data       []byte
+// UnmarshalLogEvent decodes an EVM log entry emitted by the deposit contract into typed deposit data.
+// parse log data for:
+//     event TransactionDeposited(
+//    	 address indexed from,
+//    	 address indexed to,
+//    	 uint256 value,
+//    	 uint256 gasLimit,
+//    	 bool isCreation,
+//    	 data data
+//     );
+func UnmarshalLogEvent(blockNum uint64, txIndex uint64, ev *types.Log) (*types.DepositTx, error) {
+	if len(ev.Topics) != 3 {
+		return nil, fmt.Errorf("expected 3 event topics (event identity, indexed from, indexed to)")
+	}
+	if ev.Topics[0] != DepositEventABIHash {
+		return nil, fmt.Errorf("invalid deposit event selector: %s, expected %s", ev.Topics[0], DepositEventABIHash)
+	}
+	if len(ev.Data) < 160 {
+		return nil, fmt.Errorf("deposit event data too small (%d bytes): %x", len(ev.Data), ev.Data)
+	}
+
+	var dep types.DepositTx
+
+	dep.BlockHeight = blockNum
+	dep.TransactionIndex = txIndex
+
+	// indexed 0
+	dep.From = common.BytesToAddress(ev.Topics[1][12:])
+	// indexed 1
+	to := common.BytesToAddress(ev.Topics[2][12:])
+
+	// unindexed
+	// 0:32: value - big-endian
+	dep.Value = new(big.Int).SetBytes(ev.Data[0:32])
+	// 32:64: gas - big-endian
+	gas := new(big.Int).SetBytes(ev.Data[32:64])
+	if !gas.IsUint64() {
+		return nil, fmt.Errorf("bad gas value: %x", ev.Data[32:64])
+	}
+	dep.Gas = gas.Uint64()
+	// 64:96: isCreation - boolean, aligned with end.
+	// If False == 0 then it will create a contract using L2 account nonce to determine the created address.
+	if ev.Data[95] == 0 {
+		dep.To = &to
+	}
+	// 96:128: data offset
+	var dataOffset uint256.Int
+	dataOffset.SetBytes(ev.Data[96:128])
+	if dataOffset.Eq(uint256.NewInt(128)) {
+		return nil, fmt.Errorf("incorrect data offset: %v", dataOffset[0])
+	}
+
+	// 128:160: data length
+	var dataLen uint256.Int
+	dataLen.SetBytes(ev.Data[128:160])
+	if dataLen.Eq(uint256.NewInt(uint64(len(ev.Data) - 160))) {
+		return nil, fmt.Errorf("inconsitent data length: %v", dataLen[0])
+	}
+
+	// 160:...: data contents
+	dep.Data = ev.Data[160:]
+
+	// TODO: mint field
+
+	return &dep, nil
 }
 
-// Parse an EVM log entry emitted by the deposit contract in order to retrieve the deposit
-// transaction.
-func DecodeDepositLog(log *types.Log) *DepositTransaction {
-	// parse log data for:
-	//     event TransactionDeposited(
-	//    	 address indexed from,
-	//    	 address indexed to,
-	//    	 uint256 value,
-	//    	 uint256 gasLimit,
-	//    	 bool isCreation,
-	//    	 data data
-	//     );
-
-	if common.BytesToHash(log.Topics[0][:]) != DepositEventABIHash {
-		panic("Invalid deposit event selector.")
-	}
-
-	from := common.BytesToAddress(log.Topics[1][12:])
-	to := common.BytesToAddress(log.Topics[2][12:])
-
-	var value, gasLimit, dataOffset, dataLen uint256.Int
-	value.SetBytes(log.Data[0:32])
-	gasLimit.SetBytes(log.Data[32:64])
-	isCreation := log.Data[95] != 0
-	dataOffset.SetBytes(log.Data[96:128])
-	dataLen.SetBytes(log.Data[128:160])
-	data := log.Data[160:]
-
-	if dataOffset[0] != 128 {
-		panic("Incorrect data offset.")
-	}
-	if dataLen[0] != uint64(len(log.Data)-160) {
-		panic("Inconsistent data length.")
-	}
-
-	return &DepositTransaction{
-		From:       from,
-		To:         to,
-		Value:      value,
-		GasLimit:   gasLimit,
-		IsCreation: isCreation,
-		Data:       data,
-	}
-}
-
-// TODO better name & description (+ sync with spec)
-type InputItem struct {
-	Block    *types.Block
-	Receipts []*types.Receipt
-}
-
-// Sanity check that the receipts are consistent with the block data.
-func (item *InputItem) CheckReceipts() bool {
+// CheckReceipts sanity checks that the receipts are consistent with the block data.
+func CheckReceipts(block *types.Block, receipts []*types.Receipt) bool {
 	hasher := trie.NewStackTrie(nil)
-	computed := types.DeriveSha(types.Receipts(item.Receipts), hasher)
-	return item.Block.ReceiptHash() == computed
+	computed := types.DeriveSha(types.Receipts(receipts), hasher)
+	return block.ReceiptHash() == computed
 }
 
-// TODO better name & description (+ sync with spec)
-type OutputItem struct {
-	// TODO: convert to L1 attributes deposit
-	L1BlockHash    common.Hash
-	L1BlockNumber  uint64
-	L1BlockTime    uint64
-	L1Random       Bytes32
-	UserDepositTxs []*DepositTransaction
+const L1InfoDepositIndex uint64 = 0xFFFF_FFFF_FFFF_FFFF
+
+func L1InfoDeposit(block *types.Block) *types.DepositTx {
+	data := make([]byte, 4+8+8+32+32)
+	offset := 0
+	copy(data[offset:4], L1InfoFuncBytes4)
+	offset += 4
+	binary.BigEndian.PutUint64(data[offset:offset+8], block.NumberU64())
+	offset += 8
+	binary.BigEndian.PutUint64(data[offset:offset+8], block.Time())
+	offset += 8
+	block.BaseFee().FillBytes(data[offset : offset+32])
+	offset += 32
+	copy(data[offset:offset+32], block.Hash().Bytes())
+
+	return &types.DepositTx{
+		BlockHeight:      block.NumberU64(),
+		TransactionIndex: L1InfoDepositIndex, // not from a log event, but generated by system
+		From:             DepositContractAddr,
+		To:               &L1InfoPredeployAddr,
+		Mint:             nil,
+		Value:            big.NewInt(0),
+		Gas:              99_999_999,
+		Data:             data,
+	}
+	return nil
 }
 
-// Transform an input item (block + receipts) into an output item (block attributes + list of
-// deposited transactions).
-func Derive(input InputItem) OutputItem {
-
-	if !input.CheckReceipts() {
-		panic("Receipts are not consistent with the block's receipts root.")
+// DeriveL2Transactions transforms a L1 block and corresponding receipts into the transaction inputs for a full L2 block
+func DeriveUserDeposits(block *types.Block, receipts []*types.Receipt) ([]*types.Transaction, error) {
+	if !CheckReceipts(block, receipts) {
+		return nil, fmt.Errorf("receipts are not consistent with the block's receipts root: %s", block.ReceiptHash())
 	}
 
-	userDepositTxs := []*DepositTransaction{}
-	for _, rec := range input.Receipts {
+	height := block.NumberU64()
+
+	var out []*types.Transaction
+
+	for txIndex, rec := range receipts {
 		if rec.Status != types.ReceiptStatusSuccessful {
 			continue
 		}
 		for _, log := range rec.Logs {
 			if log.Address == DepositContractAddr {
-				userDepositTxs = append(userDepositTxs, DecodeDepositLog(log))
+				dep, err := UnmarshalLogEvent(height, uint64(txIndex), log)
+				if err != nil {
+					return nil, fmt.Errorf("malformatted L1 deposit log: %v", err)
+				}
+				out = append(out, types.NewTx(dep))
 			}
 		}
 	}
-
-	return OutputItem{
-		L1BlockHash:    input.Block.Hash(),
-		L1BlockNumber:  input.Block.NumberU64(),
-		L1BlockTime:    input.Block.Time(),
-		L1Random:       Bytes32(input.Block.MixDigest()), // TODO change to Random (needs post-merge geth)
-		UserDepositTxs: userDepositTxs,
-	}
+	return out, nil
 }
 
-// Interact with the execution engine in order to obtain a L2 block (represented by its hash)
-// from an output item (block attributes + list of deposited transactions).
-func CreateL2Block(item OutputItem) (common.Hash, error) {
+func DerivePayloadAttributes(block *types.Block, receipts []*types.Receipt) (*PayloadAttributes, error) {
+	l1Tx := types.NewTx(L1InfoDeposit(block))
+	opaqueL1Tx, err := l1Tx.MarshalBinary()
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode L1 info tx")
+	}
 
-	return common.Hash{}, nil // TODO
+	userDeposits, err := DeriveUserDeposits(block, receipts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive user deposits: %v", err)
+	}
+
+	encodedTxs := make([]Data, 0, len(userDeposits)+1)
+	encodedTxs = append(encodedTxs, opaqueL1Tx)
+
+	for i, tx := range userDeposits {
+		opaqueTx, err := tx.MarshalBinary()
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode user tx %d", i)
+		}
+		encodedTxs = append(encodedTxs, opaqueTx)
+	}
+
+	return &PayloadAttributes{
+		Timestamp:             Uint64Quantity(block.Time()),
+		Random:                Bytes32(block.MixDigest()),
+		SuggestedFeeRecipient: common.Address{}, // nobody gets tx fees for deposits
+		Transactions:          encodedTxs,
+	}, nil
 }
 
-/*
-func CreateBlock(item OutputItem) {
-	// TODO pick appropriate ctx, client
-	ctx := context.Background()
-	var client *rpc.Client
-	var logger log.Logger
-	var state *ForkchoiceState
-
-	attributes := &PayloadAttributes{
-		Timestamp:             Uint64Quantity(item.L1BlockTime),
-		Random:                item.L1Random,
-		SuggestedFeeRecipient: SequencerAddr,
-		// TODO add transactions (system (L1 attributes) + user)
-	}
-
-	fcResult, err := ForkchoiceUpdated(ctx, client, logger, state, attributes)
+// DeriveBlock uses the engine API to derive a full L2 block from the block inputs.
+// The fcState does not affect the block production, but may inform the engine of finality and head changes to sync towards before block computation.
+func DeriveBlock(ctx context.Context, engine EngineAPI, fcState *ForkchoiceState, attributes *PayloadAttributes) (*ExecutionPayload, error) {
+	fcResult, err := engine.ForkchoiceUpdated(ctx, fcState, attributes)
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("couldn't update forkchoice: %v", err)
-	} else if fcResult.Status == UpdateSyncing {
-		return common.Hash{}, errors.New("ForkchoiceUpdated returned SYNCING")
+		return nil, fmt.Errorf("engine failed to process forkchoice update for block derivation: %v", err)
+	} else if fcResult.Status != UpdateSuccess {
+		return nil, fmt.Errorf("engine not in sync, failed to derive block, status: %s", fcResult.Status)
 	}
 
-	payload, err := GetPayload(ctx, client, logger, fcResult.PayloadID)
+	payload, err := engine.GetPayload(ctx, fcResult.PayloadID)
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("couldn't get payload: %v", err)
+		return nil, fmt.Errorf("failed to get payload: %v", err)
 	}
-
-	eResult, err := ExecutePayload(ctx, client, logger, payload)
-	if err != nil {
-		return common.Hash{}, fmt.Errorf("couldn't execute payload: %v", err)
-	}
-
-	switch eResult.Status {
-	case "SYNCING":
-		return common.Hash{}, errors.New("ExecutePayload returned SYNCING")
-	case "VALID":
-		return common.Hash(eResult.LatestValidHash), nil
-	default: // INVALID
-		return common.Hash{}, errors.New("ExecutePayload returned INVALID")
-	}
+	return payload, nil
 }
-*/
