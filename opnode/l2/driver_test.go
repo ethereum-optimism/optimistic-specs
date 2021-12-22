@@ -110,7 +110,7 @@ func GenerateDepositLog(id uint64) *types.Log {
 		toBytes,
 	}
 
-	data := make([]byte, 128, 128)
+	data := make([]byte, 128)
 	offset := 0
 	copy(data[0:offset+32], deposit.Value.Bytes())
 	offset += 32
