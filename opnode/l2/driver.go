@@ -97,7 +97,7 @@ func CheckReceipts(block *types.Block, receipts []*types.Receipt) bool {
 
 const L1InfoDepositIndex uint64 = 0xFFFF_FFFF_FFFF_FFFF
 
-func L1InfoDeposit(block *types.Block) *types.DepositTx {
+func DeriveL1InfoDeposit(block *types.Block) *types.DepositTx {
 	data := make([]byte, 4+8+8+32+32)
 	offset := 0
 	copy(data[offset:4], L1InfoFuncBytes4)
@@ -151,7 +151,7 @@ func DeriveUserDeposits(block *types.Block, receipts []*types.Receipt) ([]*types
 }
 
 func DerivePayloadAttributes(block *types.Block, receipts []*types.Receipt) (*PayloadAttributes, error) {
-	l1Tx := types.NewTx(L1InfoDeposit(block))
+	l1Tx := types.NewTx(DeriveL1InfoDeposit(block))
 	opaqueL1Tx, err := l1Tx.MarshalBinary()
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode L1 info tx")
@@ -181,9 +181,14 @@ func DerivePayloadAttributes(block *types.Block, receipts []*types.Receipt) (*Pa
 	}, nil
 }
 
+type BlockPreparer interface {
+	GetPayload(ctx context.Context, payloadId PayloadID) (*ExecutionPayload, error)
+	ForkchoiceUpdated(ctx context.Context, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error)
+}
+
 // DeriveBlock uses the engine API to derive a full L2 block from the block inputs.
 // The fcState does not affect the block production, but may inform the engine of finality and head changes to sync towards before block computation.
-func DeriveBlock(ctx context.Context, engine EngineAPI, fcState *ForkchoiceState, attributes *PayloadAttributes) (*ExecutionPayload, error) {
+func DeriveBlock(ctx context.Context, engine BlockPreparer, fcState *ForkchoiceState, attributes *PayloadAttributes) (*ExecutionPayload, error) {
 	fcResult, err := engine.ForkchoiceUpdated(ctx, fcState, attributes)
 	if err != nil {
 		return nil, fmt.Errorf("engine failed to process forkchoice update for block derivation: %v", err)
