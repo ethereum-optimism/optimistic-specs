@@ -56,7 +56,17 @@ func (c *Engine) ProcessL1(dl l1.Downloader, finalized common.Hash, id l1.BlockI
 		return
 	}
 
-	payload, err := PlaceholderDerive(ctx, bl, receipts)
+	attrs, err := DerivePayloadAttributes(bl, receipts)
+	if err != nil {
+		c.Log.Error("failed to derive execution payload inputs", "nr", id.Number, "hash", id.Hash)
+		return
+	}
+	fcState := &ForkchoiceState{
+		HeadBlockHash:      Bytes32(id.Hash), // no difference yet between Head and Safe, no data ahead of L1 yet.
+		SafeBlockHash:      Bytes32(id.Hash),
+		FinalizedBlockHash: Bytes32(finalized),
+	}
+	payload, err := DeriveBlock(ctx, c.RPC, fcState, attrs)
 	if err != nil {
 		c.Log.Error("failed to derive execution payload", "nr", id.Number, "hash", id.Hash)
 		return
@@ -85,11 +95,7 @@ func (c *Engine) ProcessL1(dl l1.Downloader, finalized common.Hash, id l1.BlockI
 
 	ctx, cancel = context.WithTimeout(c.Ctx, time.Second*5)
 	defer cancel()
-	fcRes, err := c.RPC.ForkchoiceUpdated(ctx, &ForkchoiceState{
-		HeadBlockHash:      Bytes32(id.Hash), // no difference yet between Head and Safe, no data ahead of L1 yet.
-		SafeBlockHash:      Bytes32(id.Hash),
-		FinalizedBlockHash: Bytes32(finalized),
-	}, nil)
+	fcRes, err := c.RPC.ForkchoiceUpdated(ctx, fcState, nil)
 	if err != nil {
 		c.Log.Error("failed to update forkchoice", "nr", id.Number, "hash", id.Hash)
 		return
