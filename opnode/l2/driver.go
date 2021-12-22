@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math/big"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/trie"
 	"github.com/holiman/uint256"
-	"math/big"
 )
 
 var (
@@ -120,7 +121,6 @@ func DeriveL1InfoDeposit(block *types.Block) *types.DepositTx {
 		Gas:              99_999_999,
 		Data:             data,
 	}
-	return nil
 }
 
 // DeriveL2Transactions transforms a L1 block and corresponding receipts into the transaction inputs for a full L2 block
