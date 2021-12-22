@@ -77,9 +77,9 @@ func extendAddress(address common.Address) (out common.Hash) {
 	return out
 }
 
-// Returns a DepositTransaction customized on the basis of the id parameter.
-func GenerateDeposit(id uint) DepositTransaction {
-	return DepositTransaction{
+// Returns a DepositEvent customized on the basis of the id parameter.
+func GenerateDeposit(id uint) DepositEvent {
+	return DepositEvent{
 		From:       common.HexToAddress(fmt.Sprintf("0x42%d", id)),
 		To:         common.HexToAddress(fmt.Sprintf("0x69%d", id)),
 		Value:      newInt256(uint64(1000 + id)),
@@ -231,10 +231,10 @@ func TestNoDeposits(t *testing.T) {
 	assert.Equal(t, output.L1BlockHash, input.Block.Hash())
 	assert.Equal(t, output.L1BlockTime, input.Block.Time())
 	assert.Equal(t, output.L1Random, Bytes32(input.Block.MixDigest()))
-	assert.Equal(t, len(output.UserDepositTxs), 0)
+	assert.Equal(t, len(output.UserDepositEvents), 0)
 }
 
-func assertDepositsEqual(t *testing.T, in *DepositTransaction, out *DepositTransaction) {
+func assertDepositsEqual(t *testing.T, in *DepositEvent, out *DepositEvent) {
 	assert.Equal(t, out.From, in.From)
 	assert.Equal(t, out.To, in.To)
 	assert.Equal(t, out.Value, in.Value)
@@ -246,27 +246,27 @@ func assertDepositsEqual(t *testing.T, in *DepositTransaction, out *DepositTrans
 func TestSingleDeposit(t *testing.T) {
 	input := GenerateInputItem(1, 0)
 	output := Derive(input)
-	assert.Equal(t, len(output.UserDepositTxs), 1)
+	assert.Equal(t, len(output.UserDepositEvents), 1)
 	inDeposit := GenerateDeposit(0)
-	outDeposit := output.UserDepositTxs[0]
+	outDeposit := output.UserDepositEvents[0]
 	assertDepositsEqual(t, &inDeposit, outDeposit)
 }
 
 func TestFailedDeposit(t *testing.T) {
 	input := GenerateInputItem(0, 1)
 	output := Derive(input)
-	assert.Equal(t, len(output.UserDepositTxs), 0)
+	assert.Equal(t, len(output.UserDepositEvents), 0)
 }
 
 func TestManyDeposits(t *testing.T) {
 	nDeposits := uint(3)
 	input := GenerateInputItem(nDeposits, nDeposits)
 	output := Derive(input)
-	assert.Equal(t, len(output.UserDepositTxs), 3)
+	assert.Equal(t, len(output.UserDepositEvents), 3)
 
 	for id := uint(0); id < nDeposits; id++ {
 		inDeposit := GenerateDeposit(id)
-		outDeposit := output.UserDepositTxs[id]
+		outDeposit := output.UserDepositEvents[id]
 		assertDepositsEqual(t, &inDeposit, outDeposit)
 	}
 }
