@@ -1,42 +1,40 @@
 package l2
 
 import (
+	"encoding/binary"
 	"fmt"
-	"github.com/holiman/uint256"
 	"math/big"
-	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/trie"
-	"github.com/stretchr/testify/assert"
 )
 
-// ================================================================================================
-// INPUT GENERATION HELPERS
-
 var (
-	// big integer zero
-	zero = big.NewInt(0)
-
 	// testnet chain ID, not meaningful here
 	chaindID = big.NewInt(69)
 )
 
-// Generates an InputItem with nSuccess successful transactions and nFailed failed transactions,
+type deriveTxsTestInput struct {
+	block    *types.Block
+	receipts []*types.Receipt
+}
+
+// Generates an test case with nSuccess successful transactions and nFailed failed transactions,
 // as well as corresponding deposits.
-// The transactions are dummy transactions, that do not match the log entries contained the
-// deposits.
-func GenerateInputItem(nSuccess uint, nFailed uint) InputItem {
+// The transactions are dummy transactions, that do not match the log entries contained the deposits.
+func GenerateTest(nSuccess uint64, nFailed uint64) *deriveTxsTestInput {
 	nTxs := nSuccess + nFailed
 	txs := make(types.Transactions, nTxs)
 	for i := range txs {
 		txs[i] = GenerateTransaction()
 	}
 
+	// TODO: test receipts with multiple deposit logs.
+
 	receipts := make(types.Receipts, nTxs)
-	for i := uint(0); i < nSuccess; i++ {
+	for i := uint64(0); i < nSuccess; i++ {
 		receipts[i] = GenerateDepositReceipt(i)
 	}
 	for i := nSuccess; i < nTxs; i++ {
@@ -44,9 +42,9 @@ func GenerateInputItem(nSuccess uint, nFailed uint) InputItem {
 	}
 
 	block := GenerateBlock(txs, receipts, time.Now())
-	return InputItem{
-		Block:    block,
-		Receipts: receipts,
+	return &deriveTxsTestInput{
+		block:    block,
+		receipts: receipts,
 	}
 }
 
@@ -58,58 +56,37 @@ func GenerateTransaction() *types.Transaction {
 
 		// ignored (zeroed):
 		Nonce:      0,
-		GasTipCap:  zero,
-		GasFeeCap:  zero,
+		GasTipCap:  new(big.Int),
+		GasFeeCap:  new(big.Int),
 		Gas:        0,
 		To:         &common.Address{},
-		Value:      zero,
+		Value:      new(big.Int),
 		AccessList: types.AccessList{},
-		V:          zero,
-		R:          zero,
-		S:          zero,
+		V:          new(big.Int),
+		R:          new(big.Int),
+		S:          new(big.Int),
 	}
 	return types.NewTx(txData)
 }
 
-// Creates a Hash from an Address by left-padding it to 32 bytes.
-func extendAddress(address common.Address) (out common.Hash) {
-	copy(out[12:], address[:])
-	return out
-}
-
 // Returns a DepositEvent customized on the basis of the id parameter.
-func GenerateDeposit(id uint) DepositEvent {
-	return DepositEvent{
-		From:       common.HexToAddress(fmt.Sprintf("0x42%d", id)),
-		To:         common.HexToAddress(fmt.Sprintf("0x69%d", id)),
-		Value:      newInt256(uint64(1000 + id)),
-		GasLimit:   newInt256(uint64(42000 + id)),
-		IsCreation: false,
-		Data:       []byte{byte(id), 8, 9, 10},
-	}
-}
-
-func bytes32(x *uint256.Int) []byte {
-	bytes32 := x.Bytes32()
-	return bytes32[:]
-}
-
-func newInt256(x uint64) (out uint256.Int) {
-	out.SetUint64(x)
-	return out
-}
-
-func toInt(b bool) uint64 {
-	if b {
-		return 1
-	} else {
-		return 0
+func GenerateDeposit(blockNum uint64, txIndex uint64, id uint64) *types.DepositTx {
+	to := common.HexToAddress(fmt.Sprintf("0x69%16x", id))
+	return &types.DepositTx{
+		BlockHeight:      blockNum,
+		TransactionIndex: txIndex,
+		From:             common.HexToAddress(fmt.Sprintf("0x42%16x", id)),
+		To:               &to,
+		Value:            big.NewInt(1000 + int64(id)),
+		Gas:              42000 + id,
+		Data:             []byte{byte(id), 8, 9, 10},
+		// TODO Mint field
 	}
 }
 
 // Generates an EVM log entry that encodes a TransactionDeposited event from the deposit contract.
 // Calls GenerateDeposit with `id` to generate the deposit.
-func GenerateDepositLog(id uint) *types.Log {
+func GenerateDepositLog(id uint64) *types.Log {
 	// generate topics & data for:
 	//     event TransactionDeposited(
 	//    	 address indexed from,
@@ -121,20 +98,31 @@ func GenerateDepositLog(id uint) *types.Log {
 	//     );
 	// as specified by https://docs.soliditylang.org/en/v0.8.10/abi-spec.html?highlight=topics#events
 
-	deposit := GenerateDeposit(id)
+	deposit := GenerateDeposit(0, 0, id)
 
+	toBytes := common.Hash{}
+	if deposit.To != nil {
+		toBytes = deposit.To.Hash()
+	}
 	topics := []common.Hash{
 		DepositEventABIHash,
-		extendAddress(deposit.From),
-		extendAddress(deposit.To),
+		deposit.From.Hash(),
+		toBytes,
 	}
 
-	data := []byte{}
-	data = append(data, bytes32(&deposit.Value)...)
-	data = append(data, bytes32(&deposit.GasLimit)...)
-	data = append(data, bytes32(uint256.NewInt(toInt(deposit.IsCreation)))...)
-	data = append(data, bytes32(uint256.NewInt(uint64(128)))...) // (4 * 32 bytes) is the eventData offset
-	data = append(data, bytes32(uint256.NewInt(uint64(len(deposit.Data))))...)
+	data := make([]byte, 128, 128)
+	offset := 0
+	copy(data[0:offset+32], deposit.Value.Bytes())
+	offset += 32
+	binary.BigEndian.PutUint64(data[offset+24:offset+32], deposit.Gas)
+	offset += 32
+	if deposit.To == nil { // isCreation
+		data[offset+31] = 1
+	}
+	offset += 32
+	binary.BigEndian.PutUint64(data[offset+24:offset+32], 128)
+	offset += 32
+	binary.BigEndian.PutUint64(data[offset+24:offset+32], uint64(len(deposit.Data)))
 	data = append(data, deposit.Data...)
 
 	return GenerateLog(DepositContractAddr, topics, data)
@@ -159,13 +147,13 @@ func GenerateLog(addr common.Address, topics []common.Hash, data []byte) *types.
 
 // Generates a receipt for a successful transaction with a single log entry for a deposit.
 // Calls GenerateDeposit with `id` to generate the deposit.
-func GenerateDepositReceipt(id uint) *types.Receipt {
+func GenerateDepositReceipt(id uint64) *types.Receipt {
 	return GenerateReceipt(types.ReceiptStatusSuccessful, []*types.Log{GenerateDepositLog(id)})
 }
 
 // Generates a receipt for a failed transaction with a single log entry for a deposit.
 // Calls GenerateDeposit with `id` to generate the deposit.
-func GenerateFailedDepositReceipt(id uint) *types.Receipt {
+func GenerateFailedDepositReceipt(id uint64) *types.Receipt {
 	return GenerateReceipt(types.ReceiptStatusFailed, []*types.Log{GenerateDepositLog(id)})
 }
 
@@ -183,7 +171,7 @@ func GenerateReceipt(status uint64, logs []*types.Log) *types.Receipt {
 		ContractAddress:   common.Address{},
 		GasUsed:           0,
 		BlockHash:         common.Hash{},
-		BlockNumber:       zero,
+		BlockNumber:       new(big.Int),
 		TransactionIndex:  0,
 	}
 	// not really needed
@@ -203,12 +191,12 @@ func GenerateBlock(txs types.Transactions, receipts types.Receipts, _time time.T
 		UncleHash:  common.Hash{},
 		Coinbase:   common.Address{},
 		Root:       common.Hash{},
-		Difficulty: zero,
-		Number:     zero,
+		Difficulty: new(big.Int),
+		Number:     new(big.Int),
 		GasLimit:   0,
 		MixDigest:  common.Hash{},
 		Nonce:      types.EncodeNonce(0),
-		BaseFee:    zero,
+		BaseFee:    new(big.Int),
 
 		// not supplied (computed by NewBlock):
 		// - TxHash
@@ -222,53 +210,65 @@ func GenerateBlock(txs types.Transactions, receipts types.Receipts, _time time.T
 	return types.NewBlock(header, txs, uncles, receipts, hasher)
 }
 
-// ================================================================================================
-// TESTS
-
-func TestNoDeposits(t *testing.T) {
-	input := GenerateInputItem(0, 0)
-	output := Derive(input)
-	assert.Equal(t, output.L1BlockHash, input.Block.Hash())
-	assert.Equal(t, output.L1BlockTime, input.Block.Time())
-	assert.Equal(t, output.L1Random, Bytes32(input.Block.MixDigest()))
-	assert.Equal(t, len(output.UserDepositEvents), 0)
+/*
+type DeriveUserDepositsTestCase struct {
+	name     string
+	input    *deriveTxsTestInput
+	expected []*types.Transaction
 }
 
-func assertDepositsEqual(t *testing.T, in *DepositEvent, out *DepositEvent) {
-	assert.Equal(t, out.From, in.From)
-	assert.Equal(t, out.To, in.To)
-	assert.Equal(t, out.Value, in.Value)
-	assert.Equal(t, out.GasLimit, in.GasLimit)
-	assert.Equal(t, out.IsCreation, in.IsCreation)
-	assert.Equal(t, out.Data, in.Data)
-}
-
-func TestSingleDeposit(t *testing.T) {
-	input := GenerateInputItem(1, 0)
-	output := Derive(input)
-	assert.Equal(t, len(output.UserDepositEvents), 1)
-	inDeposit := GenerateDeposit(0)
-	outDeposit := output.UserDepositEvents[0]
-	assertDepositsEqual(t, &inDeposit, outDeposit)
-}
-
-func TestFailedDeposit(t *testing.T) {
-	input := GenerateInputItem(0, 1)
-	output := Derive(input)
-	assert.Equal(t, len(output.UserDepositEvents), 0)
-}
-
-func TestManyDeposits(t *testing.T) {
-	nDeposits := uint(3)
-	input := GenerateInputItem(nDeposits, nDeposits)
-	output := Derive(input)
-	assert.Equal(t, len(output.UserDepositEvents), 3)
-
-	for id := uint(0); id < nDeposits; id++ {
-		inDeposit := GenerateDeposit(id)
-		outDeposit := output.UserDepositEvents[id]
-		assertDepositsEqual(t, &inDeposit, outDeposit)
+func TestDeriveUserDeposits(t *testing.T) {
+	testCases := []DeriveUserDepositsTestCase{
+		{"no deposits", GenerateTest(0, 0), []*types.Transaction{}},
+		{"success deposit", GenerateTest(1, 0), []*types.Transaction{nil}}, // TODO
+		{"failed deposit", GenerateTest(0, 1), []*types.Transaction{}},
+		{"many deposits", nil, nil}, // TODO
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := DeriveUserDeposits(testCase.input.block, testCase.input.receipts)
+			assert.NoError(t, err)
+			assert.Equal(t, got, testCase.expected)
+		})
 	}
 }
 
-// ================================================================================================
+type DeriveL1InfoDepositTestCase struct {
+	name     string
+	input    *types.Block
+	expected *types.DepositTx
+}
+
+func TestDeriveL1InfoDeposit(t *testing.T) {
+	testCases := []DeriveL1InfoDepositTestCase{
+		// TODO
+		{"random block", GenerateBlock()},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := DeriveL1InfoDeposit(testCase.input)
+			assert.Equal(t, got, testCase.expected)
+		})
+	}
+}
+
+type DerivePayloadAttributesTestCase struct {
+	name     string
+	input    *deriveTxsTestInput
+	expected *PayloadAttributes
+}
+
+func TestDerivePayloadAttributes(t *testing.T) {
+	testCases := []DerivePayloadAttributesTestCase{
+		// TODO
+		{"random block", GenerateBlock(), &PayloadAttributes{}},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, err := DerivePayloadAttributes(testCase.input)
+			assert.NoError(t, err)
+			assert.Equal(t, got, testCase.expected)
+		})
+	}
+}
+*/
