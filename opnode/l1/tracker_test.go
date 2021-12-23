@@ -4,70 +4,87 @@ import (
 	"crypto/rand"
 	"testing"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestTracker_HeadSignal(t *testing.T) {
 	tr := NewTracker()
-	assert.Equal(t, BlockID{}, tr.Head(), "expecting")
-	a := BlockID{Hash: common.Hash{0xaa}, Number: 123}
-	tr.HeadSignal(a)
+	assert.Equal(t, eth.BlockID{}, tr.Head(), "expecting")
+	aP := eth.BlockID{Hash: common.Hash{0xa0}, Number: 122}
+	a := eth.BlockID{Hash: common.Hash{0xaa}, Number: 123}
+	tr.HeadSignal(aP, a)
 	assert.Equal(t, a, tr.Head(), "expecting a")
+	assert.Equal(t, aP, tr.(*tracker).parents[a], "expecting parent of a")
 	// note: lower number, head changes can decrease height
-	b := BlockID{Hash: common.Hash{0xbb}, Number: 100}
-	tr.HeadSignal(b)
+	bP := eth.BlockID{Hash: common.Hash{0xb0}, Number: 99}
+	b := eth.BlockID{Hash: common.Hash{0xbb}, Number: 100}
+	tr.HeadSignal(bP, b)
 	assert.Equal(t, b, tr.Head(), "expecting b")
+	assert.Equal(t, bP, tr.(*tracker).parents[b], "expecting parent of b")
 }
 
 func TestTracker_WatchHeads(t *testing.T) {
 	tr := NewTracker()
-	ids := []BlockID{
-		{Hash: common.Hash{0xaa}, Number: 123},
-		{Hash: common.Hash{0xbb}, Number: 100},
-		{Hash: common.Hash{0xcc}, Number: 140},
-		{Hash: common.Hash{0xbb}, Number: 100}, // back and forth head changes can happen in PoS L1
-		{Hash: common.Hash{0xbb}, Number: 100}, // re-announcing too
-		{Hash: common.Hash{0xdd}, Number: 150},
+	g := eth.BlockID{Hash: common.Hash{0x11}, Number: 0}
+	a0 := eth.BlockID{Hash: common.Hash{0xa0}, Number: 1}
+	a := eth.BlockID{Hash: common.Hash{0xaa}, Number: 2}
+	b := eth.BlockID{Hash: common.Hash{0xbb}, Number: 1}
+	c := eth.BlockID{Hash: common.Hash{0xcc}, Number: 3}
+	d := eth.BlockID{Hash: common.Hash{0xdd}, Number: 4}
+	// 2 ids: parent and self
+	edges := [][2]eth.BlockID{
+		{a0, a}, // head without history to genesis
+		{g, a0}, // rewind head
+		{g, b},
+		{a, c},
+		{g, b}, // back and forth head changes can happen in PoS L1
+		{g, b}, // re-announcing too
+		{c, d},
 	}
-	recorder := make(chan BlockID, len(ids))
+	recorder := make(chan eth.BlockID, len(edges))
 	sub := tr.WatchHeads(recorder)
-	for _, id := range ids {
-		tr.HeadSignal(id)
+	for _, edge := range edges {
+		tr.HeadSignal(edge[0], edge[1])
 	}
-	for i, id := range ids {
-		assert.Equal(t, ids[i], id)
+	close(recorder)
+	i := 0
+	for id := range recorder {
+		assert.Equal(t, edges[i][1], id)
+		i += 1
 	}
 	// unsubscribe: can still change heads, without recording the changes
 	sub.Unsubscribe()
-	// remaining sends would panic, if they were sent
-	close(recorder)
-	tr.HeadSignal(BlockID{Hash: common.Hash{0xff}, Number: 9000})
+	// remaining sends would panic, if they were sent to the closed recorder
+	tr.HeadSignal(g, eth.BlockID{Hash: common.Hash{0xff}, Number: 1})
 
 	// Open two new watchers, and check we receive heads in both
-	recA := make(chan BlockID, 1)
-	recB := make(chan BlockID, 1)
+	recA := make(chan eth.BlockID, 1)
+	recB := make(chan eth.BlockID, 1)
 	tr.WatchHeads(recA)
 	tr.WatchHeads(recB)
-	exp := BlockID{Hash: common.Hash{0x42}, Number: 1337}
-	tr.HeadSignal(exp)
-	a, b := <-recA, <-recB
-	assert.Equal(t, exp, a)
-	assert.Equal(t, exp, b)
+	exp := eth.BlockID{Hash: common.Hash{0x42}, Number: 1}
+	tr.HeadSignal(g, exp)
+	ra, rb := <-recA, <-recB
+	assert.Equal(t, exp, ra)
+	assert.Equal(t, exp, rb)
 }
 
-func rndID(n uint64) (out BlockID) {
+func rndID(n uint64) (out eth.BlockID) {
 	_, _ = rand.Read(out.Hash[:])
 	out.Number = n
 	return
 }
 
 type pullCase struct {
-	name   string
-	start  BlockID
-	head   BlockID
-	pulled BlockID
-	mode   ChainMode
+	name       string
+	start      eth.BlockID
+	headParent eth.BlockID
+	head       eth.BlockID
+	pulled     eth.BlockID
+	mode       ChainMode
 }
 
 func TestTracker_Pull(t *testing.T) {
@@ -77,14 +94,14 @@ func TestTracker_Pull(t *testing.T) {
 	//    \ c - e - y
 	//      z - zz   (not connected to main)
 	a, b, c, d, e, x, y := rndID(0), rndID(1), rndID(1), rndID(2), rndID(2), rndID(3), rndID(3)
-	tr.Parent(b, a)
-	tr.Parent(d, b)
-	tr.Parent(c, a)
-	tr.Parent(e, c)
-	tr.Parent(x, d)
-	tr.Parent(y, e)
+	tr.Parent(a, b)
+	tr.Parent(b, d)
+	tr.Parent(a, c)
+	tr.Parent(c, e)
+	tr.Parent(d, x)
+	tr.Parent(e, y)
 	z, zz := rndID(1), rndID(2)
-	tr.Parent(zz, z)
+	tr.Parent(z, zz)
 
 	t.Run("no head", func(t *testing.T) {
 		last := rndID(123)
@@ -94,23 +111,23 @@ func TestTracker_Pull(t *testing.T) {
 	})
 
 	cases := []pullCase{
-		{"Already synced", a, a, a, ChainNoop},
-		{"Already synced far", x, x, x, ChainNoop},
-		{"Extend the chain from a to c", a, c, c, ChainExtend},
-		{"Extend the chain from a to d, first apply b", a, d, b, ChainExtend},
-		{"Orphan block b in favor of c", b, c, c, ChainReorg},
-		{"Orphan block c in favor of d, first b", c, d, b, ChainReorg},
-		{"Go to head, not absolute tip", c, c, c, ChainNoop},
-		{"Deep reorg", x, y, c, ChainReorg},
-		{"Deep uneven behind reorg", d, y, c, ChainReorg},
-		{"Deep uneven ahead reorg", x, e, c, ChainReorg},
-		{"Walk back, one bad block", x, d, d, ChainUndo},
-		{"Walk back, two bad blocks", x, b, b, ChainUndo},
-		{"Disconnected chain", b, zz, z, ChainMissing},
+		{"Already synced", a, eth.BlockID{}, a, a, ChainNoop},
+		{"Already synced far", x, d, x, x, ChainNoop},
+		{"Extend the chain from a to c", a, a, c, c, ChainExtend},
+		{"Extend the chain from a to d, first apply b", a, b, d, b, ChainExtend},
+		{"Orphan block b in favor of c", b, a, c, c, ChainReorg},
+		{"Orphan block c in favor of d, first b", c, b, d, b, ChainReorg},
+		{"Go to head, not absolute tip", c, a, c, c, ChainNoop},
+		{"Deep reorg", x, e, y, c, ChainReorg},
+		{"Deep uneven behind reorg", d, e, y, c, ChainReorg},
+		{"Deep uneven ahead reorg", x, c, e, c, ChainReorg},
+		{"Walk back, one bad block", x, b, d, d, ChainUndo},
+		{"Walk back, two bad blocks", x, a, b, b, ChainUndo},
+		{"Disconnected chain", b, z, zz, z, ChainMissing},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			tr.HeadSignal(c.head)
+			tr.HeadSignal(c.headParent, c.head)
 			r, m := tr.Pull(c.start)
 			assert.Equal(t, c.pulled, r)
 			assert.Equal(t, c.mode, m)
@@ -121,15 +138,15 @@ func TestTracker_Pull(t *testing.T) {
 func TestTracker_Prune(t *testing.T) {
 	tr := NewTracker()
 	a, b, c, d := rndID(0), rndID(1), rndID(2), rndID(3)
-	tr.Parent(b, a)
-	tr.Parent(c, b)
-	tr.Parent(d, c)
+	tr.Parent(a, b)
+	tr.Parent(b, c)
+	tr.Parent(c, d)
 	z, zz := rndID(1), rndID(2)
-	tr.Parent(zz, z)
+	tr.Parent(z, zz)
 
 	// everything with height < 2 gets removed (those with height 1 will still be known as parents of height 2)
 	tr.Prune(2)
-	tr.HeadSignal(d)
+	tr.HeadSignal(c, d)
 
 	t.Run("from pruned info", func(t *testing.T) {
 		p := tr.(*tracker).parents

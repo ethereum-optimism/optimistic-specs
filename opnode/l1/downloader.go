@@ -7,6 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
+
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -56,13 +58,13 @@ type receiptTask struct {
 }
 
 type Downloader interface {
-	Fetch(ctx context.Context, id BlockID) (*types.Block, []*types.Receipt, error)
+	Fetch(ctx context.Context, id eth.BlockID) (*types.Block, []*types.Receipt, error)
 	AddReceiptWorkers(n int) int
 }
 
 type DownloadSource interface {
-	BlockSource
-	ReceiptSource
+	eth.BlockSource
+	eth.ReceiptSource
 }
 
 type downloader struct {
@@ -85,7 +87,7 @@ func NewDownloader(chr DownloadSource) Downloader {
 	}
 }
 
-func (l1t *downloader) Fetch(ctx context.Context, id BlockID) (*types.Block, []*types.Receipt, error) {
+func (l1t *downloader) Fetch(ctx context.Context, id eth.BlockID) (*types.Block, []*types.Receipt, error) {
 	// check if we are already working on it
 	l1t.cacheLock.Lock()
 	bnr, ok := l1t.cache[id.Hash]

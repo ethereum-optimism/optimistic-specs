@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
+
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l1"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
 	"github.com/ethereum/go-ethereum"
@@ -28,7 +30,7 @@ type OpNodeCmd struct {
 	log log.Logger
 
 	// sources to fetch data from
-	l1Sources []l1.Source
+	l1Sources []eth.Source
 
 	// engines to keep synced
 	l2Engines []*l2.Engine
@@ -127,7 +129,7 @@ func (c *OpNodeCmd) RunNode() {
 	}
 
 	// Combine L1 sources, so work can be balanced between them
-	l1Source := l1.NewCombinedL1Source(c.l1Sources)
+	l1Source := eth.NewCombinedL1Source(c.l1Sources)
 
 	// We download receipts in parallel
 	c.l1Downloader.AddReceiptWorkers(4)
@@ -143,12 +145,12 @@ func (c *OpNodeCmd) RunNode() {
 		if err != nil {
 			c.log.Warn("resubscribing after failed L1 subscription", "err", err)
 		}
-		return l1.WatchHeadChanges(c.ctx, l1Source, c.l1Tracker)
+		return eth.WatchHeadChanges(c.ctx, l1Source, c.l1Tracker)
 	})
 	mergeSub(l1HeadsSub, "l1 heads subscription failed")
 
 	// feed from tracker, as fed with head events from above subscription
-	l1Heads := make(chan l1.BlockID)
+	l1Heads := make(chan eth.BlockID)
 	mergeSub(c.l1Tracker.WatchHeads(l1Heads), "l1 heads info feed unexpectedly failed")
 
 	for {

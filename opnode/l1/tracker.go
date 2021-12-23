@@ -2,14 +2,16 @@ package l1
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
+
+	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/event"
 )
 
@@ -37,49 +39,54 @@ const (
 	ChainMissing
 )
 
-type BlockID struct {
-	Hash   common.Hash
-	Number uint64
-}
-
 type tracker struct {
 	sync.Mutex
 
 	// Parent hash (value) of each block (key)
-	parents map[BlockID]BlockID
+	parents map[eth.BlockID]eth.BlockID
 	// last seen head height, may not be the max height (total difficult != height)
-	head BlockID
+	head eth.BlockID
 
 	// feed of BlockID
 	headChanges event.Feed
 }
 
-func (tr *tracker) HeadSignal(id BlockID) {
+func (tr *tracker) HeadSignal(parent eth.BlockID, id eth.BlockID) {
 	tr.Lock()
 	defer tr.Unlock()
+	// genesis block has full-zeroed id as parent, and thus no height difference
+	if !(id.Number == 0 && parent == eth.BlockID{}) && parent.Number+1 != id.Number {
+		panic(fmt.Errorf("bad head signal, id %s not after parent %s", id, parent))
+	}
+
+	tr.parents[id] = parent
 
 	tr.head = id
 	tr.headChanges.Send(id)
 }
 
-func (tr *tracker) WatchHeads(ch chan<- BlockID) ethereum.Subscription {
+func (tr *tracker) WatchHeads(ch chan<- eth.BlockID) ethereum.Subscription {
 	return tr.headChanges.Subscribe(ch)
 }
 
-func (tr *tracker) Parent(id BlockID, parent BlockID) {
+func (tr *tracker) Parent(parent eth.BlockID, id eth.BlockID) {
 	tr.Lock()
 	defer tr.Unlock()
 
+	// genesis block has full-zeroed id as parent, and thus no height difference
+	if !(id.Number == 0 && parent == eth.BlockID{}) && parent.Number+1 != id.Number {
+		panic(fmt.Errorf("bad head signal, id %s not after parent %s", id, parent))
+	}
 	tr.parents[id] = parent
 }
 
-func (tr *tracker) Head() BlockID {
+func (tr *tracker) Head() eth.BlockID {
 	tr.Lock()
 	defer tr.Unlock()
 	return tr.head
 }
 
-func (tr *tracker) Pull(lastLocal BlockID) (next BlockID, mode ChainMode) {
+func (tr *tracker) Pull(lastLocal eth.BlockID) (next eth.BlockID, mode ChainMode) {
 	tr.Lock()
 	defer tr.Unlock()
 
@@ -88,7 +95,7 @@ func (tr *tracker) Pull(lastLocal BlockID) (next BlockID, mode ChainMode) {
 	last := lastLocal
 
 	// if we don't have any canonical view at all, then stay at the local view
-	if canon == (BlockID{}) {
+	if canon == (eth.BlockID{}) {
 		return last, ChainNoop
 	}
 
@@ -178,100 +185,65 @@ func (tr *tracker) Prune(number uint64) {
 	}
 }
 
-// SignalTracker tracks a graph of blocks using only edges and head information
-type SignalTracker interface {
-	// Parent inserts a link into the chain between the block and its parent.
-	Parent(id BlockID, parent BlockID)
-	// HeadSignal informs future Pull calls which chain to follow
-	HeadSignal(id BlockID)
-}
-
 // Tracker is a *cache* of chain connections.
 // It helps quickly decide which blocks to pull down, and resolves reorgs.
 // It does not track the past *processed* L1 blocks, it is robust against change.
 type Tracker interface {
-	SignalTracker
+	eth.HeadSignalTracker
+
+	Parent(parent eth.BlockID, id eth.BlockID)
+
 	// Head returns the latest L1 head
-	Head() BlockID
+	Head() eth.BlockID
 	// Pull the block to process on top of the last chain view.
 	//
 	// Depending on the returned chain-mode, this may mean extension, reorg,
 	// or filling missing data first (possible long range sync)
-	Pull(lastSeen BlockID) (next BlockID, mode ChainMode)
+	Pull(lastSeen eth.BlockID) (next eth.BlockID, mode ChainMode)
 	// Prune everything older than the given block number
 	Prune(number uint64)
 	// WatchHeads subscribes to get head updates
-	WatchHeads(chan<- BlockID) ethereum.Subscription
-}
-
-// WatchHeadChanges wraps a new-head subscription from ChainReader to feed the given Tracker
-func WatchHeadChanges(ctx context.Context, src NewHeadSource, tr SignalTracker) (ethereum.Subscription, error) {
-	headChanges := make(chan *types.Header, 10)
-	sub, err := src.SubscribeNewHead(ctx, headChanges)
-	if err != nil {
-		return nil, err
-	}
-	return event.NewSubscription(func(quit <-chan struct{}) error {
-		defer sub.Unsubscribe()
-		for {
-			select {
-			case header := <-headChanges:
-				hash := header.Hash()
-				height := header.Number.Uint64()
-				self := BlockID{Hash: hash, Number: height}
-				if height > 0 {
-					tr.Parent(self, BlockID{Hash: header.ParentHash, Number: height - 1})
-				}
-				tr.HeadSignal(self)
-			case err := <-sub.Err():
-				return err
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-quit:
-				return nil
-			}
-		}
-	}), nil
+	WatchHeads(chan<- eth.BlockID) ethereum.Subscription
 }
 
 func NewTracker() Tracker {
 	return &tracker{
-		parents: make(map[BlockID]BlockID),
+		parents: make(map[eth.BlockID]eth.BlockID),
 		// head is zeroed and will be filled later
 	}
 }
 
 type LocalView interface {
-	// LastL1 returns the local L1 block in view
-	LastL1() BlockID
+	// L1Head returns the local L1 block in view
+	L1Head() eth.BlockID
 	// ProcessL1 instructs to update the local view by fetching and processing the block.
 	// - If id == LastL1(): no-op
 	// - If id.Number <= LastL1().Number && id.Hash != LastL1().Hash: reorg or unwind
 	// - If id.Number == LastL1().Number + 1: extend chain if parent matches, or reorg
 	// - If id.Number > LastL1().Number + 1: far out of sync, including possible reorg,
 	//   try catching up through other means if possible, headers are being synced to find 1-by-1 sync start.
-	ProcessL1(dl Downloader, finalized common.Hash, id BlockID) // TODO: maybe add ChainMode arg, but keeping simplicity here is nice too
+	ProcessL1(dl Downloader, newL1Head eth.BlockID, finalizedL2Block common.Hash) // TODO: maybe add ChainMode arg, but keeping simplicity here is nice too
 }
 
 // HeaderSync fetches missing data for L1 tracker, and detects head changes / reorgs,
 // to then instruct the local view to process a given L1 block.
-func HeaderSync(ctx context.Context, src HeaderSource, tr Tracker,
+func HeaderSync(ctx context.Context, src eth.HeaderSource, tr Tracker,
 	log log.Logger, dl Downloader, local LocalView) ethereum.Subscription {
 
-	syncStep := func(lastLocal BlockID) (nextLocal BlockID, fastNext bool) {
+	syncStep := func(lastLocal eth.BlockID) (nextLocal eth.BlockID, fastNext bool) {
 		id, mode := tr.Pull(lastLocal)
-		if mode == ChainNoop {
-			log.Info("fully synced", "hash", id.Hash, "height", id.Number)
-			return lastLocal, false
-		}
 
 		switch mode {
+		case ChainNoop:
+			log.Info("fully synced", "hash", id.Hash, "height", id.Number)
+			return id, false
 		case ChainExtend:
 			log.Info("fetching extended L1 chain", "hash", id.Hash, "height", id.Number)
 			return id, true
 		case ChainUndo:
 			log.Info("rewinding L1 chain", "hash", id.Hash, "height", id.Number)
-			return id, false // rewinding on the same chain is always a single step, no fast next step
+			// rewinding on the same chain is always a single step, no fast next step
+			return id, false
 		case ChainReorg:
 			log.Info("reorging L1 chain", "hash", id.Hash, "height", id.Number)
 			return id, true
@@ -281,27 +253,24 @@ func HeaderSync(ctx context.Context, src HeaderSource, tr Tracker,
 			// The local view (of the engine) might fail to progress,
 			// but the tracker will sync the missing chain,
 			// and the next sync step will present a better block to process.
-		}
-
-		header, err := src.HeaderByHash(ctx, id.Hash)
-		if err != nil {
-			log.Error("failed to fetch L1 header", "hash", id.Hash, "height", id.Number, "err", err)
-
-			// Don't continue, wait for next cold tick.
-			// Maybe we get a reorg event or other change that affects the next step,
-			// which would explain the retrieval error.
-			return lastLocal, false
-		} else {
-			// We retrieved the missing block, update the L1 data maintainer
-			hash := header.Hash()
-			height := header.Number.Uint64()
-			self := BlockID{Hash: hash, Number: height}
-			if height > 0 {
-				tr.Parent(self, BlockID{Hash: header.ParentHash, Number: height - 1})
+			header, err := src.HeaderByHash(ctx, id.Hash)
+			if err != nil {
+				log.Error("failed to fetch L1 header", "hash", id.Hash, "height", id.Number, "err", err)
+				return id, false
+			} else {
+				// We retrieved the missing block, update the L1 data maintainer
+				hash := header.Hash()
+				height := header.Number.Uint64()
+				self := eth.BlockID{Hash: hash, Number: height}
+				parent := eth.BlockID{}
+				if height > 0 {
+					parent = eth.BlockID{Hash: header.ParentHash, Number: height - 1}
+				}
+				tr.Parent(parent, self)
+				return id, true
 			}
-
-			// let's continue with the next sync step quickly!
-			return id, true
+		default:
+			panic(fmt.Errorf("unrecognized chain mode: %v", mode))
 		}
 	}
 
@@ -312,7 +281,7 @@ func HeaderSync(ctx context.Context, src HeaderSource, tr Tracker,
 	defer pullTicker.Stop()
 
 	// Whenever we get a new head, start syncing at faster pace again
-	heads := make(chan BlockID, 10)
+	heads := make(chan eth.BlockID, 10)
 	headsSub := tr.WatchHeads(heads)
 
 	// Pruning saves memory, we don't need to cache block data deeper than the maximum expected L1 reorg depth
@@ -320,7 +289,7 @@ func HeaderSync(ctx context.Context, src HeaderSource, tr Tracker,
 	defer pruneTicker.Stop()
 
 	// TODO: track finalized hash (long distance from head)
-	finalized := BlockID{}
+	finalized := eth.BlockID{}
 
 	return event.NewSubscription(func(quit <-chan struct{}) error {
 		defer headsSub.Unsubscribe()
@@ -332,7 +301,7 @@ func HeaderSync(ctx context.Context, src HeaderSource, tr Tracker,
 				// new head, resume sync
 				pullTicker.Reset(pullHot)
 			case <-pullTicker.C:
-				lastLocal := local.LastL1()
+				lastLocal := local.L1Head()
 				nextLocal, fastNext := syncStep(lastLocal)
 				if lastLocal != nextLocal {
 					// If we know the block is already finalized we share that,
@@ -343,7 +312,7 @@ func HeaderSync(ctx context.Context, src HeaderSource, tr Tracker,
 					if finalized.Number > nextLocal.Number {
 						relativeFinalized = nextLocal.Hash
 					}
-					local.ProcessL1(dl, relativeFinalized, nextLocal)
+					local.ProcessL1(dl, nextLocal, relativeFinalized)
 				}
 				// after completing processing, schedule the next step
 				if fastNext {
@@ -352,7 +321,7 @@ func HeaderSync(ctx context.Context, src HeaderSource, tr Tracker,
 					pullTicker.Reset(pullCold)
 				}
 			case <-pruneTicker.C:
-				height := local.LastL1().Number
+				height := local.L1Head().Number
 				if height > PruneL1Distance {
 					tr.Prune(height - PruneL1Distance)
 				}

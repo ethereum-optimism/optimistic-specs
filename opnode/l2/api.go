@@ -151,18 +151,18 @@ type ExecutePayloadResult struct {
 	// the result of the payload execution
 	Status ExecutePayloadStatus `json:"status"`
 	// the hash of the most recent valid block in the branch defined by payload and its ancestors
-	LatestValidHash Bytes32 `json:"latestValidHash"`
+	LatestValidHash common.Hash `json:"latestValidHash"`
 	// additional details on the result
 	ValidationError string `json:"validationError"`
 }
 
 type ForkchoiceState struct {
 	// block hash of the head of the canonical chain
-	HeadBlockHash Bytes32 `json:"headBlockHash"`
+	HeadBlockHash common.Hash `json:"headBlockHash"`
 	// safe block hash in the canonical chain
-	SafeBlockHash Bytes32 `json:"safeBlockHash"`
+	SafeBlockHash common.Hash `json:"safeBlockHash"`
 	// block hash of the most recent finalized block
-	FinalizedBlockHash Bytes32 `json:"finalizedBlockHash"`
+	FinalizedBlockHash common.Hash `json:"finalizedBlockHash"`
 }
 
 type ForkchoiceUpdatedStatus string
