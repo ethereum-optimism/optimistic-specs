@@ -23,6 +23,7 @@ var (
 )
 
 // UnmarshalLogEvent decodes an EVM log entry emitted by the deposit contract into typed deposit data.
+//
 // parse log data for:
 //     event TransactionDeposited(
 //    	 address indexed from,
@@ -32,6 +33,10 @@ var (
 //    	 bool isCreation,
 //    	 data data
 //     );
+//
+// Deposits additionally get:
+//  - blockNum matching the L1 block height
+//  - txIndex: matching the deposit index, not L1 transaction index, since there can be multiple deposits per L1 tx
 func UnmarshalLogEvent(blockNum uint64, txIndex uint64, ev *types.Log) (*types.DepositTx, error) {
 	if len(ev.Topics) != 3 {
 		return nil, fmt.Errorf("expected 3 event topics (event identity, indexed from, indexed to)")
@@ -133,13 +138,13 @@ func DeriveUserDeposits(block *types.Block, receipts []*types.Receipt) ([]*types
 
 	var out []*types.Transaction
 
-	for txIndex, rec := range receipts {
+	for _, rec := range receipts {
 		if rec.Status != types.ReceiptStatusSuccessful {
 			continue
 		}
 		for _, log := range rec.Logs {
 			if log.Address == DepositContractAddr {
-				dep, err := UnmarshalLogEvent(height, uint64(txIndex), log)
+				dep, err := UnmarshalLogEvent(height, uint64(len(out)), log)
 				if err != nil {
 					return nil, fmt.Errorf("malformatted L1 deposit log: %v", err)
 				}
