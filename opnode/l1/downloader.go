@@ -63,7 +63,7 @@ type Downloader interface {
 }
 
 type DownloadSource interface {
-	eth.BlockSource
+	eth.BlockByHashSource
 	eth.ReceiptSource
 }
 

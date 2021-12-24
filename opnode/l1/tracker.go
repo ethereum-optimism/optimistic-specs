@@ -227,7 +227,7 @@ type LocalView interface {
 
 // HeaderSync fetches missing data for L1 tracker, and detects head changes / reorgs,
 // to then instruct the local view to process a given L1 block.
-func HeaderSync(ctx context.Context, src eth.HeaderSource, tr Tracker,
+func HeaderSync(ctx context.Context, src eth.HeaderByHashSource, tr Tracker,
 	log log.Logger, dl Downloader, local LocalView) ethereum.Subscription {
 
 	syncStep := func(lastLocal eth.BlockID) (nextLocal eth.BlockID, fastNext bool) {

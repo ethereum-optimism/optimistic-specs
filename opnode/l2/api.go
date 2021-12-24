@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
+
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -193,8 +195,14 @@ type RPCBackend interface {
 	Close()
 }
 
+type EthBackend interface {
+	eth.BlockByNumberSource
+	eth.NewHeadSource
+}
+
 type EngineClient struct {
 	RPCBackend
+	EthBackend
 	Log log.Logger
 }
 

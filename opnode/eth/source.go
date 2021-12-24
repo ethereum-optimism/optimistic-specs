@@ -2,6 +2,7 @@ package eth
 
 import (
 	"context"
+	"math/big"
 	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum"
@@ -13,7 +14,7 @@ type NewHeadSource interface {
 	SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error)
 }
 
-type HeaderSource interface {
+type HeaderByHashSource interface {
 	HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error)
 }
 
@@ -21,15 +22,19 @@ type ReceiptSource interface {
 	TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error)
 }
 
-type BlockSource interface {
+type BlockByHashSource interface {
 	BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error)
 }
 
-type Source interface {
+type BlockByNumberSource interface {
+	BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error)
+}
+
+type L1Source interface {
 	NewHeadSource
-	HeaderSource
+	HeaderByHashSource
 	ReceiptSource
-	BlockSource
+	BlockByHashSource
 	Close()
 }
 
@@ -41,9 +46,9 @@ func (fn NewHeadFn) SubscribeNewHead(ctx context.Context, ch chan<- *types.Heade
 	return fn(ctx, ch)
 }
 
-type HeaderFn func(ctx context.Context, hash common.Hash) (*types.Header, error)
+type HeaderByHashFn func(ctx context.Context, hash common.Hash) (*types.Header, error)
 
-func (fn HeaderFn) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
+func (fn HeaderByHashFn) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
 	return fn(ctx, hash)
 }
 
@@ -53,43 +58,49 @@ func (fn ReceiptFn) TransactionReceipt(ctx context.Context, txHash common.Hash) 
 	return fn(ctx, txHash)
 }
 
-type BlockFn func(ctx context.Context, hash common.Hash) (*types.Block, error)
+type BlockByHashFn func(ctx context.Context, hash common.Hash) (*types.Block, error)
 
-func (fn BlockFn) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
+func (fn BlockByHashFn) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
 	return fn(ctx, hash)
 }
 
-// CombinedSource balances multiple L1 sources, to shred concurrent requests to multiple endpoints
-type CombinedSource struct {
-	i       uint64
-	sources []Source
+type BlockByNumFn func(ctx context.Context, number *big.Int) (*types.Block, error)
+
+func (fn BlockByNumFn) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+	return fn(ctx, number)
 }
 
-func NewCombinedL1Source(sources []Source) Source {
+// CombinedL1Source balances multiple L1 sources, to shred concurrent requests to multiple endpoints
+type CombinedL1Source struct {
+	i       uint64
+	sources []L1Source
+}
+
+func NewCombinedL1Source(sources []L1Source) L1Source {
 	if len(sources) == 0 {
 		panic("need at least 1 source")
 	}
-	return &CombinedSource{i: 0, sources: sources}
+	return &CombinedL1Source{i: 0, sources: sources}
 }
 
-func (cs *CombinedSource) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
+func (cs *CombinedL1Source) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
 	return cs.sources[atomic.AddUint64(&cs.i, 1)%uint64(len(cs.sources))].HeaderByHash(ctx, hash)
 }
 
-func (cs *CombinedSource) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
+func (cs *CombinedL1Source) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {
 	// TODO: can't use multiple sources as consensus, or head may be conflicting too much
 	return cs.sources[0].SubscribeNewHead(ctx, ch)
 }
 
-func (cs *CombinedSource) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
+func (cs *CombinedL1Source) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
 	return cs.sources[atomic.AddUint64(&cs.i, 1)%uint64(len(cs.sources))].TransactionReceipt(ctx, txHash)
 }
 
-func (cs *CombinedSource) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
+func (cs *CombinedL1Source) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
 	return cs.sources[atomic.AddUint64(&cs.i, 1)%uint64(len(cs.sources))].BlockByHash(ctx, hash)
 }
 
-func (cs *CombinedSource) Close() {
+func (cs *CombinedL1Source) Close() {
 	for _, src := range cs.sources {
 		src.Close()
 	}

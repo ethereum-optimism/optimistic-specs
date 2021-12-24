@@ -103,6 +103,8 @@ func CheckReceipts(block *types.Block, receipts []*types.Receipt) bool {
 
 const L1InfoDepositIndex uint64 = 0xFFFF_FFFF_FFFF_FFFF
 
+// TODO: marshal/unmarshal typed data into the L1 info data bytes would be neat
+
 func DeriveL1InfoDeposit(block *types.Block) *types.DepositTx {
 	data := make([]byte, 4+8+8+32+32)
 	offset := 0
@@ -126,6 +128,22 @@ func DeriveL1InfoDeposit(block *types.Block) *types.DepositTx {
 		Gas:              99_999_999,
 		Data:             data,
 	}
+}
+
+func ParseL1InfoDepositTxData(data []byte) (nr uint64, time uint64, baseFee *big.Int, blockHash common.Hash, err error) {
+	if len(data) != 4+8+8+32+32 {
+		err = fmt.Errorf("data is unexpected length: %d", len(data))
+		return
+	}
+	offset := 4
+	nr = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	time = binary.BigEndian.Uint64(data[offset : offset+8])
+	offset += 8
+	baseFee = new(big.Int).SetBytes(data[offset : offset+32])
+	offset += 32
+	blockHash.SetBytes(data[offset : offset+32])
+	return
 }
 
 // DeriveL2Transactions transforms a L1 block and corresponding receipts into the transaction inputs for a full L2 block

@@ -2,8 +2,12 @@ package l2
 
 import (
 	"context"
+	"fmt"
+	"math/big"
 	"sync"
 	"time"
+
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 
@@ -14,23 +18,21 @@ import (
 
 type DriverAPI interface {
 	EngineAPI
-
-	eth.NewHeadSource
-	eth.HeaderSource
+	EthBackend
 }
 
 type Engine struct {
 	Ctx context.Context
 	Log log.Logger
 	// API bindings to execution engine
-	RPC EngineAPI
+	RPC DriverAPI
 
 	// Locks the L1 and L2 head changes, to keep a consistent view of the engine
 	headLock sync.RWMutex
 	// l1Head tracks both number and hash, this simplifies L1 reorg detection
 	l1Head eth.BlockID
 	// l2Head tracks the head-block of the engine
-	l2Head common.Hash
+	l2Head eth.BlockID
 }
 
 // L1 returns the block-id (hash and number) of the last L1 block that was derived into the L2 block
@@ -40,24 +42,67 @@ func (e *Engine) L1Head() eth.BlockID {
 	return e.l1Head
 }
 
-// L2 returns the block-hash of the L2 chain head
-func (e *Engine) L2Head() common.Hash {
+// L2 returns the block-id (hash and number) of the L2 chain head
+func (e *Engine) L2Head() eth.BlockID {
 	e.headLock.RLock()
 	defer e.headLock.RUnlock()
 	return e.l2Head
 }
 
-func (e *Engine) Head() (l1Head eth.BlockID, l2Head common.Hash) {
+func (e *Engine) Head() (l1Head eth.BlockID, l2Head eth.BlockID) {
 	e.headLock.RLock()
 	defer e.headLock.RUnlock()
 	return e.l1Head, e.l2Head
 }
 
-func (e *Engine) UpdateHead(l1Head eth.BlockID, l2Head common.Hash) {
+func (e *Engine) UpdateHead(l1Head eth.BlockID, l2Head eth.BlockID) {
 	e.headLock.Lock()
 	defer e.headLock.Unlock()
 	e.l1Head = l1Head
 	e.l2Head = l2Head
+}
+
+func (e *Engine) RequestHeadUpdate() error {
+	e.headLock.Lock()
+	defer e.headLock.Unlock()
+	refL1, refL2, err := e.RequestChainReference(nil)
+	if err != nil {
+		return err
+	}
+	e.l1Head = refL1
+	e.l2Head = refL2
+	return nil
+}
+
+// RequestChainReference fetches the L1 and L2 block IDs from the engine for the given L2 block height.
+// Use a nil height to fetch the head.
+func (e *Engine) RequestChainReference(l2Num *big.Int) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
+	ctx, cancel := context.WithTimeout(e.Ctx, time.Second*5)
+	defer cancel()
+	refL2Block, err := e.RPC.BlockByNumber(ctx, l2Num) // nil for latest block
+	if err != nil {
+		err = fmt.Errorf("failed to retrieve head L2 block: %v", err)
+		return
+	}
+	refL2 = eth.BlockID{Hash: refL2Block.Hash(), Number: refL2Block.NumberU64()}
+
+	if refL2Block.NumberU64() == 0 {
+		// TODO: set to genesis L1 block ID (after sanity checking we got the right L2 genesis block from the engine)
+		refL1 = eth.BlockID{}
+		return
+	}
+	txs := refL2Block.Transactions()
+	if len(txs) == 0 || txs[0].Type() != types.DepositTxType {
+		err = fmt.Errorf("l2 block is missing L1 info deposit tx, block hash: %s", refL2Block.Hash())
+		return
+	}
+	refL1Nr, _, _, refL1Hash, err := ParseL1InfoDepositTxData(txs[0].Data())
+	if err != nil {
+		err = fmt.Errorf("failed to parse L1 info deposit tx from L2 block: %v", err)
+		return
+	}
+	refL1 = eth.BlockID{Hash: refL1Hash, Number: refL1Nr}
+	return
 }
 
 func (e *Engine) ProcessL1(dl l1.Downloader, newL1Head eth.BlockID, finalizedL2Block common.Hash) {
@@ -76,7 +121,7 @@ func (e *Engine) ProcessL1(dl l1.Downloader, newL1Head eth.BlockID, finalizedL2B
 	}
 
 	// check if it's in the far distance.
-	// Header sync will need to move closer before we start fetching/caching full blocks.
+	// Header sync will need to move back in history before we start fetching/caching full blocks.
 	if newL1Head.Number > e.l1Head.Number+5 {
 		logger.Info("Deferring processing, block too far out")
 		return
@@ -89,11 +134,10 @@ func (e *Engine) ProcessL1(dl l1.Downloader, newL1Head eth.BlockID, finalizedL2B
 		return
 	}
 
-	parentL2Hash := e.l2Head
+	// TODO: need to fix this for full reorg support (we detect L1 reorgs, but can't find the matching L2 hash)
+	parentL2BlockID := e.l2Head
 	if bl.ParentHash() != e.l1Head.Hash {
-		// not a simple extension, try fetch the corresponding L2 parent hash to this reorg
-		// TODO
-		//parentL2Hash = common.Hash{}
+		logger.Error("TODO: resolve L2 hash during reorgs of L1")
 		return
 	}
 
@@ -119,8 +163,8 @@ func (e *Engine) ProcessL1(dl l1.Downloader, newL1Head eth.BlockID, finalizedL2B
 	}
 
 	preState := &ForkchoiceState{
-		HeadBlockHash:      parentL2Hash, // no difference yet between Head and Safe, no data ahead of L1 yet.
-		SafeBlockHash:      parentL2Hash,
+		HeadBlockHash:      parentL2BlockID.Hash, // no difference yet between Head and Safe, no data ahead of L1 yet.
+		SafeBlockHash:      parentL2BlockID.Hash,
 		FinalizedBlockHash: finalizedL2Block,
 	}
 	payload, err := DeriveBlock(ctx, e.RPC, preState, attrs)
@@ -172,7 +216,7 @@ func (e *Engine) ProcessL1(dl l1.Downloader, newL1Head eth.BlockID, finalizedL2B
 	case UpdateSuccess:
 		logger.Info("updated forkchoice")
 		e.l1Head = newL1Head
-		e.l2Head = payload.BlockHash
+		e.l2Head = eth.BlockID{Hash: payload.BlockHash, Number: uint64(payload.BlockNumber)}
 		return
 	}
 }
