@@ -105,54 +105,22 @@ func (e *Engine) RequestChainReference(l2Num *big.Int) (refL1 eth.BlockID, refL2
 	return
 }
 
-func (e *Engine) ProcessL1(dl l1.Downloader, newL1Head eth.BlockID, finalizedL2Block common.Hash) {
+func (e *Engine) Drive(dl l1.Downloader, l1Input eth.BlockID, l2Parent eth.BlockID, l2Finalized common.Hash) {
 	e.headLock.Lock()
 	defer e.headLock.Unlock()
 
 	logger := e.Log.New(
-		"prev_l1_nr", e.l1Head.Number, "prev_l1_hash", e.l1Head.Hash,
-		"prev_l2_hash", e.l2Head,
-		"l1_nr", newL1Head.Number, "l1_hash", newL1Head.Hash)
+		"eng_l1", e.l1Head,
+		"eng_l2", e.l2Head,
+		"input_l1", l1Input,
+		"input_l2_parent", l2Parent,
+		"finalized_l2", l2Finalized)
 
-	if newL1Head == e.l1Head {
-		// no-op, already processed it
-		logger.Debug("skipping, engine already processed block")
-		return
-	}
-
-	// check if it's in the far distance.
-	// Header sync will need to move back in history before we start fetching/caching full blocks.
-	if newL1Head.Number > e.l1Head.Number+5 {
-		logger.Info("Deferring processing, block too far out")
-		return
-	}
 	ctx, cancel := context.WithTimeout(e.Ctx, time.Second*20)
 	defer cancel()
-	bl, receipts, err := dl.Fetch(ctx, newL1Head)
+	bl, receipts, err := dl.Fetch(ctx, l1Input)
 	if err != nil {
 		logger.Warn("failed to fetch block with receipts")
-		return
-	}
-
-	// TODO: need to fix this for full reorg support (we detect L1 reorgs, but can't find the matching L2 hash)
-	parentL2BlockID := e.l2Head
-	if bl.ParentHash() != e.l1Head.Hash {
-		logger.Error("TODO: resolve L2 hash during reorgs of L1")
-		return
-	}
-
-	if newL1Head.Number+1 == e.l1Head.Number { // extension or reorg
-		if bl.ParentHash() != e.l1Head.Hash {
-			// still good we fetched the block,
-			// cache will make the reorg faster once we do get the connecting block.
-			return
-		}
-	} else if newL1Head.Number > e.l1Head.Number {
-		// Block is farther out, if far enough it would make sense to trigger a state-sync,
-		// instead of waiting for header-sync to figure out the first block.
-
-		// No state-sync for now
-		// TODO: can trigger state-sync if we have full L2 head block (e.g. retrieved via p2p in sequencer rollup)
 		return
 	}
 
@@ -163,16 +131,17 @@ func (e *Engine) ProcessL1(dl l1.Downloader, newL1Head eth.BlockID, finalizedL2B
 	}
 
 	preState := &ForkchoiceState{
-		HeadBlockHash:      parentL2BlockID.Hash, // no difference yet between Head and Safe, no data ahead of L1 yet.
-		SafeBlockHash:      parentL2BlockID.Hash,
-		FinalizedBlockHash: finalizedL2Block,
+		HeadBlockHash:      l2Parent.Hash, // no difference yet between Head and Safe, no data ahead of L1 yet.
+		SafeBlockHash:      l2Parent.Hash,
+		FinalizedBlockHash: l2Finalized,
 	}
 	payload, err := DeriveBlock(ctx, e.RPC, preState, attrs)
 	if err != nil {
 		logger.Error("failed to derive execution payload")
 		return
 	}
-	logger = logger.New("l2_nr", payload.BlockNumber, "l2_hash", payload.BlockHash)
+	l2ID := eth.BlockID{Hash: payload.BlockHash, Number: uint64(payload.BlockNumber)}
+	logger = logger.New("derived_l2", l2ID)
 	logger.Info("derived block")
 
 	ctx, cancel = context.WithTimeout(e.Ctx, time.Second*5)
@@ -199,7 +168,7 @@ func (e *Engine) ProcessL1(dl l1.Downloader, newL1Head eth.BlockID, finalizedL2B
 	postState := &ForkchoiceState{
 		HeadBlockHash:      payload.BlockHash, // no difference yet between Head and Safe, no data ahead of L1 yet.
 		SafeBlockHash:      payload.BlockHash,
-		FinalizedBlockHash: finalizedL2Block,
+		FinalizedBlockHash: l2Finalized,
 	}
 
 	ctx, cancel = context.WithTimeout(e.Ctx, time.Second*5)
@@ -215,8 +184,8 @@ func (e *Engine) ProcessL1(dl l1.Downloader, newL1Head eth.BlockID, finalizedL2B
 		return
 	case UpdateSuccess:
 		logger.Info("updated forkchoice")
-		e.l1Head = newL1Head
-		e.l2Head = eth.BlockID{Hash: payload.BlockHash, Number: uint64(payload.BlockNumber)}
+		e.l1Head = l1Input
+		e.l2Head = l2ID
 		return
 	}
 }
