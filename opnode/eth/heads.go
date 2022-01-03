@@ -8,19 +8,16 @@ import (
 	"github.com/ethereum/go-ethereum/event"
 )
 
-type HeadSignalTracker interface {
-	HeadSignal(parent BlockID, id BlockID)
+type HeadSignal struct {
+	Parent BlockID
+	Self   BlockID
 }
 
 // HeadSignalFn is called to inform a chain with a new head
-type HeadSignalFn func(parent BlockID, id BlockID)
-
-func (fn HeadSignalFn) HeadSignal(parent BlockID, id BlockID) {
-	fn(parent, id)
-}
+type HeadSignalFn func(sig HeadSignal)
 
 // WatchHeadChanges wraps a new-head subscription from ChainReader to feed the given Tracker
-func WatchHeadChanges(ctx context.Context, src NewHeadSource, tr HeadSignalTracker) (ethereum.Subscription, error) {
+func WatchHeadChanges(ctx context.Context, src NewHeadSource, fn HeadSignalFn) (ethereum.Subscription, error) {
 	headChanges := make(chan *types.Header, 10)
 	sub, err := src.SubscribeNewHead(ctx, headChanges)
 	if err != nil {
@@ -38,7 +35,7 @@ func WatchHeadChanges(ctx context.Context, src NewHeadSource, tr HeadSignalTrack
 				if height > 0 {
 					parent = BlockID{Hash: header.ParentHash, Number: height - 1}
 				}
-				tr.HeadSignal(parent, self)
+				fn(HeadSignal{Parent: parent, Self: self})
 			case err := <-sub.Err():
 				return err
 			case <-ctx.Done():

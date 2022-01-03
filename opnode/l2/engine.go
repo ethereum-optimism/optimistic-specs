@@ -7,6 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/event"
+
 	"github.com/ethereum/go-ethereum/core/types"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
@@ -29,20 +32,29 @@ type Engine struct {
 
 	// Locks the L1 and L2 head changes, to keep a consistent view of the engine
 	headLock sync.RWMutex
-	// l1Head tracks both number and hash, this simplifies L1 reorg detection
+
+	// l1Head tracks the L1 block corresponding to the l2Head
 	l1Head eth.BlockID
+
 	// l2Head tracks the head-block of the engine
 	l2Head eth.BlockID
+
+	// l2Finalized tracks the block the engine can safely regard as irreversible
+	// (a week for disputes, or maybe shorter if we see L1 finalize and take the derived L2 chain up till there)
+	l2Finalized eth.BlockID
+
+	// The L1 block we are syncing towards, may be ahead of l1Head
+	l1Target eth.BlockID
 }
 
-// L1 returns the block-id (hash and number) of the last L1 block that was derived into the L2 block
+// L1Head returns the block-id (hash and number) of the last L1 block that was derived into the L2 block
 func (e *Engine) L1Head() eth.BlockID {
 	e.headLock.RLock()
 	defer e.headLock.RUnlock()
 	return e.l1Head
 }
 
-// L2 returns the block-id (hash and number) of the L2 chain head
+// L2Head returns the block-id (hash and number) of the L2 chain head
 func (e *Engine) L2Head() eth.BlockID {
 	e.headLock.RLock()
 	defer e.headLock.RUnlock()
@@ -123,7 +135,77 @@ func ParseL2Block(refL2Block *types.Block) (refL1 eth.BlockID, refL2 eth.BlockID
 	return
 }
 
-func (e *Engine) Drive(dl l1.Downloader, l1Input eth.BlockID, l2Parent eth.BlockID, l2Finalized common.Hash) {
+func (e *Engine) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1Heads <-chan eth.HeadSignal) ethereum.Subscription {
+	return event.NewSubscription(func(quit <-chan struct{}) error {
+		hot := time.Millisecond * 30
+		cold := time.Second * 10
+		// TODO: we can apply a backoff whenever sync gets cold again. And reset cold-value after success
+		syncTicker := time.NewTicker(cold)
+		defer syncTicker.Stop()
+
+		for {
+			select {
+			case <-e.Ctx.Done():
+				return e.Ctx.Err()
+			case <-quit:
+				return nil
+			case l1HeadSig := <-l1Heads:
+				if e.l1Head == l1HeadSig.Self {
+					e.Log.Debug("Received L1 head signal, already synced to it, ignoring event", "l1_head", e.l1Head)
+					continue
+				}
+				if e.l1Head == l1HeadSig.Parent {
+					// Simple extend, a linear life is easy
+					if err := e.DriveStep(dl, l1HeadSig.Self, e.l2Head, e.l2Finalized.Hash); err != nil {
+						e.Log.Error("Failed to extend L2 chain with new L1 block", "l1", l1HeadSig.Self, "l2", e.l2Head, "err", err)
+						// Retry sync later
+						e.l1Target = l1HeadSig.Self
+						syncTicker.Reset(hot)
+						continue
+					}
+					continue
+				}
+				if e.l1Head.Number < l1HeadSig.Parent.Number {
+					e.Log.Debug("Received new L1 head, engine is out of sync, cannot immediately process", "l1", l1HeadSig.Self, "l2", e.l2Head)
+				} else {
+					e.Log.Warn("Received a L1 reorg, syncing new alternative chain", "l1", l1HeadSig.Self, "l2", e.l2Head)
+				}
+
+				e.l1Target = l1HeadSig.Self
+				syncTicker.Reset(hot)
+				continue
+			case <-syncTicker.C:
+				// If already synced, or in case of failure, we slow down
+				syncTicker.Reset(cold)
+				if e.l1Head == e.l1Target {
+					e.Log.Debug("Engine is fully synced", "l1_head", e.l1Head, "l2_head", e.l2Head)
+					// TODO: even though we are fully synced, it may be worth attempting anyway,
+					// in case the e.l1Head is not updating (failed/broken L1 head subscription)
+					continue
+				}
+				refL1, refL2, err := FindSyncStart(e.Ctx, canonicalL1, e.RPC)
+				if err != nil {
+					e.Log.Error("Failed to find sync starting point", "err", err)
+					continue
+				}
+				if refL1 == e.l1Head {
+					e.Log.Debug("Engine is already synced, aborting sync", "l1_head", e.l1Head, "l2_head", e.l2Head)
+					continue
+				}
+				if err := e.DriveStep(dl, refL1, refL2, e.l2Finalized.Hash); err != nil {
+					e.Log.Error("Failed to sync L2 chain with new L1 block", "l1", refL1, "onto_l2", refL2, "err", err)
+					continue
+				}
+				// Successfully stepped toward target. Continue quickly if we are not there yet
+				if e.l1Head != e.l1Target {
+					syncTicker.Reset(hot)
+				}
+			}
+		}
+	})
+}
+
+func (e *Engine) DriveStep(dl l1.Downloader, l1Input eth.BlockID, l2Parent eth.BlockID, l2Finalized common.Hash) error {
 	e.headLock.Lock()
 	defer e.headLock.Unlock()
 
@@ -138,14 +220,12 @@ func (e *Engine) Drive(dl l1.Downloader, l1Input eth.BlockID, l2Parent eth.Block
 	defer cancel()
 	bl, receipts, err := dl.Fetch(ctx, l1Input)
 	if err != nil {
-		logger.Warn("failed to fetch block with receipts")
-		return
+		return fmt.Errorf("failed to fetch block with receipts: %v", err)
 	}
 
 	attrs, err := DerivePayloadAttributes(bl, receipts)
 	if err != nil {
-		logger.Error("failed to derive execution payload inputs")
-		return
+		return fmt.Errorf("failed to derive execution payload inputs: %v", err)
 	}
 
 	preState := &ForkchoiceState{
@@ -155,8 +235,7 @@ func (e *Engine) Drive(dl l1.Downloader, l1Input eth.BlockID, l2Parent eth.Block
 	}
 	payload, err := DeriveBlock(ctx, e.RPC, preState, attrs)
 	if err != nil {
-		logger.Error("failed to derive execution payload")
-		return
+		return fmt.Errorf("failed to derive execution payload: %v", err)
 	}
 	l2ID := eth.BlockID{Hash: payload.BlockHash, Number: uint64(payload.BlockNumber)}
 	logger = logger.New("derived_l2", l2ID)
@@ -166,21 +245,17 @@ func (e *Engine) Drive(dl l1.Downloader, l1Input eth.BlockID, l2Parent eth.Block
 	defer cancel()
 	execRes, err := e.RPC.ExecutePayload(ctx, payload)
 	if err != nil {
-		logger.Error("failed to execute payload")
-		return
+		return fmt.Errorf("failed to execute payload: %v", err)
 	}
 	switch execRes.Status {
 	case ExecutionValid:
 		logger.Info("Executed new payload")
 	case ExecutionSyncing:
-		logger.Info("Failed to execute payload, node is syncing")
-		return
+		return fmt.Errorf("failed to execute payload %s, node is syncing, latest valid hash is %s", l2ID, execRes.LatestValidHash)
 	case ExecutionInvalid:
-		logger.Error("Execution payload was INVALID! Ignoring bad block")
-		return
+		return fmt.Errorf("execution payload %s was INVALID! Latest valid hash is %s, ignoring bad block: %q", l2ID, execRes.LatestValidHash, execRes.ValidationError)
 	default:
-		logger.Error("Unknown execution status")
-		return
+		return fmt.Errorf("unknown execution status on %s: %q, ", l2ID, string(execRes.Status))
 	}
 
 	postState := &ForkchoiceState{
@@ -193,18 +268,18 @@ func (e *Engine) Drive(dl l1.Downloader, l1Input eth.BlockID, l2Parent eth.Block
 	defer cancel()
 	fcRes, err := e.RPC.ForkchoiceUpdated(ctx, postState, nil)
 	if err != nil {
-		logger.Error("failed to update forkchoice")
-		return
+		return fmt.Errorf("failed to update forkchoice: %v", err)
 	}
 	switch fcRes.Status {
 	case UpdateSyncing:
-		logger.Info("updated forkchoice, but node is syncing")
-		return
+		return fmt.Errorf("updated forkchoice, but node is syncing: %v", err)
 	case UpdateSuccess:
 		logger.Info("updated forkchoice")
 		e.l1Head = l1Input
 		e.l2Head = l2ID
-		return
+		return nil
+	default:
+		return fmt.Errorf("unknown forkchoice status on %s: %q, ", l2ID, string(fcRes.Status))
 	}
 }
 
@@ -212,16 +287,7 @@ func (e *Engine) Close() {
 	e.RPC.Close()
 }
 
-type BlockHashByNumber interface {
-	BlockHashByNumber(ctx context.Context, num uint64) (common.Hash, error)
-}
-
-type BlockSource interface {
-	eth.BlockByHashSource
-	eth.BlockByNumberSource
-}
-
-func FindSyncStart(ctx context.Context, l1Src BlockHashByNumber, l2Src BlockSource) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
+func FindSyncStart(ctx context.Context, l1Src eth.BlockHashByNumber, l2Src eth.BlockSource) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 	var parentL2 common.Hash
@@ -232,7 +298,8 @@ func FindSyncStart(ctx context.Context, l1Src BlockHashByNumber, l2Src BlockSour
 		return
 	}
 	// Check if L1 source has the block
-	l1Hash, err := l1Src.BlockHashByNumber(ctx, refL1.Number)
+	var l1Hash common.Hash
+	l1Hash, err = l1Src.BlockHashByNumber(ctx, refL1.Number)
 	if err != nil {
 		err = fmt.Errorf("failed to lookup block %d in L1: %v", refL1.Number, err)
 		return
@@ -250,7 +317,7 @@ func FindSyncStart(ctx context.Context, l1Src BlockHashByNumber, l2Src BlockSour
 			return
 		}
 		// Check if L1 source has the block
-		l1Hash, err := l1Src.BlockHashByNumber(ctx, refL1.Number)
+		l1Hash, err = l1Src.BlockHashByNumber(ctx, refL1.Number)
 		if err != nil {
 			err = fmt.Errorf("failed to lookup block %d in L1: %v", refL1.Number, err)
 			return

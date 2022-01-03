@@ -18,6 +18,10 @@ type HeaderByHashSource interface {
 	HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error)
 }
 
+type HeaderByNumberSource interface {
+	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
+}
+
 type ReceiptSource interface {
 	TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error)
 }
@@ -33,9 +37,15 @@ type BlockByNumberSource interface {
 type L1Source interface {
 	NewHeadSource
 	HeaderByHashSource
+	HeaderByNumberSource
 	ReceiptSource
 	BlockByHashSource
 	Close()
+}
+
+type BlockSource interface {
+	BlockByHashSource
+	BlockByNumberSource
 }
 
 // For test instances, composition etc. we implement the interfaces with equivalent function types
@@ -50,6 +60,12 @@ type HeaderByHashFn func(ctx context.Context, hash common.Hash) (*types.Header, 
 
 func (fn HeaderByHashFn) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
 	return fn(ctx, hash)
+}
+
+type HeaderByNumberFn func(ctx context.Context, number *big.Int) (*types.Header, error)
+
+func (fn HeaderByNumberFn) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+	return fn(ctx, number)
 }
 
 type ReceiptFn func(ctx context.Context, txHash common.Hash) (*types.Receipt, error)
@@ -85,6 +101,10 @@ func NewCombinedL1Source(sources []L1Source) L1Source {
 
 func (cs *CombinedL1Source) HeaderByHash(ctx context.Context, hash common.Hash) (*types.Header, error) {
 	return cs.sources[atomic.AddUint64(&cs.i, 1)%uint64(len(cs.sources))].HeaderByHash(ctx, hash)
+}
+
+func (cs *CombinedL1Source) HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error) {
+	return cs.sources[atomic.AddUint64(&cs.i, 1)%uint64(len(cs.sources))].HeaderByNumber(ctx, number)
 }
 
 func (cs *CombinedL1Source) SubscribeNewHead(ctx context.Context, ch chan<- *types.Header) (ethereum.Subscription, error) {

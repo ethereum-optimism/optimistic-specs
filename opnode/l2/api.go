@@ -196,6 +196,7 @@ type RPCBackend interface {
 }
 
 type EthBackend interface {
+	eth.BlockByHashSource
 	eth.BlockByNumberSource
 	eth.NewHeadSource
 }

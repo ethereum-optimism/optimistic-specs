@@ -35,7 +35,6 @@ type OpNodeCmd struct {
 	// engines to keep synced
 	l2Engines []*l2.Engine
 
-	l1Tracker    l1.Tracker
 	l1Downloader l1.Downloader
 
 	ctx   context.Context
@@ -102,8 +101,6 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 	// TODO: maybe spin up an API server
 	//  (to get debug data, change runtime settings like logging, serve pprof, get peering info, node health, etc.)
 
-	c.l1Tracker = l1.NewTracker()
-
 	c.close = make(chan chan error)
 
 	go c.RunNode()
@@ -135,10 +132,18 @@ func (c *OpNodeCmd) RunNode() {
 	// We download receipts in parallel
 	c.l1Downloader.AddReceiptWorkers(4)
 
+	// Feed of eth.HeadSignal
+	var l1HeadsFeed event.Feed
+
+	l1CanonicalChain := eth.CanonicalChain(l1Source)
+
 	for _, eng := range c.l2Engines {
-		// start syncing headers in the background, based on head signals
-		l1HeaderSyncSub := l1.HeaderSync(c.ctx, l1Source, c.l1Tracker, c.log, c.l1Downloader, eng)
-		mergeSub(l1HeaderSyncSub, "header sync unexpectedly failed")
+		// driver subscribes to L1 head changes
+		l1SubCh := make(chan eth.HeadSignal, 10)
+		l1HeadsFeed.Subscribe(l1SubCh)
+		// start driving engine: sync blocks by deriving them from L1 and driving them into the engine
+		engDriveSub := eng.Drive(c.l1Downloader, l1CanonicalChain, l1SubCh)
+		mergeSub(engDriveSub, "engine driver unexpectedly failed")
 	}
 
 	// Keep subscribed to the L1 heads, which keeps the L1 maintainer pointing to the best headers to sync
@@ -146,13 +151,15 @@ func (c *OpNodeCmd) RunNode() {
 		if err != nil {
 			c.log.Warn("resubscribing after failed L1 subscription", "err", err)
 		}
-		return eth.WatchHeadChanges(c.ctx, l1Source, c.l1Tracker)
+		return eth.WatchHeadChanges(c.ctx, l1Source, eth.HeadSignalFn(func(sig eth.HeadSignal) {
+			l1HeadsFeed.Send(sig)
+		}))
 	})
 	mergeSub(l1HeadsSub, "l1 heads subscription failed")
 
-	// feed from tracker, as fed with head events from above subscription
-	l1Heads := make(chan eth.BlockID)
-	mergeSub(c.l1Tracker.WatchHeads(l1Heads), "l1 heads info feed unexpectedly failed")
+	// subscribe to L1 heads for info
+	l1Heads := make(chan eth.BlockID, 10)
+	l1HeadsFeed.Subscribe(l1Heads)
 
 	for {
 		select {
