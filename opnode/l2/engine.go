@@ -65,7 +65,7 @@ func (e *Engine) UpdateHead(l1Head eth.BlockID, l2Head eth.BlockID) {
 func (e *Engine) RequestHeadUpdate() error {
 	e.headLock.Lock()
 	defer e.headLock.Unlock()
-	refL1, refL2, err := e.RequestChainReference(nil)
+	refL1, refL2, _, err := RefByL2Num(e.Ctx, e.RPC, nil)
 	if err != nil {
 		return err
 	}
@@ -74,17 +74,35 @@ func (e *Engine) RequestHeadUpdate() error {
 	return nil
 }
 
-// RequestChainReference fetches the L1 and L2 block IDs from the engine for the given L2 block height.
+// RefByL2Num fetches the L1 and L2 block IDs from the engine for the given L2 block height.
 // Use a nil height to fetch the head.
-func (e *Engine) RequestChainReference(l2Num *big.Int) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
-	ctx, cancel := context.WithTimeout(e.Ctx, time.Second*5)
+func RefByL2Num(ctx context.Context, src eth.BlockByNumberSource, l2Num *big.Int) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
-	refL2Block, err := e.RPC.BlockByNumber(ctx, l2Num) // nil for latest block
+	refL2Block, err := src.BlockByNumber(ctx, l2Num) // nil for latest block
 	if err != nil {
 		err = fmt.Errorf("failed to retrieve head L2 block: %v", err)
 		return
 	}
+	return ParseL2Block(refL2Block)
+}
+
+// RefByL2Hash fetches the L1 and L2 block IDs from the engine for the given L2 block height.
+// Use a nil height to fetch the head.
+func RefByL2Hash(ctx context.Context, src eth.BlockByHashSource, l2Hash common.Hash) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+	refL2Block, err := src.BlockByHash(ctx, l2Hash)
+	if err != nil {
+		err = fmt.Errorf("failed to retrieve head L2 block: %v", err)
+		return
+	}
+	return ParseL2Block(refL2Block)
+}
+
+func ParseL2Block(refL2Block *types.Block) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
 	refL2 = eth.BlockID{Hash: refL2Block.Hash(), Number: refL2Block.NumberU64()}
+	parentL2 = refL2Block.ParentHash()
 
 	if refL2Block.NumberU64() == 0 {
 		// TODO: set to genesis L1 block ID (after sanity checking we got the right L2 genesis block from the engine)
@@ -192,4 +210,55 @@ func (e *Engine) Drive(dl l1.Downloader, l1Input eth.BlockID, l2Parent eth.Block
 
 func (e *Engine) Close() {
 	e.RPC.Close()
+}
+
+type BlockHashByNumber interface {
+	BlockHashByNumber(ctx context.Context, num uint64) (common.Hash, error)
+}
+
+type BlockSource interface {
+	eth.BlockByHashSource
+	eth.BlockByNumberSource
+}
+
+func FindSyncStart(ctx context.Context, l1Src BlockHashByNumber, l2Src BlockSource) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+	var parentL2 common.Hash
+	// Start at L2 head
+	refL1, refL2, parentL2, err = RefByL2Num(ctx, l2Src, nil)
+	if err != nil {
+		err = fmt.Errorf("failed to fetch L2 head: %v", err)
+		return
+	}
+	// Check if L1 source has the block
+	l1Hash, err := l1Src.BlockHashByNumber(ctx, refL1.Number)
+	if err != nil {
+		err = fmt.Errorf("failed to lookup block %d in L1: %v", refL1.Number, err)
+		return
+	}
+	if l1Hash == refL1.Hash {
+		return
+	}
+
+	// Search back
+	for refL2.Number > 0 {
+		refL1, refL2, parentL2, err = RefByL2Hash(ctx, l2Src, parentL2)
+		if err != nil {
+			// TODO: re-attempt look-up, now that we already traversed previous history?
+			err = fmt.Errorf("failed to lookup block %d in L1: %v", refL1.Number, err)
+			return
+		}
+		// Check if L1 source has the block
+		l1Hash, err := l1Src.BlockHashByNumber(ctx, refL1.Number)
+		if err != nil {
+			err = fmt.Errorf("failed to lookup block %d in L1: %v", refL1.Number, err)
+			return
+		}
+		if l1Hash == refL1.Hash {
+			return
+		}
+	}
+	// TODO: check if refL1 from L2 node matches our expected genesis hash (not derived from L1)
+	return
 }
