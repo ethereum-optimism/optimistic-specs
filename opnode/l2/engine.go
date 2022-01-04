@@ -35,6 +35,11 @@ type Engine struct {
 	// API bindings to execution engine
 	RPC DriverAPI
 
+	// The current driving force, to shutdown before closing the engine.
+	driveSub ethereum.Subscription
+	// There may only be 1 driver at a time
+	driveLock sync.Mutex
+
 	// Locks the L1 and L2 head changes, to keep a consistent view of the engine
 	headLock sync.RWMutex
 
@@ -155,7 +160,12 @@ func ParseL2Block(refL2Block *types.Block, genesis *Genesis) (refL1 eth.BlockID,
 }
 
 func (e *Engine) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1Heads <-chan eth.HeadSignal) ethereum.Subscription {
-	return event.NewSubscription(func(quit <-chan struct{}) error {
+	e.driveLock.Lock()
+	defer e.driveLock.Unlock()
+	if e.driveSub != nil {
+		return e.driveSub
+	}
+	e.driveSub = event.NewSubscription(func(quit <-chan struct{}) error {
 		// keep making many sync steps if we can make sync progress
 		hot := time.Millisecond * 30
 		// check on sync regularly, but prioritize sync triggers with head updates etc.
@@ -257,6 +267,7 @@ func (e *Engine) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1He
 			}
 		}
 	})
+	return e.driveSub
 }
 
 func (e *Engine) DriveStep(dl l1.Downloader, l1Input eth.BlockID, l2Parent eth.BlockID, l2Finalized common.Hash) error {
@@ -339,6 +350,7 @@ func (e *Engine) DriveStep(dl l1.Downloader, l1Input eth.BlockID, l2Parent eth.B
 
 func (e *Engine) Close() {
 	e.RPC.Close()
+	e.driveSub.Unsubscribe()
 }
 
 func FindSyncStart(ctx context.Context, l1Src eth.BlockHashByNumber, l2Src eth.BlockSource, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
