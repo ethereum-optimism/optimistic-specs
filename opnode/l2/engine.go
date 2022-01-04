@@ -156,18 +156,37 @@ func ParseL2Block(refL2Block *types.Block, genesis *Genesis) (refL1 eth.BlockID,
 
 func (e *Engine) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1Heads <-chan eth.HeadSignal) ethereum.Subscription {
 	return event.NewSubscription(func(quit <-chan struct{}) error {
+		// keep making many sync steps if we can make sync progress
 		hot := time.Millisecond * 30
-		cold := time.Second * 10
-		// TODO: we can apply a backoff whenever sync gets cold again. And reset cold-value after success
+		// check on sync regularly, but prioritize sync triggers with head updates etc.
+		cold := time.Second * 15
+		// at least try every minute to sync, even if things are going well
+		max := time.Minute
+
 		syncTicker := time.NewTicker(cold)
 		defer syncTicker.Stop()
+
+		// backoff sync attempts if we are not making progress
+		backoff := cold
+		syncQuickly := func() {
+			syncTicker.Reset(hot)
+			backoff = cold
+		}
+		// exponential backoff, add 10% each step, up to max.
+		syncBackoff := func() {
+			backoff += backoff / 10
+			if backoff > max {
+				backoff = max
+			}
+			syncTicker.Reset(backoff)
+		}
 
 		l2HeadPollTicker := time.NewTicker(time.Second * 14)
 		defer l2HeadPollTicker.Stop()
 
 		onL2Update := func() {
 			// When we updated L2, we want to continue sync quickly
-			syncTicker.Reset(hot)
+			syncQuickly()
 			// And we want to slow down requesting the L2 engine for its head (we just changed it ourselves)
 			// Request head if we don't successfully change it in the next 14 seconds.
 			l2HeadPollTicker.Reset(time.Second * 14)
@@ -207,11 +226,11 @@ func (e *Engine) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1He
 				}
 
 				e.l1Target = l1HeadSig.Self
-				syncTicker.Reset(hot)
+				syncQuickly()
 				continue
 			case <-syncTicker.C:
 				// If already synced, or in case of failure, we slow down
-				syncTicker.Reset(cold)
+				syncBackoff()
 				if e.l1Head == e.l1Target {
 					e.Log.Debug("Engine is fully synced", "l1_head", e.l1Head, "l2_head", e.l2Head)
 					// TODO: even though we are fully synced, it may be worth attempting anyway,
