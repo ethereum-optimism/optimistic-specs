@@ -24,6 +24,11 @@ type DriverAPI interface {
 	EthBackend
 }
 
+type Genesis struct {
+	L1 eth.BlockID
+	L2 eth.BlockID
+}
+
 type Engine struct {
 	Ctx context.Context
 	Log log.Logger
@@ -45,6 +50,9 @@ type Engine struct {
 
 	// The L1 block we are syncing towards, may be ahead of l1Head
 	l1Target eth.BlockID
+
+	// Genesis starting point
+	Genesis Genesis
 }
 
 // L1Head returns the block-id (hash and number) of the last L1 block that was derived into the L2 block
@@ -77,7 +85,7 @@ func (e *Engine) UpdateHead(l1Head eth.BlockID, l2Head eth.BlockID) {
 func (e *Engine) RequestHeadUpdate() error {
 	e.headLock.Lock()
 	defer e.headLock.Unlock()
-	refL1, refL2, _, err := RefByL2Num(e.Ctx, e.RPC, nil)
+	refL1, refL2, _, err := RefByL2Num(e.Ctx, e.RPC, nil, &e.Genesis)
 	if err != nil {
 		return err
 	}
@@ -88,32 +96,43 @@ func (e *Engine) RequestHeadUpdate() error {
 
 // RefByL2Num fetches the L1 and L2 block IDs from the engine for the given L2 block height.
 // Use a nil height to fetch the head.
-func RefByL2Num(ctx context.Context, src eth.BlockByNumberSource, l2Num *big.Int) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
+func RefByL2Num(ctx context.Context, src eth.BlockByNumberSource, l2Num *big.Int, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
-	refL2Block, err := src.BlockByNumber(ctx, l2Num) // nil for latest block
-	if err != nil {
-		err = fmt.Errorf("failed to retrieve head L2 block: %v", err)
+	refL2Block, err2 := src.BlockByNumber(ctx, l2Num) // nil for latest block
+	if err2 != nil {
+		err = fmt.Errorf("failed to retrieve head L2 block: %v", err2)
 		return
 	}
-	return ParseL2Block(refL2Block)
+	return ParseL2Block(refL2Block, genesis)
 }
 
 // RefByL2Hash fetches the L1 and L2 block IDs from the engine for the given L2 block height.
 // Use a nil height to fetch the head.
-func RefByL2Hash(ctx context.Context, src eth.BlockByHashSource, l2Hash common.Hash) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
+func RefByL2Hash(ctx context.Context, src eth.BlockByHashSource, l2Hash common.Hash, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
-	refL2Block, err := src.BlockByHash(ctx, l2Hash)
-	if err != nil {
-		err = fmt.Errorf("failed to retrieve head L2 block: %v", err)
+	refL2Block, err2 := src.BlockByHash(ctx, l2Hash)
+	if err2 != nil {
+		err = fmt.Errorf("failed to retrieve head L2 block: %v", err2)
 		return
 	}
-	return ParseL2Block(refL2Block)
+	return ParseL2Block(refL2Block, genesis)
 }
 
-func ParseL2Block(refL2Block *types.Block) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
+func ParseL2Block(refL2Block *types.Block, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
 	refL2 = eth.BlockID{Hash: refL2Block.Hash(), Number: refL2Block.NumberU64()}
+	if refL2.Number <= genesis.L2.Number {
+		if refL2.Hash != genesis.L2.Hash {
+			err = fmt.Errorf("unexpected L2 genesis block: %s, expected %s", refL2, genesis.L2)
+			return
+		}
+		refL1 = genesis.L1
+		refL2 = genesis.L2
+		parentL2 = common.Hash{}
+		return
+	}
+
 	parentL2 = refL2Block.ParentHash()
 
 	if refL2Block.NumberU64() == 0 {
@@ -143,12 +162,28 @@ func (e *Engine) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1He
 		syncTicker := time.NewTicker(cold)
 		defer syncTicker.Stop()
 
+		l2HeadPollTicker := time.NewTicker(time.Second * 14)
+		defer l2HeadPollTicker.Stop()
+
+		onL2Update := func() {
+			// When we updated L2, we want to continue sync quickly
+			syncTicker.Reset(hot)
+			// And we want to slow down requesting the L2 engine for its head (we just changed it ourselves)
+			// Request head if we don't successfully change it in the next 14 seconds.
+			l2HeadPollTicker.Reset(time.Second * 14)
+		}
+
 		for {
 			select {
 			case <-e.Ctx.Done():
 				return e.Ctx.Err()
 			case <-quit:
 				return nil
+			case <-l2HeadPollTicker.C:
+				if err := e.RequestHeadUpdate(); err != nil {
+					e.Log.Error("failed to fetch L2 head info", "err", err)
+				}
+				continue
 			case l1HeadSig := <-l1Heads:
 				if e.l1Head == l1HeadSig.Self {
 					e.Log.Debug("Received L1 head signal, already synced to it, ignoring event", "l1_head", e.l1Head)
@@ -160,7 +195,7 @@ func (e *Engine) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1He
 						e.Log.Error("Failed to extend L2 chain with new L1 block", "l1", l1HeadSig.Self, "l2", e.l2Head, "err", err)
 						// Retry sync later
 						e.l1Target = l1HeadSig.Self
-						syncTicker.Reset(hot)
+						onL2Update()
 						continue
 					}
 					continue
@@ -183,7 +218,7 @@ func (e *Engine) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1He
 					// in case the e.l1Head is not updating (failed/broken L1 head subscription)
 					continue
 				}
-				refL1, refL2, err := FindSyncStart(e.Ctx, canonicalL1, e.RPC)
+				refL1, refL2, err := FindSyncStart(e.Ctx, canonicalL1, e.RPC, &e.Genesis)
 				if err != nil {
 					e.Log.Error("Failed to find sync starting point", "err", err)
 					continue
@@ -198,7 +233,7 @@ func (e *Engine) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1He
 				}
 				// Successfully stepped toward target. Continue quickly if we are not there yet
 				if e.l1Head != e.l1Target {
-					syncTicker.Reset(hot)
+					onL2Update()
 				}
 			}
 		}
@@ -287,12 +322,12 @@ func (e *Engine) Close() {
 	e.RPC.Close()
 }
 
-func FindSyncStart(ctx context.Context, l1Src eth.BlockHashByNumber, l2Src eth.BlockSource) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
+func FindSyncStart(ctx context.Context, l1Src eth.BlockHashByNumber, l2Src eth.BlockSource, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 	var parentL2 common.Hash
 	// Start at L2 head
-	refL1, refL2, parentL2, err = RefByL2Num(ctx, l2Src, nil)
+	refL1, refL2, parentL2, err = RefByL2Num(ctx, l2Src, nil, genesis)
 	if err != nil {
 		err = fmt.Errorf("failed to fetch L2 head: %v", err)
 		return
@@ -308,9 +343,9 @@ func FindSyncStart(ctx context.Context, l1Src eth.BlockHashByNumber, l2Src eth.B
 		return
 	}
 
-	// Search back
+	// Search back: linear walk back from engine head. Should only be as deep as the reorg.
 	for refL2.Number > 0 {
-		refL1, refL2, parentL2, err = RefByL2Hash(ctx, l2Src, parentL2)
+		refL1, refL2, parentL2, err = RefByL2Hash(ctx, l2Src, parentL2, genesis)
 		if err != nil {
 			// TODO: re-attempt look-up, now that we already traversed previous history?
 			err = fmt.Errorf("failed to lookup block %d in L1: %v", refL1.Number, err)
@@ -325,7 +360,15 @@ func FindSyncStart(ctx context.Context, l1Src eth.BlockHashByNumber, l2Src eth.B
 		if l1Hash == refL1.Hash {
 			return
 		}
+		// TODO: after e.g. initial N steps, use binary search instead
+		// (relies on block numbers, not great for tip of chain, but nice-to-have in deep reorgs)
 	}
-	// TODO: check if refL1 from L2 node matches our expected genesis hash (not derived from L1)
+	// Enforce that we build on the desired genesis block.
+	// The engine might be configured for a different chain or older testnet.
+	if refL2 != genesis.L2 {
+		err = fmt.Errorf("engine was anchored at unexpected block: %s, expected %s", refL2, genesis.L2)
+		return
+	}
+	// we got the correct genesis, all good, but a lot to sync!
 	return
 }
