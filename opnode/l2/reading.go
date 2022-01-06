@@ -47,12 +47,6 @@ func ParseBlockReferences(refL2Block Block, genesis *Genesis) (refL1 eth.BlockID
 	}
 
 	parentL2 = refL2Block.ParentHash()
-
-	if refL2Block.NumberU64() == 0 {
-		// TODO: set to genesis L1 block ID (after sanity checking we got the right L2 genesis block from the engine)
-		refL1 = eth.BlockID{}
-		return
-	}
 	txs := refL2Block.Transactions()
 	if len(txs) == 0 || txs[0].Type() != types.DepositTxType {
 		err = fmt.Errorf("l2 block is missing L1 info deposit tx, block hash: %s", refL2Block.Hash())
