@@ -60,11 +60,15 @@ func UnmarshalLogEvent(blockNum uint64, txIndex uint64, ev *types.Log) (*types.D
 	to := common.BytesToAddress(ev.Topics[2][12:])
 
 	// unindexed data
-	offset := 0
+	offset := uint64(0)
 	dep.Value = new(big.Int).SetBytes(ev.Data[offset : offset+32])
 	offset += 32
 
 	dep.Mint = new(big.Int).SetBytes(ev.Data[offset : offset+32])
+	// 0 mint is represented as nil to skip minting code
+	if dep.Mint.Cmp(new(big.Int)) == 0 {
+		dep.Mint = nil
+	}
 	offset += 32
 
 	gas := new(big.Int).SetBytes(ev.Data[offset : offset+32])
@@ -89,8 +93,8 @@ func UnmarshalLogEvent(blockNum uint64, txIndex uint64, ev *types.Log) (*types.D
 	var dataLen uint256.Int
 	dataLen.SetBytes(ev.Data[offset : offset+32])
 	offset += 32
-	if dataLen.Eq(uint256.NewInt(uint64(len(ev.Data) - offset))) {
-		return nil, fmt.Errorf("inconsistent data length: %v", dataLen[0])
+	if !dataLen.IsUint64() || dataLen.Uint64() != uint64(len(ev.Data))-offset {
+		return nil, fmt.Errorf("inconsistent data length: %s, expected %d", dataLen.String(), uint64(len(ev.Data))-offset)
 	}
 
 	// remaining bytes fill the data
