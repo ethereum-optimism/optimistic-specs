@@ -43,7 +43,7 @@ type OpNodeCmd struct {
 	l1Sources []eth.L1Source
 
 	// engines to keep synced
-	l2Engines []*l2.Engine
+	l2Engines []*l2.EngineDriver
 
 	l1Downloader l1.Downloader
 
@@ -104,7 +104,7 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 			EthBackend: ethclient.NewClient(backend),
 			Log:        c.log.New("engine_client", i),
 		}
-		engine := &l2.Engine{
+		engine := &l2.EngineDriver{
 			Ctx: c.ctx,
 			Log: c.log.New("engine", i),
 			RPC: client,

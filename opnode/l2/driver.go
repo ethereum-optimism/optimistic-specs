@@ -2,235 +2,214 @@ package l2
 
 import (
 	"context"
-	"encoding/binary"
-	"fmt"
-	"math/big"
+	"sync"
+	"time"
 
-	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/trie"
-	"github.com/holiman/uint256"
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/event"
+
+	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
+
+	"github.com/ethereum-optimism/optimistic-specs/opnode/l1"
+	"github.com/ethereum/go-ethereum/log"
 )
 
-var (
-	DepositEventABI     = "TransactionDeposited(address,address,uint256,uint256,bool,bytes)"
-	DepositEventABIHash = crypto.Keccak256Hash([]byte(DepositEventABI))
-	DepositContractAddr = common.HexToAddress("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001")
-	L1InfoFuncSignature = "setL1BlockValues(uint256 _number, uint256 _timestamp, uint256 _basefee, bytes32 _hash)"
-	L1InfoFuncBytes4    = crypto.Keccak256([]byte(L1InfoFuncSignature))[:4]
-	L1InfoPredeployAddr = common.HexToAddress("0x4242424242424242424242424242424242424242")
-)
-
-// UnmarshalLogEvent decodes an EVM log entry emitted by the deposit contract into typed deposit data.
-//
-// parse log data for:
-//     event TransactionDeposited(
-//    	 address indexed from,
-//    	 address indexed to,
-//       uint256 mint,
-//    	 uint256 value,
-//    	 uint256 gasLimit,
-//    	 bool isCreation,
-//    	 data data
-//     );
-//
-// Deposits additionally get:
-//  - blockNum matching the L1 block height
-//  - txIndex: matching the deposit index, not L1 transaction index, since there can be multiple deposits per L1 tx
-func UnmarshalLogEvent(blockNum uint64, txIndex uint64, ev *types.Log) (*types.DepositTx, error) {
-	if len(ev.Topics) != 3 {
-		return nil, fmt.Errorf("expected 3 event topics (event identity, indexed from, indexed to)")
-	}
-	if ev.Topics[0] != DepositEventABIHash {
-		return nil, fmt.Errorf("invalid deposit event selector: %s, expected %s", ev.Topics[0], DepositEventABIHash)
-	}
-	if len(ev.Data) < 7*32 {
-		return nil, fmt.Errorf("deposit event data too small (%d bytes): %x", len(ev.Data), ev.Data)
-	}
-
-	var dep types.DepositTx
-
-	dep.BlockHeight = blockNum
-	dep.TransactionIndex = txIndex
-
-	// indexed 0
-	dep.From = common.BytesToAddress(ev.Topics[1][12:])
-	// indexed 1
-	to := common.BytesToAddress(ev.Topics[2][12:])
-
-	// unindexed data
-	offset := uint64(0)
-	dep.Value = new(big.Int).SetBytes(ev.Data[offset : offset+32])
-	offset += 32
-
-	dep.Mint = new(big.Int).SetBytes(ev.Data[offset : offset+32])
-	// 0 mint is represented as nil to skip minting code
-	if dep.Mint.Cmp(new(big.Int)) == 0 {
-		dep.Mint = nil
-	}
-	offset += 32
-
-	gas := new(big.Int).SetBytes(ev.Data[offset : offset+32])
-	if !gas.IsUint64() {
-		return nil, fmt.Errorf("bad gas value: %x", ev.Data[offset:offset+32])
-	}
-	offset += 32
-	dep.Gas = gas.Uint64()
-	// isCreation: If the boolean byte is 1 then dep.To will stay nil,
-	// and it will create a contract using L2 account nonce to determine the created address.
-	if ev.Data[offset+31] == 0 {
-		dep.To = &to
-	}
-	offset += 32
-	var dataOffset uint256.Int
-	dataOffset.SetBytes(ev.Data[offset : offset+32])
-	offset += 32
-	if dataOffset.Eq(uint256.NewInt(128)) {
-		return nil, fmt.Errorf("incorrect data offset: %v", dataOffset[0])
-	}
-
-	var dataLen uint256.Int
-	dataLen.SetBytes(ev.Data[offset : offset+32])
-	offset += 32
-	if !dataLen.IsUint64() || dataLen.Uint64() != uint64(len(ev.Data))-offset {
-		return nil, fmt.Errorf("inconsistent data length: %s, expected %d", dataLen.String(), uint64(len(ev.Data))-offset)
-	}
-
-	// remaining bytes fill the data
-	dep.Data = ev.Data[offset:]
-
-	return &dep, nil
+type DriverAPI interface {
+	EngineAPI
+	EthBackend
 }
 
-// CheckReceipts sanity checks that the receipts are consistent with the block data.
-func CheckReceipts(block *types.Block, receipts []*types.Receipt) bool {
-	hasher := trie.NewStackTrie(nil)
-	computed := types.DeriveSha(types.Receipts(receipts), hasher)
-	return block.ReceiptHash() == computed
+type Genesis struct {
+	L1 eth.BlockID
+	L2 eth.BlockID
 }
 
-const L1InfoDepositIndex uint64 = 0xFFFF_FFFF_FFFF_FFFF
+type EngineDriver struct {
+	Ctx context.Context
+	Log log.Logger
+	// API bindings to execution engine
+	RPC DriverAPI
 
-// TODO: marshal/unmarshal typed data into the L1 info data bytes would be neat
+	// The current driving force, to shutdown before closing the engine.
+	driveSub ethereum.Subscription
+	// There may only be 1 driver at a time
+	driveLock sync.Mutex
 
-func DeriveL1InfoDeposit(block *types.Block) *types.DepositTx {
-	data := make([]byte, 4+8+8+32+32)
-	offset := 0
-	copy(data[offset:4], L1InfoFuncBytes4)
-	offset += 4
-	binary.BigEndian.PutUint64(data[offset:offset+8], block.NumberU64())
-	offset += 8
-	binary.BigEndian.PutUint64(data[offset:offset+8], block.Time())
-	offset += 8
-	block.BaseFee().FillBytes(data[offset : offset+32])
-	offset += 32
-	copy(data[offset:offset+32], block.Hash().Bytes())
+	// Locks the L1 and L2 head changes, to keep a consistent view of the engine
+	headLock sync.RWMutex
 
-	return &types.DepositTx{
-		BlockHeight:      block.NumberU64(),
-		TransactionIndex: L1InfoDepositIndex, // not from a log event, but generated by system
-		From:             DepositContractAddr,
-		To:               &L1InfoPredeployAddr,
-		Mint:             nil,
-		Value:            big.NewInt(0),
-		Gas:              99_999_999,
-		Data:             data,
-	}
+	// l1Head tracks the L1 block corresponding to the l2Head
+	l1Head eth.BlockID
+
+	// l2Head tracks the head-block of the engine
+	l2Head eth.BlockID
+
+	// l2Finalized tracks the block the engine can safely regard as irreversible
+	// (a week for disputes, or maybe shorter if we see L1 finalize and take the derived L2 chain up till there)
+	l2Finalized eth.BlockID
+
+	// The L1 block we are syncing towards, may be ahead of l1Head
+	l1Target eth.BlockID
+
+	// Genesis starting point
+	Genesis Genesis
 }
 
-func ParseL1InfoDepositTxData(data []byte) (nr uint64, time uint64, baseFee *big.Int, blockHash common.Hash, err error) {
-	if len(data) != 4+8+8+32+32 {
-		err = fmt.Errorf("data is unexpected length: %d", len(data))
-		return
-	}
-	offset := 4
-	nr = binary.BigEndian.Uint64(data[offset : offset+8])
-	offset += 8
-	time = binary.BigEndian.Uint64(data[offset : offset+8])
-	offset += 8
-	baseFee = new(big.Int).SetBytes(data[offset : offset+32])
-	offset += 32
-	blockHash.SetBytes(data[offset : offset+32])
-	return
+// L1Head returns the block-id (hash and number) of the last L1 block that was derived into the L2 block
+func (e *EngineDriver) L1Head() eth.BlockID {
+	e.headLock.RLock()
+	defer e.headLock.RUnlock()
+	return e.l1Head
 }
 
-// DeriveL2Transactions transforms a L1 block and corresponding receipts into the transaction inputs for a full L2 block
-func DeriveUserDeposits(block *types.Block, receipts []*types.Receipt) ([]*types.Transaction, error) {
-	if !CheckReceipts(block, receipts) {
-		return nil, fmt.Errorf("receipts are not consistent with the block's receipts root: %s", block.ReceiptHash())
+// L2Head returns the block-id (hash and number) of the L2 chain head
+func (e *EngineDriver) L2Head() eth.BlockID {
+	e.headLock.RLock()
+	defer e.headLock.RUnlock()
+	return e.l2Head
+}
+
+func (e *EngineDriver) Head() (l1Head eth.BlockID, l2Head eth.BlockID) {
+	e.headLock.RLock()
+	defer e.headLock.RUnlock()
+	return e.l1Head, e.l2Head
+}
+
+func (e *EngineDriver) UpdateHead(l1Head eth.BlockID, l2Head eth.BlockID) {
+	e.headLock.Lock()
+	defer e.headLock.Unlock()
+	e.l1Head = l1Head
+	e.l2Head = l2Head
+}
+
+func (e *EngineDriver) RequestHeadUpdate() error {
+	e.headLock.Lock()
+	defer e.headLock.Unlock()
+	refL1, refL2, _, err := RefByL2Num(e.Ctx, e.RPC, nil, &e.Genesis)
+	if err != nil {
+		return err
 	}
+	e.l1Head = refL1
+	e.l2Head = refL2
+	return nil
+}
 
-	height := block.NumberU64()
+func (e *EngineDriver) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1Heads <-chan eth.HeadSignal) ethereum.Subscription {
+	e.driveLock.Lock()
+	defer e.driveLock.Unlock()
+	if e.driveSub != nil {
+		return e.driveSub
+	}
+	e.driveSub = event.NewSubscription(func(quit <-chan struct{}) error {
+		// keep making many sync steps if we can make sync progress
+		hot := time.Millisecond * 30
+		// check on sync regularly, but prioritize sync triggers with head updates etc.
+		cold := time.Second * 15
+		// at least try every minute to sync, even if things are going well
+		max := time.Minute
 
-	var out []*types.Transaction
+		syncTicker := time.NewTicker(cold)
+		defer syncTicker.Stop()
 
-	for _, rec := range receipts {
-		if rec.Status != types.ReceiptStatusSuccessful {
-			continue
+		// backoff sync attempts if we are not making progress
+		backoff := cold
+		syncQuickly := func() {
+			syncTicker.Reset(hot)
+			backoff = cold
 		}
-		for _, log := range rec.Logs {
-			if log.Address == DepositContractAddr {
-				dep, err := UnmarshalLogEvent(height, uint64(len(out)), log)
-				if err != nil {
-					return nil, fmt.Errorf("malformatted L1 deposit log: %v", err)
+		// exponential backoff, add 10% each step, up to max.
+		syncBackoff := func() {
+			backoff += backoff / 10
+			if backoff > max {
+				backoff = max
+			}
+			syncTicker.Reset(backoff)
+		}
+
+		l2HeadPollTicker := time.NewTicker(time.Second * 14)
+		defer l2HeadPollTicker.Stop()
+
+		onL2Update := func() {
+			// When we updated L2, we want to continue sync quickly
+			syncQuickly()
+			// And we want to slow down requesting the L2 engine for its head (we just changed it ourselves)
+			// Request head if we don't successfully change it in the next 14 seconds.
+			l2HeadPollTicker.Reset(time.Second * 14)
+		}
+
+		for {
+			select {
+			case <-e.Ctx.Done():
+				return e.Ctx.Err()
+			case <-quit:
+				return nil
+			case <-l2HeadPollTicker.C:
+				if err := e.RequestHeadUpdate(); err != nil {
+					e.Log.Error("failed to fetch L2 head info", "err", err)
 				}
-				out = append(out, types.NewTx(dep))
+				continue
+			case l1HeadSig := <-l1Heads:
+				if e.l1Head == l1HeadSig.Self {
+					e.Log.Debug("Received L1 head signal, already synced to it, ignoring event", "l1_head", e.l1Head)
+					continue
+				}
+				if e.l1Head == l1HeadSig.Parent {
+					// Simple extend, a linear life is easy
+					if l2ID, err := DriverStep(e.Ctx, e.Log, e.RPC, dl, l1HeadSig.Self, e.l2Head, e.l2Finalized.Hash); err != nil {
+						e.Log.Error("Failed to extend L2 chain with new L1 block", "l1", l1HeadSig.Self, "l2", e.l2Head, "err", err)
+						// Retry sync later
+						e.l1Target = l1HeadSig.Self
+						onL2Update()
+						continue
+					} else {
+						e.UpdateHead(l1HeadSig.Self, l2ID)
+						continue
+					}
+				}
+				if e.l1Head.Number < l1HeadSig.Parent.Number {
+					e.Log.Debug("Received new L1 head, engine is out of sync, cannot immediately process", "l1", l1HeadSig.Self, "l2", e.l2Head)
+				} else {
+					e.Log.Warn("Received a L1 reorg, syncing new alternative chain", "l1", l1HeadSig.Self, "l2", e.l2Head)
+				}
+
+				e.l1Target = l1HeadSig.Self
+				syncQuickly()
+				continue
+			case <-syncTicker.C:
+				// If already synced, or in case of failure, we slow down
+				syncBackoff()
+				if e.l1Head == e.l1Target {
+					e.Log.Debug("Engine is fully synced", "l1_head", e.l1Head, "l2_head", e.l2Head)
+					// TODO: even though we are fully synced, it may be worth attempting anyway,
+					// in case the e.l1Head is not updating (failed/broken L1 head subscription)
+					continue
+				}
+				refL1, refL2, err := FindSyncStart(e.Ctx, canonicalL1, e.RPC, &e.Genesis)
+				if err != nil {
+					e.Log.Error("Failed to find sync starting point", "err", err)
+					continue
+				}
+				if refL1 == e.l1Head {
+					e.Log.Debug("Engine is already synced, aborting sync", "l1_head", e.l1Head, "l2_head", e.l2Head)
+					continue
+				}
+				if l2ID, err := DriverStep(e.Ctx, e.Log, e.RPC, dl, refL1, refL2, e.l2Finalized.Hash); err != nil {
+					e.Log.Error("Failed to sync L2 chain with new L1 block", "l1", refL1, "onto_l2", refL2, "err", err)
+					continue
+				} else {
+					e.UpdateHead(refL1, l2ID)
+				}
+				// Successfully stepped toward target. Continue quickly if we are not there yet
+				if e.l1Head != e.l1Target {
+					onL2Update()
+				}
 			}
 		}
-	}
-	return out, nil
+	})
+	return e.driveSub
 }
 
-func DerivePayloadAttributes(block *types.Block, receipts []*types.Receipt) (*PayloadAttributes, error) {
-	l1Tx := types.NewTx(DeriveL1InfoDeposit(block))
-	opaqueL1Tx, err := l1Tx.MarshalBinary()
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode L1 info tx")
-	}
-
-	userDeposits, err := DeriveUserDeposits(block, receipts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to derive user deposits: %v", err)
-	}
-
-	encodedTxs := make([]Data, 0, len(userDeposits)+1)
-	encodedTxs = append(encodedTxs, opaqueL1Tx)
-
-	for i, tx := range userDeposits {
-		opaqueTx, err := tx.MarshalBinary()
-		if err != nil {
-			return nil, fmt.Errorf("failed to encode user tx %d", i)
-		}
-		encodedTxs = append(encodedTxs, opaqueTx)
-	}
-
-	return &PayloadAttributes{
-		Timestamp:             Uint64Quantity(block.Time()),
-		Random:                Bytes32(block.MixDigest()),
-		SuggestedFeeRecipient: common.Address{}, // nobody gets tx fees for deposits
-		Transactions:          encodedTxs,
-	}, nil
-}
-
-type BlockPreparer interface {
-	GetPayload(ctx context.Context, payloadId PayloadID) (*ExecutionPayload, error)
-	ForkchoiceUpdated(ctx context.Context, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error)
-}
-
-// DeriveBlock uses the engine API to derive a full L2 block from the block inputs.
-// The fcState does not affect the block production, but may inform the engine of finality and head changes to sync towards before block computation.
-func DeriveBlock(ctx context.Context, engine BlockPreparer, fcState *ForkchoiceState, attributes *PayloadAttributes) (*ExecutionPayload, error) {
-	fcResult, err := engine.ForkchoiceUpdated(ctx, fcState, attributes)
-	if err != nil {
-		return nil, fmt.Errorf("engine failed to process forkchoice update for block derivation: %v", err)
-	} else if fcResult.Status != UpdateSuccess {
-		return nil, fmt.Errorf("engine not in sync, failed to derive block, status: %s", fcResult.Status)
-	}
-
-	payload, err := engine.GetPayload(ctx, fcResult.PayloadID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get payload: %v", err)
-	}
-	return payload, nil
+func (e *EngineDriver) Close() {
+	e.RPC.Close()
+	e.driveSub.Unsubscribe()
 }
