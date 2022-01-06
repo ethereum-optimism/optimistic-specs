@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
+// ParseL1InfoDepositTxData is the inverse of DeriveL1InfoDeposit, to see where the L2 chain is derived from
 func ParseL1InfoDepositTxData(data []byte) (nr uint64, time uint64, baseFee *big.Int, blockHash common.Hash, err error) {
 	if len(data) != 4+8+8+32+32 {
 		err = fmt.Errorf("data is unexpected length: %d", len(data))
@@ -33,6 +34,7 @@ type Block interface {
 	Transactions() types.Transactions
 }
 
+// ParseBlockReferences takes a L2 block and determines which L1 block it was derived from, and the L2 self and parent id.
 func ParseBlockReferences(refL2Block Block, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
 	refL2 = eth.BlockID{Hash: refL2Block.Hash(), Number: refL2Block.NumberU64()}
 	if refL2.Number <= genesis.L2.Number {

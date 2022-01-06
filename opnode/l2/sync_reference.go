@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
+// SyncSource implements SyncReference with a L2 block sources and L1 hash-by-number source
 type SyncSource struct {
 	L1 eth.BlockHashByNumber
 	L2 eth.BlockSource
@@ -41,6 +42,7 @@ func (src SyncSource) RefByL2Hash(ctx context.Context, l2Hash common.Hash, genes
 	return ParseBlockReferences(refL2Block, genesis)
 }
 
+// SyncReference helps inform the sync algorithm of the L2 sync-state and L1 canonical chain
 type SyncReference interface {
 	// RefByL1Num fetches the canonical L1 block hash for the given L1 block height.
 	RefByL1Num(ctx context.Context, l1Num uint64) (common.Hash, error)

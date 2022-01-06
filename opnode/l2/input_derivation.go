@@ -104,7 +104,14 @@ func UnmarshalLogEvent(blockNum uint64, txIndex uint64, ev *types.Log) (*types.D
 
 const L1InfoDepositIndex uint64 = 0xFFFF_FFFF_FFFF_FFFF
 
-func DeriveL1InfoDeposit(block *types.Block) *types.DepositTx {
+type L1Info interface {
+	NumberU64() uint64
+	Time() uint64
+	Hash() common.Hash
+	BaseFee() *big.Int
+}
+
+func DeriveL1InfoDeposit(block L1Info) *types.DepositTx {
 	data := make([]byte, 4+8+8+32+32)
 	offset := 0
 	copy(data[offset:4], L1InfoFuncBytes4)
