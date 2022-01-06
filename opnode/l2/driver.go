@@ -28,6 +28,7 @@ var (
 //     event TransactionDeposited(
 //    	 address indexed from,
 //    	 address indexed to,
+//       uint256 mint,
 //    	 uint256 value,
 //    	 uint256 gasLimit,
 //    	 bool isCreation,
@@ -44,7 +45,7 @@ func UnmarshalLogEvent(blockNum uint64, txIndex uint64, ev *types.Log) (*types.D
 	if ev.Topics[0] != DepositEventABIHash {
 		return nil, fmt.Errorf("invalid deposit event selector: %s, expected %s", ev.Topics[0], DepositEventABIHash)
 	}
-	if len(ev.Data) < 160 {
+	if len(ev.Data) < 7*32 {
 		return nil, fmt.Errorf("deposit event data too small (%d bytes): %x", len(ev.Data), ev.Data)
 	}
 
@@ -58,38 +59,42 @@ func UnmarshalLogEvent(blockNum uint64, txIndex uint64, ev *types.Log) (*types.D
 	// indexed 1
 	to := common.BytesToAddress(ev.Topics[2][12:])
 
-	// unindexed
-	// 0:32: value - big-endian
-	dep.Value = new(big.Int).SetBytes(ev.Data[0:32])
-	// 32:64: gas - big-endian
-	gas := new(big.Int).SetBytes(ev.Data[32:64])
+	// unindexed data
+	offset := 0
+	dep.Value = new(big.Int).SetBytes(ev.Data[offset : offset+32])
+	offset += 32
+
+	dep.Mint = new(big.Int).SetBytes(ev.Data[offset : offset+32])
+	offset += 32
+
+	gas := new(big.Int).SetBytes(ev.Data[offset : offset+32])
 	if !gas.IsUint64() {
-		return nil, fmt.Errorf("bad gas value: %x", ev.Data[32:64])
+		return nil, fmt.Errorf("bad gas value: %x", ev.Data[offset:offset+32])
 	}
+	offset += 32
 	dep.Gas = gas.Uint64()
-	// 64:96: isCreation - boolean, aligned with end.
-	// If False == 0 then it will create a contract using L2 account nonce to determine the created address.
-	if ev.Data[95] == 0 {
+	// isCreation: If the boolean byte is 1 then dep.To will stay nil,
+	// and it will create a contract using L2 account nonce to determine the created address.
+	if ev.Data[offset+31] == 0 {
 		dep.To = &to
 	}
-	// 96:128: data offset
+	offset += 32
 	var dataOffset uint256.Int
-	dataOffset.SetBytes(ev.Data[96:128])
+	dataOffset.SetBytes(ev.Data[offset : offset+32])
+	offset += 32
 	if dataOffset.Eq(uint256.NewInt(128)) {
 		return nil, fmt.Errorf("incorrect data offset: %v", dataOffset[0])
 	}
 
-	// 128:160: data length
 	var dataLen uint256.Int
-	dataLen.SetBytes(ev.Data[128:160])
-	if dataLen.Eq(uint256.NewInt(uint64(len(ev.Data) - 160))) {
-		return nil, fmt.Errorf("inconsitent data length: %v", dataLen[0])
+	dataLen.SetBytes(ev.Data[offset : offset+32])
+	offset += 32
+	if dataLen.Eq(uint256.NewInt(uint64(len(ev.Data) - offset))) {
+		return nil, fmt.Errorf("inconsistent data length: %v", dataLen[0])
 	}
 
-	// 160:...: data contents
-	dep.Data = ev.Data[160:]
-
-	// TODO: mint field
+	// remaining bytes fill the data
+	dep.Data = ev.Data[offset:]
 
 	return &dep, nil
 }
