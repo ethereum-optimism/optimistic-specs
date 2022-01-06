@@ -76,6 +76,9 @@ func TestParseL1InfoDepositTxData(t *testing.T) {
 		{"zero num", makeInfo(func(l *l1MockInfo) {
 			l.num = 0
 		})},
+		{"all zero", func(rng *rand.Rand) *l1MockInfo {
+			return &l1MockInfo{baseFee: new(big.Int)}
+		}},
 	}
 	for i, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -90,4 +93,16 @@ func TestParseL1InfoDepositTxData(t *testing.T) {
 			assert.Equal(t, h, info.hash)
 		})
 	}
+	t.Run("no data", func(t *testing.T) {
+		_, _, _, _, err := ParseL1InfoDepositTxData(nil)
+		assert.Error(t, err)
+	})
+	t.Run("not enough data", func(t *testing.T) {
+		_, _, _, _, err := ParseL1InfoDepositTxData([]byte{1, 2, 3, 4})
+		assert.Error(t, err)
+	})
+	t.Run("too much data", func(t *testing.T) {
+		_, _, _, _, err := ParseL1InfoDepositTxData(make([]byte, 4+8+8+32+32+1))
+		assert.Error(t, err)
+	})
 }
