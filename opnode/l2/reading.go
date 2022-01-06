@@ -33,7 +33,7 @@ type Block interface {
 	Transactions() types.Transactions
 }
 
-func ParseL2Block(refL2Block Block, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
+func ParseBlockReferences(refL2Block Block, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
 	refL2 = eth.BlockID{Hash: refL2Block.Hash(), Number: refL2Block.NumberU64()}
 	if refL2.Number <= genesis.L2.Number {
 		if refL2.Hash != genesis.L2.Hash {

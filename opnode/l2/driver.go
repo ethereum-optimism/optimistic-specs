@@ -30,6 +30,8 @@ type EngineDriver struct {
 	// API bindings to execution engine
 	RPC DriverAPI
 
+	SyncRef SyncReference
+
 	// The current driving force, to shutdown before closing the engine.
 	driveSub ethereum.Subscription
 	// There may only be 1 driver at a time
@@ -85,7 +87,7 @@ func (e *EngineDriver) UpdateHead(l1Head eth.BlockID, l2Head eth.BlockID) {
 func (e *EngineDriver) RequestHeadUpdate() error {
 	e.headLock.Lock()
 	defer e.headLock.Unlock()
-	refL1, refL2, _, err := RefByL2Num(e.Ctx, e.RPC, nil, &e.Genesis)
+	refL1, refL2, _, err := e.SyncRef.RefByL2Num(e.Ctx, nil, &e.Genesis)
 	if err != nil {
 		return err
 	}
@@ -94,7 +96,7 @@ func (e *EngineDriver) RequestHeadUpdate() error {
 	return nil
 }
 
-func (e *EngineDriver) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber, l1Heads <-chan eth.HeadSignal) ethereum.Subscription {
+func (e *EngineDriver) Drive(dl l1.Downloader, l1Heads <-chan eth.HeadSignal) ethereum.Subscription {
 	e.driveLock.Lock()
 	defer e.driveLock.Unlock()
 	if e.driveSub != nil {
@@ -184,7 +186,7 @@ func (e *EngineDriver) Drive(dl l1.Downloader, canonicalL1 eth.BlockHashByNumber
 					// in case the e.l1Head is not updating (failed/broken L1 head subscription)
 					continue
 				}
-				refL1, refL2, err := FindSyncStart(e.Ctx, canonicalL1, e.RPC, &e.Genesis)
+				refL1, refL2, err := FindSyncStart(e.Ctx, e.SyncRef, &e.Genesis)
 				if err != nil {
 					e.Log.Error("Failed to find sync starting point", "err", err)
 					continue

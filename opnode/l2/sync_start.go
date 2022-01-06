@@ -3,52 +3,25 @@ package l2
 import (
 	"context"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// RefByL2Num fetches the L1 and L2 block IDs from the engine for the given L2 block height.
-// Use a nil height to fetch the head.
-func RefByL2Num(ctx context.Context, src eth.BlockByNumberSource, l2Num *big.Int, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-	refL2Block, err2 := src.BlockByNumber(ctx, l2Num) // nil for latest block
-	if err2 != nil {
-		err = fmt.Errorf("failed to retrieve head L2 block: %v", err2)
-		return
-	}
-	return ParseL2Block(refL2Block, genesis)
-}
-
-// RefByL2Hash fetches the L1 and L2 block IDs from the engine for the given L2 block height.
-// Use a nil height to fetch the head.
-func RefByL2Hash(ctx context.Context, src eth.BlockByHashSource, l2Hash common.Hash, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-	refL2Block, err2 := src.BlockByHash(ctx, l2Hash)
-	if err2 != nil {
-		err = fmt.Errorf("failed to retrieve head L2 block: %v", err2)
-		return
-	}
-	return ParseL2Block(refL2Block, genesis)
-}
-
-func FindSyncStart(ctx context.Context, l1Src eth.BlockHashByNumber, l2Src eth.BlockSource, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
+func FindSyncStart(ctx context.Context, reference SyncReference, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
 	defer cancel()
 	var parentL2 common.Hash
 	// Start at L2 head
-	refL1, refL2, parentL2, err = RefByL2Num(ctx, l2Src, nil, genesis)
+	refL1, refL2, parentL2, err = reference.RefByL2Num(ctx, nil, genesis)
 	if err != nil {
 		err = fmt.Errorf("failed to fetch L2 head: %v", err)
 		return
 	}
 	// Check if L1 source has the block
 	var l1Hash common.Hash
-	l1Hash, err = l1Src.BlockHashByNumber(ctx, refL1.Number)
+	l1Hash, err = reference.RefByL1Num(ctx, refL1.Number)
 	if err != nil {
 		err = fmt.Errorf("failed to lookup block %d in L1: %v", refL1.Number, err)
 		return
@@ -59,14 +32,14 @@ func FindSyncStart(ctx context.Context, l1Src eth.BlockHashByNumber, l2Src eth.B
 
 	// Search back: linear walk back from engine head. Should only be as deep as the reorg.
 	for refL2.Number > 0 {
-		refL1, refL2, parentL2, err = RefByL2Hash(ctx, l2Src, parentL2, genesis)
+		refL1, refL2, parentL2, err = reference.RefByL2Hash(ctx, parentL2, genesis)
 		if err != nil {
 			// TODO: re-attempt look-up, now that we already traversed previous history?
 			err = fmt.Errorf("failed to lookup block %d in L1: %v", refL1.Number, err)
 			return
 		}
 		// Check if L1 source has the block
-		l1Hash, err = l1Src.BlockHashByNumber(ctx, refL1.Number)
+		l1Hash, err = reference.RefByL1Num(ctx, refL1.Number)
 		if err != nil {
 			err = fmt.Errorf("failed to lookup block %d in L1: %v", refL1.Number, err)
 			return

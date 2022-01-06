@@ -24,6 +24,15 @@ import (
 type GenesisConf struct {
 	L2Hash common.Hash `ask:"--l2-hash" help:"Genesis block hash of L2"`
 	L1Hash common.Hash `ask:"--l1-hash" help:"Block hash of L1 after (not incl.) which L1 starts deriving blocks"`
+	L1Num  uint64      `ask:"--l1-num" help:"Block number of L1 matching the l1-hash"`
+}
+
+func (conf *GenesisConf) GetGenesis() l2.Genesis {
+	return l2.Genesis{
+		L1: eth.BlockID{Hash: conf.L1Hash, Number: conf.L1Num},
+		// TODO: if we start from a squashed snapshot we might have a non-zero L2 genesis number
+		L2: eth.BlockID{Hash: conf.L2Hash, Number: 0},
+	}
 }
 
 type OpNodeCmd struct {
@@ -39,8 +48,8 @@ type OpNodeCmd struct {
 
 	log log.Logger
 
-	// sources to fetch data from
-	l1Sources []eth.L1Source
+	// (combined) source to fetch data from
+	l1Source eth.L1Source
 
 	// engines to keep synced
 	l2Engines []*l2.EngineDriver
@@ -69,6 +78,7 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 		return errors.New("genesis configuration required")
 	}
 
+	l1Sources := make([]eth.L1Source, 0, len(c.L1NodeAddrs))
 	for i, addr := range c.L1NodeAddrs {
 		// L1 exec engine: read-only, to update L2 consensus with
 		l1Node, err := rpc.DialContext(ctx, addr)
@@ -82,11 +92,15 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 		// TODO: we may need to authenticate the connection with L1
 		// l1Node.SetHeader()
 		cl := ethclient.NewClient(l1Node)
-		c.l1Sources = append(c.l1Sources, cl)
+		l1Sources = append(l1Sources, cl)
 	}
-	if len(c.l1Sources) == 0 {
+	if len(l1Sources) == 0 {
 		return fmt.Errorf("need at least one L1 source endpoint, see --l1")
 	}
+
+	// Combine L1 sources, so work can be balanced between them
+	c.l1Source = eth.NewCombinedL1Source(l1Sources)
+	l1CanonicalChain := eth.CanonicalChain(c.l1Source)
 
 	for i, addr := range c.L2EngineAddrs {
 		// L2 exec engine: updated by this OpNode (L2 consensus layer node)
@@ -108,6 +122,10 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 			Ctx: c.ctx,
 			Log: c.log.New("engine", i),
 			RPC: client,
+			SyncRef: l2.SyncSource{
+				L1: l1CanonicalChain,
+				L2: client,
+			},
 		}
 		c.l2Engines = append(c.l2Engines, engine)
 	}
@@ -137,24 +155,7 @@ func (c *OpNodeCmd) RunNode() {
 		}()
 	}
 
-	// Combine L1 sources, so work can be balanced between them
-	l1Source := eth.NewCombinedL1Source(c.l1Sources)
-
 	c.log.Info("Fetching rollup starting point")
-
-	var genesisL1 eth.BlockID
-	for c.ctx.Err() == nil { // while we haven't quit yet
-		// try to find the genesis starting point
-		l1GenesisHeader, err := l1Source.HeaderByHash(c.ctx, c.Genesis.L1Hash)
-		if err != nil {
-			c.log.Error("failed to get L1 starting block: %v", err)
-			time.Sleep(time.Second)
-			continue
-		}
-		genesisL1.Number = l1GenesisHeader.Number.Uint64()
-	}
-	// TODO: if we start from a squashed snapshot we might have a non-zero L2 genesis number
-	genesisL2 := eth.BlockID{Hash: c.Genesis.L2Hash, Number: 0}
 
 	// We download receipts in parallel
 	c.l1Downloader.AddReceiptWorkers(4)
@@ -162,26 +163,21 @@ func (c *OpNodeCmd) RunNode() {
 	// Feed of eth.HeadSignal
 	var l1HeadsFeed event.Feed
 
-	l1CanonicalChain := eth.CanonicalChain(l1Source)
-
 	c.log.Info("Attaching execution engine(s)")
 	for _, eng := range c.l2Engines {
 		// Update genesis info, to anchor sync at
-		eng.Genesis = l2.Genesis{
-			L1: genesisL1,
-			L2: genesisL2,
-		}
+		eng.Genesis = c.Genesis.GetGenesis()
 		// Request initial head update, default to genesis otherwise
 		if err := eng.RequestHeadUpdate(); err != nil {
 			eng.Log.Error("failed to fetch engine head, defaulting to genesis", "err", err)
-			eng.UpdateHead(genesisL1, genesisL2)
+			eng.UpdateHead(eng.Genesis.L1, eng.Genesis.L2)
 		}
 
 		// driver subscribes to L1 head changes
 		l1SubCh := make(chan eth.HeadSignal, 10)
 		l1HeadsFeed.Subscribe(l1SubCh)
 		// start driving engine: sync blocks by deriving them from L1 and driving them into the engine
-		engDriveSub := eng.Drive(c.l1Downloader, l1CanonicalChain, l1SubCh)
+		engDriveSub := eng.Drive(c.l1Downloader, l1SubCh)
 		mergeSub(engDriveSub, "engine driver unexpectedly failed")
 	}
 
@@ -190,7 +186,7 @@ func (c *OpNodeCmd) RunNode() {
 		if err != nil {
 			c.log.Warn("resubscribing after failed L1 subscription", "err", err)
 		}
-		return eth.WatchHeadChanges(c.ctx, l1Source, eth.HeadSignalFn(func(sig eth.HeadSignal) {
+		return eth.WatchHeadChanges(c.ctx, c.l1Source, eth.HeadSignalFn(func(sig eth.HeadSignal) {
 			l1HeadsFeed.Send(sig)
 		}))
 	})
@@ -213,8 +209,8 @@ func (c *OpNodeCmd) RunNode() {
 			for _, f := range unsub {
 				f()
 			}
-			// close L1 data sources
-			l1Source.Close()
+			// close L1 data source
+			c.l1Source.Close()
 			// close L2 engines
 			for _, eng := range c.l2Engines {
 				eng.Close()
