@@ -3,11 +3,12 @@ package l2
 import (
 	"encoding/binary"
 	"fmt"
-	"github.com/stretchr/testify/assert"
 	"math/big"
 	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -295,7 +296,7 @@ func TestDerivePayloadAttributes(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			got, err := DerivePayloadAttributes(testCase.input)
+			got, err := DeriveBlockInputs(testCase.input)
 			assert.NoError(t, err)
 			assert.Equal(t, got, testCase.expected)
 		})

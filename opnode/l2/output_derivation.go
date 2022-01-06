@@ -3,6 +3,8 @@ package l2
 import (
 	"context"
 	"fmt"
+
+	"github.com/ethereum/go-ethereum/common"
 )
 
 type BlockPreparer interface {
@@ -10,9 +12,14 @@ type BlockPreparer interface {
 	ForkchoiceUpdated(ctx context.Context, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error)
 }
 
-// DeriveBlock uses the engine API to derive a full L2 block from the block inputs.
+// DeriveBlockOutputs uses the engine API to derive a full L2 block from the block inputs.
 // The fcState does not affect the block production, but may inform the engine of finality and head changes to sync towards before block computation.
-func DeriveBlock(ctx context.Context, engine BlockPreparer, fcState *ForkchoiceState, attributes *PayloadAttributes) (*ExecutionPayload, error) {
+func DeriveBlockOutputs(ctx context.Context, engine BlockPreparer, l2Parent common.Hash, l2Finalized common.Hash, attributes *PayloadAttributes) (*ExecutionPayload, error) {
+	fcState := &ForkchoiceState{
+		HeadBlockHash:      l2Parent, // no difference yet between Head and Safe, no data ahead of L1 yet.
+		SafeBlockHash:      l2Parent,
+		FinalizedBlockHash: l2Finalized,
+	}
 	fcResult, err := engine.ForkchoiceUpdated(ctx, fcState, attributes)
 	if err != nil {
 		return nil, fmt.Errorf("engine failed to process forkchoice update for block derivation: %v", err)

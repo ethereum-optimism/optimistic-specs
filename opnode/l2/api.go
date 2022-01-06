@@ -127,6 +127,10 @@ type ExecutionPayload struct {
 	Transactions []Data `json:"transactions"`
 }
 
+func (payload *ExecutionPayload) ID() eth.BlockID {
+	return eth.BlockID{Hash: payload.BlockHash, Number: uint64(payload.BlockNumber)}
+}
+
 type PayloadAttributes struct {
 	// value for the timestamp field of the new payload
 	Timestamp Uint64Quantity `json:"timestamp"`

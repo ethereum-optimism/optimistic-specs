@@ -3,10 +3,11 @@ package l2
 import (
 	"encoding/binary"
 	"fmt"
+	"math/big"
+
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"math/big"
 )
 
 func ParseL1InfoDepositTxData(data []byte) (nr uint64, time uint64, baseFee *big.Int, blockHash common.Hash, err error) {
@@ -25,7 +26,14 @@ func ParseL1InfoDepositTxData(data []byte) (nr uint64, time uint64, baseFee *big
 	return
 }
 
-func ParseL2Block(refL2Block *types.Block, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
+type Block interface {
+	Hash() common.Hash
+	NumberU64() uint64
+	ParentHash() common.Hash
+	Transactions() types.Transactions
+}
+
+func ParseL2Block(refL2Block Block, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
 	refL2 = eth.BlockID{Hash: refL2Block.Hash(), Number: refL2Block.NumberU64()}
 	if refL2.Number <= genesis.L2.Number {
 		if refL2.Hash != genesis.L2.Hash {

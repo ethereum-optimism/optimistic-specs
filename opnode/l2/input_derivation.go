@@ -163,7 +163,7 @@ func DeriveUserDeposits(block *types.Block, receipts []*types.Receipt) ([]*types
 	return out, nil
 }
 
-func DerivePayloadAttributes(block *types.Block, receipts []*types.Receipt) (*PayloadAttributes, error) {
+func DeriveBlockInputs(block *types.Block, receipts []*types.Receipt) (*PayloadAttributes, error) {
 	l1Tx := types.NewTx(DeriveL1InfoDeposit(block))
 	opaqueL1Tx, err := l1Tx.MarshalBinary()
 	if err != nil {

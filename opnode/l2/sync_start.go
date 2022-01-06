@@ -3,10 +3,38 @@ package l2
 import (
 	"context"
 	"fmt"
+	"math/big"
+	"time"
+
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 	"github.com/ethereum/go-ethereum/common"
-	"time"
 )
+
+// RefByL2Num fetches the L1 and L2 block IDs from the engine for the given L2 block height.
+// Use a nil height to fetch the head.
+func RefByL2Num(ctx context.Context, src eth.BlockByNumberSource, l2Num *big.Int, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+	refL2Block, err2 := src.BlockByNumber(ctx, l2Num) // nil for latest block
+	if err2 != nil {
+		err = fmt.Errorf("failed to retrieve head L2 block: %v", err2)
+		return
+	}
+	return ParseL2Block(refL2Block, genesis)
+}
+
+// RefByL2Hash fetches the L1 and L2 block IDs from the engine for the given L2 block height.
+// Use a nil height to fetch the head.
+func RefByL2Hash(ctx context.Context, src eth.BlockByHashSource, l2Hash common.Hash, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, parentL2 common.Hash, err error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
+	defer cancel()
+	refL2Block, err2 := src.BlockByHash(ctx, l2Hash)
+	if err2 != nil {
+		err = fmt.Errorf("failed to retrieve head L2 block: %v", err2)
+		return
+	}
+	return ParseL2Block(refL2Block, genesis)
+}
 
 func FindSyncStart(ctx context.Context, l1Src eth.BlockHashByNumber, l2Src eth.BlockSource, genesis *Genesis) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second*5)
