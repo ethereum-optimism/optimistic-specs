@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
+
 	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -88,23 +90,8 @@ type Uint256Quantity = uint256.Int
 
 type Data = hexutil.Bytes
 
-type PayloadID [8]byte
-
-func (b *PayloadID) UnmarshalJSON(text []byte) error {
-	return hexutil.UnmarshalFixedJSON(reflect.TypeOf(b), text, b[:])
-}
-
-func (b *PayloadID) UnmarshalText(text []byte) error {
-	return hexutil.UnmarshalFixedText("PayloadID", text, b[:])
-}
-
-func (b PayloadID) MarshalText() ([]byte, error) {
-	return hexutil.Bytes(b[:]).MarshalText()
-}
-
-func (b PayloadID) String() string {
-	return hexutil.Encode(b[:])
-}
+// TODO: implement neat 8 byte typed payload ID and upstream it to geth api definitions
+type PayloadID = hexutil.Bytes
 
 type ExecutionPayload struct {
 	ParentHash    common.Hash     `json:"parentHash"`
@@ -123,6 +110,10 @@ type ExecutionPayload struct {
 	// Array of transaction objects, each object is a byte list (DATA) representing
 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
 	Transactions []Data `json:"transactions"`
+}
+
+func (payload *ExecutionPayload) ID() eth.BlockID {
+	return eth.BlockID{Hash: payload.BlockHash, Number: uint64(payload.BlockNumber)}
 }
 
 type PayloadAttributes struct {
@@ -151,18 +142,18 @@ type ExecutePayloadResult struct {
 	// the result of the payload execution
 	Status ExecutePayloadStatus `json:"status"`
 	// the hash of the most recent valid block in the branch defined by payload and its ancestors
-	LatestValidHash Bytes32 `json:"latestValidHash"`
+	LatestValidHash common.Hash `json:"latestValidHash"`
 	// additional details on the result
 	ValidationError string `json:"validationError"`
 }
 
 type ForkchoiceState struct {
 	// block hash of the head of the canonical chain
-	HeadBlockHash Bytes32 `json:"headBlockHash"`
+	HeadBlockHash common.Hash `json:"headBlockHash"`
 	// safe block hash in the canonical chain
-	SafeBlockHash Bytes32 `json:"safeBlockHash"`
+	SafeBlockHash common.Hash `json:"safeBlockHash"`
 	// block hash of the most recent finalized block
-	FinalizedBlockHash Bytes32 `json:"finalizedBlockHash"`
+	FinalizedBlockHash common.Hash `json:"finalizedBlockHash"`
 }
 
 type ForkchoiceUpdatedStatus string
@@ -178,7 +169,7 @@ type ForkchoiceUpdatedResult struct {
 	// the result of the payload execution
 	Status ForkchoiceUpdatedStatus `json:"status"`
 	// the payload id if requested
-	PayloadID PayloadID `json:"payloadId"`
+	PayloadID *PayloadID `json:"payloadId"`
 }
 
 type EngineAPI interface {
@@ -193,8 +184,15 @@ type RPCBackend interface {
 	Close()
 }
 
+type EthBackend interface {
+	eth.BlockByHashSource
+	eth.BlockByNumberSource
+	eth.NewHeadSource
+}
+
 type EngineClient struct {
 	RPCBackend
+	EthBackend
 	Log log.Logger
 }
 

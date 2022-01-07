@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/ethereum/go-ethereum v1.10.13
+	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
 	github.com/holiman/uint256 v1.2.0
 	github.com/protolambda/ask v0.1.2
 	github.com/stretchr/testify v1.7.0
@@ -36,4 +37,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20200313102051-9f266ea9e77c // indirect
 )
 
-replace github.com/ethereum/go-ethereum v1.10.13 => github.com/ethereum-optimism/reference-optimistic-geth v0.0.0-20211222014026-251a8ba52aeb
+replace github.com/ethereum/go-ethereum v1.10.13 => github.com/ethereum-optimism/reference-optimistic-geth v0.0.0-20220107224313-7f6d88bc156a
+
+//replace github.com/ethereum/go-ethereum v1.10.13 => ../reference-optimistic-geth

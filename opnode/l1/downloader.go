@@ -2,10 +2,15 @@ package l1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	lru "github.com/hashicorp/golang-lru"
+
+	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -56,19 +61,19 @@ type receiptTask struct {
 }
 
 type Downloader interface {
-	Fetch(ctx context.Context, id BlockID) (*types.Block, []*types.Receipt, error)
+	Fetch(ctx context.Context, id eth.BlockID) (*types.Block, []*types.Receipt, error)
 	AddReceiptWorkers(n int) int
 }
 
 type DownloadSource interface {
-	BlockSource
-	ReceiptSource
+	eth.BlockByHashSource
+	eth.ReceiptSource
 }
 
 type downloader struct {
 	// cache of ongoing/completed block tasks: block hash -> block
-	cache     map[common.Hash]*blockAndReceipts
-	cacheLock sync.Mutex
+	cacheEvict *lru.Cache
+	cacheLock  sync.Mutex
 
 	receiptTasks       chan *receiptTask
 	receiptWorkers     []ethereum.Subscription
@@ -77,21 +82,33 @@ type downloader struct {
 	chr DownloadSource
 }
 
+var downloadEvictedErr = errors.New("evicted")
+
 func NewDownloader(chr DownloadSource) Downloader {
-	return &downloader{
-		cache:        make(map[common.Hash]*blockAndReceipts),
+	dl := &downloader{
 		receiptTasks: make(chan *receiptTask, 100),
 		chr:          chr,
 	}
+	evict := func(k, v interface{}) {
+		// stop downloading things if they were evicted (already finished items are unaffected)
+		v.(*blockAndReceipts).Finish(wrappedErr{downloadEvictedErr})
+	}
+	// 500 at 100 KB each would be 50 MB of memory for the L1 block inputs cache
+	dl.cacheEvict, _ = lru.NewWithEvict(500, evict)
+	return dl
 }
 
-func (l1t *downloader) Fetch(ctx context.Context, id BlockID) (*types.Block, []*types.Receipt, error) {
+func (l1t *downloader) Fetch(ctx context.Context, id eth.BlockID) (*types.Block, []*types.Receipt, error) {
 	// check if we are already working on it
 	l1t.cacheLock.Lock()
-	bnr, ok := l1t.cache[id.Hash]
-	if !ok {
+
+	var bnr *blockAndReceipts
+	if bnrIfc, ok := l1t.cacheEvict.Get(id.Hash); ok {
+		bnr = bnrIfc.(*blockAndReceipts)
+		l1t.cacheEvict.Add(id.Hash, bnr) // add it again, so it moves to the front and avoid eviction
+	} else {
 		bnr = &blockAndReceipts{ctx: ctx}
-		l1t.cache[id.Hash] = bnr
+		l1t.cacheEvict.Add(id.Hash, bnr)
 
 		// pull the block in the background
 		go func() {

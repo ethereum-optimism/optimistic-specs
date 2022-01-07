@@ -2,8 +2,13 @@ package node
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+
+	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l1"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
@@ -16,24 +21,39 @@ import (
 	"github.com/ethereum/go-ethereum/rpc"
 )
 
+type GenesisConf struct {
+	L2Hash common.Hash `ask:"--l2-hash" help:"Genesis block hash of L2"`
+	L1Hash common.Hash `ask:"--l1-hash" help:"Block hash of L1 after (not incl.) which L1 starts deriving blocks"`
+	L1Num  uint64      `ask:"--l1-num" help:"Block number of L1 matching the l1-hash"`
+}
+
+func (conf *GenesisConf) GetGenesis() l2.Genesis {
+	return l2.Genesis{
+		L1: eth.BlockID{Hash: conf.L1Hash, Number: conf.L1Num},
+		// TODO: if we start from a squashed snapshot we might have a non-zero L2 genesis number
+		L2: eth.BlockID{Hash: conf.L2Hash, Number: 0},
+	}
+}
+
 type OpNodeCmd struct {
 	L1NodeAddrs   []string `ask:"--l1" help:"Addresses of L1 User JSON-RPC endpoints to use (eth namespace required)"`
 	L2EngineAddrs []string `ask:"--l2" help:"Addresses of L2 Engine JSON-RPC endpoints to use (engine and eth namespace required)"`
 
 	LogCmd `ask:".log" help:"Log configuration"`
 
+	Genesis GenesisConf `ask:".genesis" help:"Genesis anchor point"`
+
 	// TODO: multi-addrs option
 	// TODO: bootnodes option
 
 	log log.Logger
 
-	// sources to fetch data from
-	l1Sources []l1.Source
+	// (combined) source to fetch data from
+	l1Source eth.L1Source
 
 	// engines to keep synced
-	l2Engines []*l2.Engine
+	l2Engines []*l2.EngineDriver
 
-	l1Tracker    l1.Tracker
 	l1Downloader l1.Downloader
 
 	ctx   context.Context
@@ -54,6 +74,11 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 	c.log = logger
 	c.ctx = ctx
 
+	if c.Genesis == (GenesisConf{}) {
+		return errors.New("genesis configuration required")
+	}
+
+	l1Sources := make([]eth.L1Source, 0, len(c.L1NodeAddrs))
 	for i, addr := range c.L1NodeAddrs {
 		// L1 exec engine: read-only, to update L2 consensus with
 		l1Node, err := rpc.DialContext(ctx, addr)
@@ -67,11 +92,17 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 		// TODO: we may need to authenticate the connection with L1
 		// l1Node.SetHeader()
 		cl := ethclient.NewClient(l1Node)
-		c.l1Sources = append(c.l1Sources, cl)
+		l1Sources = append(l1Sources, cl)
 	}
-	if len(c.l1Sources) == 0 {
+	if len(l1Sources) == 0 {
 		return fmt.Errorf("need at least one L1 source endpoint, see --l1")
 	}
+
+	// Combine L1 sources, so work can be balanced between them
+	c.l1Source = eth.NewCombinedL1Source(l1Sources)
+	l1CanonicalChain := eth.CanonicalChain(c.l1Source)
+
+	c.l1Downloader = l1.NewDownloader(c.l1Source)
 
 	for i, addr := range c.L2EngineAddrs {
 		// L2 exec engine: updated by this OpNode (L2 consensus layer node)
@@ -86,20 +117,23 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 		// backend.SetHeader()
 		client := &l2.EngineClient{
 			RPCBackend: backend,
+			EthBackend: ethclient.NewClient(backend),
 			Log:        c.log.New("engine_client", i),
 		}
-		engine := &l2.Engine{
+		engine := &l2.EngineDriver{
 			Ctx: c.ctx,
 			Log: c.log.New("engine", i),
 			RPC: client,
+			SyncRef: l2.SyncSource{
+				L1: l1CanonicalChain,
+				L2: client,
+			},
 		}
 		c.l2Engines = append(c.l2Engines, engine)
 	}
 
 	// TODO: maybe spin up an API server
 	//  (to get debug data, change runtime settings like logging, serve pprof, get peering info, node health, etc.)
-
-	c.l1Tracker = l1.NewTracker()
 
 	c.close = make(chan chan error)
 
@@ -109,10 +143,7 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 }
 
 func (c *OpNodeCmd) RunNode() {
-	c.log.Info("started OpNode")
-
-	heartbeat := time.NewTicker(time.Millisecond * 700)
-	defer heartbeat.Stop()
+	c.log.Info("Starting OpNode")
 
 	var unsub []func()
 	mergeSub := func(sub ethereum.Subscription, errMsg string) {
@@ -126,16 +157,30 @@ func (c *OpNodeCmd) RunNode() {
 		}()
 	}
 
-	// Combine L1 sources, so work can be balanced between them
-	l1Source := l1.NewCombinedL1Source(c.l1Sources)
+	c.log.Info("Fetching rollup starting point")
 
 	// We download receipts in parallel
 	c.l1Downloader.AddReceiptWorkers(4)
 
+	// Feed of eth.HeadSignal
+	var l1HeadsFeed event.Feed
+
+	c.log.Info("Attaching execution engine(s)")
 	for _, eng := range c.l2Engines {
-		// start syncing headers in the background, based on head signals
-		l1HeaderSyncSub := l1.HeaderSync(c.ctx, l1Source, c.l1Tracker, c.log, c.l1Downloader, eng)
-		mergeSub(l1HeaderSyncSub, "header sync unexpectedly failed")
+		// Update genesis info, to anchor sync at
+		eng.Genesis = c.Genesis.GetGenesis()
+		// Request initial head update, default to genesis otherwise
+		if err := eng.RequestHeadUpdate(); err != nil {
+			eng.Log.Error("failed to fetch engine head, defaulting to genesis", "err", err)
+			eng.UpdateHead(eng.Genesis.L1, eng.Genesis.L2)
+		}
+
+		// driver subscribes to L1 head changes
+		l1SubCh := make(chan eth.HeadSignal, 10)
+		l1HeadsFeed.Subscribe(l1SubCh)
+		// start driving engine: sync blocks by deriving them from L1 and driving them into the engine
+		engDriveSub := eng.Drive(c.l1Downloader, l1SubCh)
+		mergeSub(engDriveSub, "engine driver unexpectedly failed")
 	}
 
 	// Keep subscribed to the L1 heads, which keeps the L1 maintainer pointing to the best headers to sync
@@ -143,29 +188,31 @@ func (c *OpNodeCmd) RunNode() {
 		if err != nil {
 			c.log.Warn("resubscribing after failed L1 subscription", "err", err)
 		}
-		return l1.WatchHeadChanges(c.ctx, l1Source, c.l1Tracker)
+		return eth.WatchHeadChanges(c.ctx, c.l1Source, eth.HeadSignalFn(func(sig eth.HeadSignal) {
+			l1HeadsFeed.Send(sig)
+		}))
 	})
 	mergeSub(l1HeadsSub, "l1 heads subscription failed")
 
-	// feed from tracker, as fed with head events from above subscription
-	l1Heads := make(chan l1.BlockID)
-	mergeSub(c.l1Tracker.WatchHeads(l1Heads), "l1 heads info feed unexpectedly failed")
+	// subscribe to L1 heads for info
+	l1Heads := make(chan eth.HeadSignal, 10)
+	l1HeadsFeed.Subscribe(l1Heads)
+
+	c.log.Info("Start-up complete!")
 
 	for {
 		select {
 		case l1Head := <-l1Heads:
-			c.log.Info("New Layer1 head: nr %10d, hash %s", l1Head.Number, l1Head.Hash)
-		case <-heartbeat.C:
-			// TODO log info like latest L1/L2 head of engines
-
+			c.log.Info("New L1 head", "head", l1Head.Self, "parent", l1Head.Parent)
+		// TODO: maybe log other info on interval or other chain events (individual engines also log things)
 		case done := <-c.close:
 			c.log.Info("Closing OpNode")
 			// close all tasks
 			for _, f := range unsub {
 				f()
 			}
-			// close L1 data sources
-			l1Source.Close()
+			// close L1 data source
+			c.l1Source.Close()
 			// close L2 engines
 			for _, eng := range c.l2Engines {
 				eng.Close()

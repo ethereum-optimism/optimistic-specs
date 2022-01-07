@@ -9,6 +9,8 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -110,7 +112,7 @@ func TestDownloader_Fetch(t *testing.T) {
 		}
 		dl := NewDownloader(src)
 		dl.AddReceiptWorkers(workers)
-		block, receipts, err := dl.Fetch(context.Background(), BlockID{bl.Hash(), bl.NumberU64()})
+		block, receipts, err := dl.Fetch(context.Background(), eth.BlockID{Hash: bl.Hash(), Number: bl.NumberU64()})
 		if expectOK {
 			if err != nil {
 				t.Fatal(err)
