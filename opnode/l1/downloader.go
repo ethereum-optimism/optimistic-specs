@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	lru "github.com/hashicorp/golang-lru"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	lru "github.com/hashicorp/golang-lru"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 
