@@ -102,6 +102,8 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 	c.l1Source = eth.NewCombinedL1Source(l1Sources)
 	l1CanonicalChain := eth.CanonicalChain(c.l1Source)
 
+	c.l1Downloader = l1.NewDownloader(c.l1Source)
+
 	for i, addr := range c.L2EngineAddrs {
 		// L2 exec engine: updated by this OpNode (L2 consensus layer node)
 		backend, err := rpc.DialContext(ctx, addr)
@@ -193,7 +195,7 @@ func (c *OpNodeCmd) RunNode() {
 	mergeSub(l1HeadsSub, "l1 heads subscription failed")
 
 	// subscribe to L1 heads for info
-	l1Heads := make(chan eth.BlockID, 10)
+	l1Heads := make(chan eth.HeadSignal, 10)
 	l1HeadsFeed.Subscribe(l1Heads)
 
 	c.log.Info("Start-up complete!")
@@ -201,7 +203,7 @@ func (c *OpNodeCmd) RunNode() {
 	for {
 		select {
 		case l1Head := <-l1Heads:
-			c.log.Info("New L1 head: nr %10d, hash %s", l1Head.Number, l1Head.Hash)
+			c.log.Info("New L1 head", "head", l1Head.Self, "parent", l1Head.Parent)
 		// TODO: maybe log other info on interval or other chain events (individual engines also log things)
 		case done := <-c.close:
 			c.log.Info("Closing OpNode")
