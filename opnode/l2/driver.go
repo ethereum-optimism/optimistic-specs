@@ -186,6 +186,7 @@ func (e *EngineDriver) Drive(dl l1.Downloader, l1Heads <-chan eth.HeadSignal) et
 					// in case the e.l1Head is not updating (failed/broken L1 head subscription)
 					continue
 				}
+				e.Log.Debug("finding next sync step, engine syncing", "l2", e.l2Head, "l1", e.l1Head)
 				refL1, refL2, err := FindSyncStart(e.Ctx, e.SyncRef, &e.Genesis)
 				if err != nil {
 					e.Log.Error("Failed to find sync starting point", "err", err)
