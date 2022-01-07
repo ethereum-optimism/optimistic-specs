@@ -106,7 +106,7 @@ func (e *EngineDriver) Drive(dl l1.Downloader, l1Heads <-chan eth.HeadSignal) et
 		// keep making many sync steps if we can make sync progress
 		hot := time.Millisecond * 30
 		// check on sync regularly, but prioritize sync triggers with head updates etc.
-		cold := time.Second * 15
+		cold := time.Second * 8
 		// at least try every minute to sync, even if things are going well
 		max := time.Minute
 

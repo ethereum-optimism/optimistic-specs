@@ -27,7 +27,7 @@ func DeriveBlockOutputs(ctx context.Context, engine BlockPreparer, l2Parent comm
 		return nil, fmt.Errorf("engine not in sync, failed to derive block, status: %s", fcResult.Status)
 	}
 
-	payload, err := engine.GetPayload(ctx, fcResult.PayloadID)
+	payload, err := engine.GetPayload(ctx, *fcResult.PayloadID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get payload: %v", err)
 	}

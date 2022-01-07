@@ -90,23 +90,8 @@ type Uint256Quantity = uint256.Int
 
 type Data = hexutil.Bytes
 
-type PayloadID [8]byte
-
-func (b *PayloadID) UnmarshalJSON(text []byte) error {
-	return hexutil.UnmarshalFixedJSON(reflect.TypeOf(b), text, b[:])
-}
-
-func (b *PayloadID) UnmarshalText(text []byte) error {
-	return hexutil.UnmarshalFixedText("PayloadID", text, b[:])
-}
-
-func (b PayloadID) MarshalText() ([]byte, error) {
-	return hexutil.Bytes(b[:]).MarshalText()
-}
-
-func (b PayloadID) String() string {
-	return hexutil.Encode(b[:])
-}
+// TODO: implement neat 8 byte typed payload ID and upstream it to geth api definitions
+type PayloadID = hexutil.Bytes
 
 type ExecutionPayload struct {
 	ParentHash    common.Hash     `json:"parentHash"`
@@ -184,7 +169,7 @@ type ForkchoiceUpdatedResult struct {
 	// the result of the payload execution
 	Status ForkchoiceUpdatedStatus `json:"status"`
 	// the payload id if requested
-	PayloadID PayloadID `json:"payloadId"`
+	PayloadID *PayloadID `json:"payloadId"`
 }
 
 type EngineAPI interface {

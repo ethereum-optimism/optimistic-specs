@@ -2,8 +2,11 @@ package l2
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/ethereum/go-ethereum"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 	"github.com/ethereum/go-ethereum/common"
@@ -33,6 +36,17 @@ func FindSyncStart(ctx context.Context, reference SyncReference, genesis *Genesi
 		var ontoL1 eth.BlockID
 		nextRefL1, ontoL1, err = reference.RefByL1Num(ctx, refL1.Number+1)
 		if err != nil {
+			// If refL1 is the head block, then we might not have a next block to build on the head
+			if errors.Is(err, ethereum.NotFound) {
+				// return the same as the engine head was already built on, no error.
+				nextRefL1 = refL1
+				refL2 = eth.BlockID{Hash: parentL2, Number: refL2.Number}
+				if refL2.Number > 0 {
+					refL2.Number -= 1
+				}
+				err = nil
+				return
+			}
 			return
 		}
 		// The L1 source might rug us with a reorg between API calls, catch that.
