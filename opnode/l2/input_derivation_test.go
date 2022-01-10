@@ -6,72 +6,12 @@ import (
 	"math/big"
 	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/trie"
 )
-
-var (
-	// testnet chain ID, not meaningful here
-	chaindID = big.NewInt(69)
-)
-
-type deriveTxsTestInput struct {
-	block    *types.Block
-	receipts []*types.Receipt
-}
-
-// Generates a test case with nSuccess successful transactions and nFailed failed transactions,
-// as well as corresponding deposits.
-// The transactions are dummy transactions, that do not match the log entries contained the deposits.
-func GenerateTest(nSuccess uint64, nFailed uint64, rng *rand.Rand) *deriveTxsTestInput {
-	nTxs := nSuccess + nFailed
-	txs := make(types.Transactions, nTxs)
-	for i := range txs {
-		txs[i] = GenerateTransaction()
-	}
-
-	// TODO: test receipts with multiple deposit logs.
-
-	receipts := make(types.Receipts, nTxs)
-	for i := uint64(0); i < nSuccess; i++ {
-		receipts[i] = GenerateDepositReceipt(rng)
-	}
-	for i := nSuccess; i < nTxs; i++ {
-		receipts[i] = GenerateFailedDepositReceipt(rng)
-	}
-
-	block := GenerateBlock(txs, receipts, time.Now())
-	return &deriveTxsTestInput{
-		block:    block,
-		receipts: receipts,
-	}
-}
-
-// Generates a dummy transaction with most fields zeroed.
-func GenerateTransaction() *types.Transaction {
-	txData := &types.DynamicFeeTx{
-		ChainID: chaindID,
-		Data:    []byte{},
-
-		// ignored (zeroed):
-		Nonce:      0,
-		GasTipCap:  new(big.Int),
-		GasFeeCap:  new(big.Int),
-		Gas:        0,
-		To:         &common.Address{},
-		Value:      new(big.Int),
-		AccessList: types.AccessList{},
-		V:          new(big.Int),
-		R:          new(big.Int),
-		S:          new(big.Int),
-	}
-	return types.NewTx(txData)
-}
 
 func GenerateAddress(rng *rand.Rand) (out common.Address) {
 	rng.Read(out[:])
@@ -168,62 +108,6 @@ func GenerateLog(addr common.Address, topics []common.Hash, data []byte) *types.
 	}
 }
 
-// Generates a receipt for a successful transaction with a single log entry for a deposit.
-// Calls GenerateDeposit with `id` to generate the deposit.
-func GenerateDepositReceipt(rng *rand.Rand) *types.Receipt {
-	return GenerateReceipt(types.ReceiptStatusSuccessful, []*types.Log{
-		GenerateDepositLog(GenerateDeposit(rng.Uint64(), rng.Uint64(), rng)),
-	})
-}
-
-// Generates a receipt for a failed transaction with a single log entry for a deposit.
-// Calls GenerateDeposit with `id` to generate the deposit.
-func GenerateFailedDepositReceipt(rng *rand.Rand) *types.Receipt {
-	return GenerateReceipt(types.ReceiptStatusFailed, []*types.Log{
-		GenerateDepositLog(GenerateDeposit(rng.Uint64(), rng.Uint64(), rng)),
-	})
-}
-
-// Generates a receipt with the given status and the given log entries.
-func GenerateReceipt(status uint64, logs []*types.Log) *types.Receipt {
-	return &types.Receipt{
-		Type:   types.DynamicFeeTxType,
-		Status: status,
-		Logs:   logs,
-	}
-}
-
-// Generate an L1 block with the given transactions, receipts and timetamp.
-func GenerateBlock(txs types.Transactions, receipts types.Receipts, _time time.Time) *types.Block {
-
-	header := &types.Header{
-		Time:  uint64(_time.Unix()),
-		Extra: []byte{},
-
-		// ignored (zeroed):
-		ParentHash: common.Hash{},
-		UncleHash:  common.Hash{},
-		Coinbase:   common.Address{},
-		Root:       common.Hash{},
-		Difficulty: new(big.Int),
-		Number:     new(big.Int),
-		GasLimit:   0,
-		MixDigest:  common.Hash{},
-		Nonce:      types.EncodeNonce(0),
-		BaseFee:    new(big.Int),
-
-		// not supplied (computed by NewBlock):
-		// - TxHash
-		// - ReceiptHash
-		// - Bloom
-		// - UncleHash
-	}
-
-	uncles := []*types.Header{}
-	hasher := trie.NewStackTrie(nil)
-	return types.NewBlock(header, txs, uncles, receipts, hasher)
-}
-
 func TestUnmarshalLogEvent(t *testing.T) {
 	for i := int64(0); i < 100; i++ {
 		t.Run(fmt.Sprintf("random_deposit_%d", i), func(t *testing.T) {
@@ -241,65 +125,71 @@ func TestUnmarshalLogEvent(t *testing.T) {
 	}
 }
 
-/*
+// DeriveL1InfoDeposit is tested in reading_test.go, combined with the inverse ParseL1InfoDepositTxData
+
+// receiptData defines what a test receipt looks like
+type receiptData struct {
+	// false = failed tx
+	goodReceipt bool
+	// false = not a deposit log
+	DepositLogs []bool
+}
+
 type DeriveUserDepositsTestCase struct {
-	name     string
-	input    *deriveTxsTestInput
-	expected []*types.Transaction
+	name   string
+	height uint64
+	// generate len(receipts) receipts
+	receipts []receiptData
 }
 
 func TestDeriveUserDeposits(t *testing.T) {
 	testCases := []DeriveUserDepositsTestCase{
-		{"no deposits", GenerateTest(0, 0), []*types.Transaction{}},
-		{"success deposit", GenerateTest(1, 0), []*types.Transaction{nil}}, // TODO
-		{"failed deposit", GenerateTest(0, 1), []*types.Transaction{}},
-		{"many deposits", nil, nil}, // TODO
+		{"no deposits", 100, []receiptData{}},
+		{"other log", 100, []receiptData{{true, []bool{false}}}},
+		{"success deposit", 100, []receiptData{{true, []bool{true}}}},
+		{"failed deposit", 100, []receiptData{{false, []bool{true}}}},
+		{"mixed deposits", 100, []receiptData{{true, []bool{true}}, {false, []bool{true}}}},
+		{"success multiple logs", 100, []receiptData{{true, []bool{true, true}}}},
+		{"failed multiple logs", 100, []receiptData{{false, []bool{true, true}}}},
+		{"not all deposit logs", 100, []receiptData{{true, []bool{true, false, true}}}},
+		{"random", 100, []receiptData{{true, []bool{false, false, true}}, {false, []bool{}}, {true, []bool{true}}}},
 	}
-	for _, testCase := range testCases {
+	for i, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			got, err := DeriveUserDeposits(testCase.input.block, testCase.input.receipts)
+			rng := rand.New(rand.NewSource(1234 + int64(i)))
+			var receipts []*types.Receipt
+			var expectedDeposits []*types.DepositTx
+			for _, rData := range testCase.receipts {
+				var logs []*types.Log
+				status := types.ReceiptStatusSuccessful
+				if !rData.goodReceipt {
+					status = types.ReceiptStatusFailed
+				}
+				for _, isDeposit := range rData.DepositLogs {
+					if isDeposit {
+						dep := GenerateDeposit(testCase.height, uint64(1+len(expectedDeposits)), rng)
+						if status == types.ReceiptStatusSuccessful {
+							expectedDeposits = append(expectedDeposits, dep)
+						}
+						logs = append(logs, GenerateDepositLog(dep))
+					} else {
+						logs = append(logs, GenerateLog(GenerateAddress(rng), nil, nil))
+					}
+				}
+
+				receipts = append(receipts, &types.Receipt{
+					Type:   types.DynamicFeeTxType,
+					Status: status,
+					Logs:   logs,
+				})
+			}
+			got, err := DeriveUserDeposits(testCase.height, receipts)
 			assert.NoError(t, err)
-			assert.Equal(t, got, testCase.expected)
+			assert.Equal(t, len(got), len(expectedDeposits))
+			for d, depTx := range got {
+				expected := expectedDeposits[d]
+				assert.Equal(t, expected, depTx)
+			}
 		})
 	}
 }
-
-type DeriveL1InfoDepositTestCase struct {
-	name     string
-	input    *types.Block
-	expected *types.DepositTx
-}
-
-func TestDeriveL1InfoDeposit(t *testing.T) {
-	testCases := []DeriveL1InfoDepositTestCase{
-		// TODO
-		{"random block", GenerateBlock()},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			got := DeriveL1InfoDeposit(testCase.input)
-			assert.Equal(t, got, testCase.expected)
-		})
-	}
-}
-
-type DerivePayloadAttributesTestCase struct {
-	name     string
-	input    *deriveTxsTestInput
-	expected *PayloadAttributes
-}
-
-func TestDerivePayloadAttributes(t *testing.T) {
-	testCases := []DerivePayloadAttributesTestCase{
-		// TODO
-		{"random block", GenerateBlock(), &PayloadAttributes{}},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			got, err := DeriveBlockInputs(testCase.input)
-			assert.NoError(t, err)
-			assert.Equal(t, got, testCase.expected)
-		})
-	}
-}
-*/

@@ -134,22 +134,20 @@ func DeriveL1InfoDeposit(block L1Info) *types.DepositTx {
 	}
 }
 
+type ReceiptHash interface {
+	ReceiptHash() common.Hash
+}
+
 // CheckReceipts sanity checks that the receipts are consistent with the block data.
-func CheckReceipts(block *types.Block, receipts []*types.Receipt) bool {
+func CheckReceipts(block ReceiptHash, receipts []*types.Receipt) bool {
 	hasher := trie.NewStackTrie(nil)
 	computed := types.DeriveSha(types.Receipts(receipts), hasher)
 	return block.ReceiptHash() == computed
 }
 
 // DeriveL2Transactions transforms a L1 block and corresponding receipts into the transaction inputs for a full L2 block
-func DeriveUserDeposits(block *types.Block, receipts []*types.Receipt) ([]*types.Transaction, error) {
-	if !CheckReceipts(block, receipts) {
-		return nil, fmt.Errorf("receipts are not consistent with the block's receipts root: %s", block.ReceiptHash())
-	}
-
-	height := block.NumberU64()
-
-	var out []*types.Transaction
+func DeriveUserDeposits(height uint64, receipts []*types.Receipt) ([]*types.DepositTx, error) {
+	var out []*types.DepositTx
 
 	for _, rec := range receipts {
 		if rec.Status != types.ReceiptStatusSuccessful {
@@ -162,21 +160,31 @@ func DeriveUserDeposits(block *types.Block, receipts []*types.Receipt) ([]*types
 				if err != nil {
 					return nil, fmt.Errorf("malformatted L1 deposit log: %v", err)
 				}
-				out = append(out, types.NewTx(dep))
+				out = append(out, dep)
 			}
 		}
 	}
 	return out, nil
 }
 
-func DeriveBlockInputs(block *types.Block, receipts []*types.Receipt) (*PayloadAttributes, error) {
+type BlockInput interface {
+	ReceiptHash
+	L1Info
+	MixDigest() common.Hash
+}
+
+func DeriveBlockInputs(block BlockInput, receipts []*types.Receipt) (*PayloadAttributes, error) {
+	if !CheckReceipts(block, receipts) {
+		return nil, fmt.Errorf("receipts are not consistent with the block's receipts root: %s", block.ReceiptHash())
+	}
+
 	l1Tx := types.NewTx(DeriveL1InfoDeposit(block))
 	opaqueL1Tx, err := l1Tx.MarshalBinary()
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode L1 info tx")
 	}
 
-	userDeposits, err := DeriveUserDeposits(block, receipts)
+	userDeposits, err := DeriveUserDeposits(block.NumberU64(), receipts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive user deposits: %v", err)
 	}
@@ -185,7 +193,7 @@ func DeriveBlockInputs(block *types.Block, receipts []*types.Receipt) (*PayloadA
 	encodedTxs = append(encodedTxs, opaqueL1Tx)
 
 	for i, tx := range userDeposits {
-		opaqueTx, err := tx.MarshalBinary()
+		opaqueTx, err := types.NewTx(tx).MarshalBinary()
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode user tx %d", i)
 		}
