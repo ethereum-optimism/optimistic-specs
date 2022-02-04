@@ -15,12 +15,14 @@ contract L1Block {
     uint256 public number;
     uint256 public timestamp;
     uint256 public basefee;
+    uint256 public sequenceNumber;
     bytes32 public hash;
 
     function setL1BlockValues(
         uint256 _number,
         uint256 _timestamp,
         uint256 _basefee,
+        uint256 _sequenceNumber,
         bytes32 _hash
     ) external {
         if (msg.sender != DEPOSITOR_ACCOUNT) {
@@ -30,6 +32,7 @@ contract L1Block {
         number = _number;
         timestamp = _timestamp;
         basefee = _basefee;
+        sequenceNumber = _sequenceNumber;
         hash = _hash;
     }
 }
