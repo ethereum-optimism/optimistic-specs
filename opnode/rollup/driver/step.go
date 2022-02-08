@@ -78,6 +78,7 @@ func DriverStep(ctx context.Context, log log.Logger, rpc DriverAPI,
 	}
 	logger.Debug("fetched L1 data for driver")
 
+	// TODO: update args
 	attrs, err := derive.PayloadAttributes(bl, receipts)
 	if err != nil {
 		return eth.BlockID{}, fmt.Errorf("failed to derive execution payload inputs: %v", err)
