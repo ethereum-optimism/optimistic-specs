@@ -213,11 +213,15 @@ func PayloadAttributes(config *rollup.Config, ontoL1 eth.BlockID, lastL2Time uin
 		return nil, fmt.Errorf("failed to derive deposits: %v", err)
 	}
 
-	// All block times in L2 are 2 seconds apart. If L2 time moves faster than L1, use that.
+	// All block times in L2 are config.BlockTime seconds apart. If L2 time moves faster than L1, use that.
 	// L1 is expected to have larger increments per block, L2 time will get back in sync eventually.
 	firstTimestamp := blocks[0].Time()
-	if lastL2Time+2 > firstTimestamp {
-		firstTimestamp = lastL2Time + 2
+	if firstTimestamp >= config.Genesis.L2Time { // if not, then lastL2Time will be larger
+		// round down, only create a trailing empty block if the L1 time is at least a full block span ahead of L2
+		firstTimestamp = firstTimestamp - (firstTimestamp-config.Genesis.L2Time)%config.BlockTime
+	}
+	if lastL2Time+config.BlockTime > firstTimestamp {
+		firstTimestamp = lastL2Time + config.BlockTime
 	}
 
 	// Sequencers may not use timestamps beyond the end of the sequencing window (with some configurable margin)
