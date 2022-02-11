@@ -93,20 +93,22 @@ func (e *EngineDriverState) RequestSync(ctx context.Context, log log.Logger, dri
 		return false
 	}
 	log.Debug("finding next sync step, engine syncing", "l2", e.l2Head, "l1", e.l1Head)
-	nextRefL1, refL2, err := driver.findSyncStart(ctx)
+	nextL1SeqWindow, refL2, l2Time, err := driver.findSyncStart(ctx)
 	if err != nil {
 		log.Error("Failed to find sync starting point", "err", err)
 		return false
 	}
-	if nextRefL1 == e.l1Head {
+	// TODO adjust sync check
+	if nextL1SeqWindow[0] == e.l1Head {
 		log.Debug("Engine is already synced, aborting sync", "l1_head", e.l1Head, "l2_head", e.l2Head)
 		return false
 	}
-	if l2ID, err := driver.driverStep(ctx, nextRefL1, refL2, e.l2Finalized); err != nil {
-		log.Error("Failed to sync L2 chain with new L1 block", "l1", nextRefL1, "onto_l2", refL2, "err", err)
+	if l2ID, err := driver.driverStep(ctx, nextL1SeqWindow, refL2, l2Time, e.l2Finalized); err != nil {
+		log.Error("Failed to sync L2 chain with new L1 block", "l1_window", nextL1SeqWindow, "onto_l2", refL2, "err", err)
 		return false
 	} else {
-		e.UpdateHead(nextRefL1, l2ID) // l2ID is derived from the nextRefL1
+		nextRefL1 := nextL1SeqWindow[0] // TODO: we should keep a buffer of L1 and slice the window out of it, instead of returning the window from findSyncStart
+		e.UpdateHead(nextRefL1, l2ID)   // l2ID is derived from the nextRefL1
 	}
 	return e.l1Head != e.l1Target
 }
@@ -118,7 +120,8 @@ func (e *EngineDriverState) NotifyL1Head(ctx context.Context, log log.Logger, l1
 	}
 	if e.l1Head == l1HeadSig.Parent {
 		// Simple extend, a linear life is easy
-		if l2ID, err := driver.driverStep(ctx, l1HeadSig.Self, e.l2Head, e.l2Finalized); err != nil {
+		// TODO: slice window based on l1HeadSig.Self, and select l2Time
+		if l2ID, err := driver.driverStep(ctx, nil, e.l2Head, 0, e.l2Finalized); err != nil {
 			log.Error("Failed to extend L2 chain with new L1 block", "l1", l1HeadSig.Self, "l2", e.l2Head, "err", err)
 			// Retry sync later
 			e.l1Target = l1HeadSig.Self

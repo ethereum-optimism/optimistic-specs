@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -109,6 +110,19 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 	c.l1Downloader = l1.NewDownloader(c.l1Source)
 	genesis := c.Genesis.GetGenesis()
 
+	// TODO: need to rebase for new configuration setup
+	config := &rollup.Config{
+		Genesis:              genesis,
+		BlockTime:            2,
+		MaxSequencerTimeDiff: 10,
+		SeqWindowSize:        64,
+		L1ChainID:            big.NewInt(901),
+		// TODO pick defaults
+		FeeRecipientAddress: common.Address{0xff, 0x01},
+		BatchInboxAddress:   common.Address{0xff, 0x02},
+		BatchSenderAddress:  common.Address{0xff, 0x03},
+	}
+
 	for i, addr := range c.L2EngineAddrs {
 		// L2 exec engine: updated by this OpNode (L2 consensus layer node)
 		backend, err := rpc.DialContext(ctx, addr)
@@ -133,6 +147,7 @@ func (c *OpNodeCmd) Run(ctx context.Context, args ...string) error {
 				L1: l1CanonicalChain,
 				L2: client,
 			},
+			Conf:              config,
 			EngineDriverState: driver.EngineDriverState{Genesis: genesis},
 		}
 		c.l2Engines = append(c.l2Engines, engine)

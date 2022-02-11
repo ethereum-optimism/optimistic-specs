@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
 	"time"
 
 	"github.com/ethereum/go-ethereum/core/types"
@@ -65,29 +66,58 @@ type Downloader interface {
 	Fetch(ctx context.Context, id eth.BlockID) (*types.Block, []*types.Receipt, error)
 }
 
-func DriverStep(ctx context.Context, log log.Logger, rpc DriverAPI,
-	dl Downloader, l1Input eth.BlockID, l2Parent eth.BlockID, l2Finalized common.Hash) (out eth.BlockID, err error) {
+// DriverStep derives and processes one or more L2 blocks from the given sequencing window of L1 blocks.
+// An incomplete sequencing window will result in an incomplete L2 chain if so.
+//
+// After the step completes it returns the block ID of the last processed L2 block, even if an error occurs.
+func DriverStep(ctx context.Context, log log.Logger, config *rollup.Config, rpc DriverAPI,
+	dl Downloader, l1Input []eth.BlockID, l2Parent eth.BlockID, l2Time uint64, l2Finalized common.Hash) (out eth.BlockID, err error) {
 
-	logger := log.New("input_l1", l1Input, "input_l2_parent", l2Parent, "finalized_l2", l2Finalized)
+	logger := log.New("input_l1_first", l1Input[0], "input_l1_last", l1Input[len(l1Input)-1],
+		"input_l2_parent", l2Parent, "finalized_l2", l2Finalized, "l2_time", l2Time)
 
-	fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
-	defer cancel()
-	bl, receipts, err := dl.Fetch(fetchCtx, l1Input)
-	if err != nil {
-		return eth.BlockID{}, fmt.Errorf("failed to fetch block with receipts: %v", err)
-	}
-	logger.Debug("fetched L1 data for driver")
+	epoch := rollup.Epoch(l1Input[0].Number)
+
+	// TODO: download full seq window
+	//fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
+	//defer cancel()
+	//
+	//
+	//bl, receipts, err := dl.Fetch(fetchCtx, l1Input)
+	//if err != nil {
+	//	return l2Parent, fmt.Errorf("failed to fetch block with receipts: %v", err)
+	//}
+	//logger.Debug("fetched L1 data for driver")
+	seqWindow := []derive.BlockInput{}
 
 	// TODO: update args
-	attrs, err := derive.PayloadAttributes(bl, receipts)
+	attrsList, err := derive.PayloadAttributes(config, l2Time, seqWindow)
 	if err != nil {
-		return eth.BlockID{}, fmt.Errorf("failed to derive execution payload inputs: %v", err)
+		return l2Parent, fmt.Errorf("failed to derive execution payload inputs: %v", err)
 	}
 	logger.Debug("derived L2 block inputs")
 
+	last := l2Parent
+	for i, attrs := range attrsList {
+		last, err := AddBlock(ctx, logger, rpc, last, l2Finalized, attrs)
+		if err != nil {
+			return last, fmt.Errorf("failed to extend L2 chain at block %d/%d of epoch %d: %v", i, len(attrsList), epoch, err)
+		}
+	}
+
+	return last, nil
+}
+
+// AddBlock extends the L2 chain by deriving the full execution payload from inputs,
+// and then executing and persisting it.
+//
+// After the step completes it returns the block ID of the last processed L2 block, even if an error occurs.
+func AddBlock(ctx context.Context, logger log.Logger, rpc DriverAPI,
+	l2Parent eth.BlockID, l2Finalized common.Hash, attrs *l2.PayloadAttributes) (eth.BlockID, error) {
+
 	payload, err := derive.ExecutionPayload(ctx, rpc, l2Parent.Hash, l2Finalized, attrs)
 	if err != nil {
-		return eth.BlockID{}, fmt.Errorf("failed to derive execution payload: %v", err)
+		return l2Parent, fmt.Errorf("failed to derive execution payload: %v", err)
 	}
 
 	logger = logger.New("derived_l2", payload.ID())
@@ -95,15 +125,14 @@ func DriverStep(ctx context.Context, log log.Logger, rpc DriverAPI,
 
 	err = Execute(ctx, rpc, payload)
 	if err != nil {
-		return eth.BlockID{}, fmt.Errorf("failed to apply execution payload: %v", err)
+		return l2Parent, fmt.Errorf("failed to apply execution payload: %v", err)
 	}
 	logger.Info("executed block")
 
 	err = ForkchoiceUpdate(ctx, rpc, payload.BlockHash, l2Finalized)
 	if err != nil {
-		return eth.BlockID{}, fmt.Errorf("failed to persist execution payload: %v", err)
+		return payload.ID(), fmt.Errorf("failed to persist execution payload: %v", err)
 	}
 	logger.Info("updated fork-choice with block")
-
 	return payload.ID(), nil
 }
