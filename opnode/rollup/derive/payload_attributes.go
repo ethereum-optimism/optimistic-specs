@@ -2,6 +2,7 @@ package derive
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math/big"
 
@@ -188,15 +189,21 @@ type BlockInput interface {
 	Receipts() []*types.Receipt
 }
 
-// PayloadAttributes derives the pre-execution payload from the L1 block info and deposit receipts.
+// PayloadAttributes derives a sequence of pre-execution payload attributes from a sequencing window worth of L1 blocks.
+// Any L2 batches missing from the L1 data become empty L2 blocks.
+//
+// l2Time is block(l2Parent).timestamp + config.BlockTime, used to determine the first derived timestamp.
+// If the sequencing window is incomplete then batches may be missing and result in an incomplete L2 chain.
+//
 // This is a pure function.
-func PayloadAttributes(config *rollup.Config, ontoL1 eth.BlockID, lastL2Time uint64, blocks []BlockInput) ([]*l2.PayloadAttributes, error) {
+func PayloadAttributes(config *rollup.Config, l2Time uint64, seqWindow []BlockInput) ([]*l2.PayloadAttributes, error) {
 	// check if we have the full sequencing window
-	if uint64(len(blocks)) != config.SeqWindowSize {
-		return nil, fmt.Errorf("expected %d blocks in sequencing window, got %d", config.SeqWindowSize, len(blocks))
+	if len(seqWindow) == 0 {
+		return nil, errors.New("cannot derive payload attributes from empty sequencing window")
 	}
 	// check if our inputs are consistent
-	for i, block := range blocks {
+	ontoL1 := eth.BlockID{Hash: seqWindow[0].Hash(), Number: seqWindow[0].NumberU64()}
+	for i, block := range seqWindow[1:] {
 		if block.NumberU64() != ontoL1.Number+1 {
 			return nil, fmt.Errorf("sanity check failed, sequencing window blocks are not consecutive (index %d)", i)
 		}
@@ -208,36 +215,25 @@ func PayloadAttributes(config *rollup.Config, ontoL1 eth.BlockID, lastL2Time uin
 	}
 
 	// Retrieve the deposits of this epoch (all deposits from the first block)
-	deposits, err := DeriveDeposits(blocks[0])
+	deposits, err := DeriveDeposits(seqWindow[0])
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive deposits: %v", err)
 	}
 
-	// All block times in L2 are config.BlockTime seconds apart. If L2 time moves faster than L1, use that.
-	// L1 is expected to have larger increments per block, L2 time will get back in sync eventually.
-	firstTimestamp := blocks[0].Time()
-	if firstTimestamp >= config.Genesis.L2Time { // if not, then lastL2Time will be larger
-		// round down, only create a trailing empty block if the L1 time is at least a full block span ahead of L2
-		firstTimestamp = firstTimestamp - (firstTimestamp-config.Genesis.L2Time)%config.BlockTime
-	}
-	if lastL2Time+config.BlockTime > firstTimestamp {
-		firstTimestamp = lastL2Time + config.BlockTime
-	}
-
 	// Sequencers may not use timestamps beyond the end of the sequencing window (with some configurable margin)
-	maxTimestamp := blocks[len(blocks)-1].Time() + config.MaxSequencerTimeDiff
+	maxTimestamp := seqWindow[len(seqWindow)-1].Time() + config.MaxSequencerTimeDiff
 
 	l1Signer := config.L1Signer()
 
 	// copy L1 randomness (mix-digest becomes randao field post-merge)
 	// TODO: we don't have a randomness oracle on L2, what should sequencing randomness look like.
 	// Repeating the latest randomness of L1 might not be ideal.
-	randomnessSeed := l2.Bytes32(blocks[0].MixDigest())
+	randomnessSeed := l2.Bytes32(seqWindow[0].MixDigest())
 
 	// Collect all L2 batches, the bathes may be out-of-order, or possibly missing.
 	l2Blocks := make(map[uint64]*l2.PayloadAttributes)
-	highestSeenTimestamp := firstTimestamp
-	for _, block := range blocks {
+	highestSeenTimestamp := l2Time
+	for _, block := range seqWindow {
 		// scan the block for batches that match this epoch
 		for _, tx := range block.Transactions() {
 			if to := tx.To(); to != nil && *to == config.BatchInboxAddress {
@@ -251,13 +247,15 @@ func PayloadAttributes(config *rollup.Config, ontoL1 eth.BlockID, lastL2Time uin
 				}
 				batches := ParseBatches(tx.Data())
 				for _, batch := range batches {
-					if batch.Epoch != blocks[0].NumberU64() {
-						continue // batch was tagged for future epoch (i.e. it depends on the given L1 block to be processed first)
+					if batch.Epoch != seqWindow[0].NumberU64() {
+						// Batch was tagged for past or future epoch,
+						// i.e. it was included too late or depends on the given L1 block to be processed first.
+						continue
 					}
 					if (batch.Timestamp-config.Genesis.L2Time)%config.BlockTime != 0 {
 						continue // bad timestamp, not a multiple of the block time
 					}
-					if batch.Timestamp < firstTimestamp {
+					if batch.Timestamp < l2Time {
 						continue // old batch
 					}
 					// limit timestamp upper bound to avoid huge amount of empty blocks
@@ -288,7 +286,7 @@ func PayloadAttributes(config *rollup.Config, ontoL1 eth.BlockID, lastL2Time uin
 
 	// fill the gaps and always ensure at least one L2 block
 	var out []*l2.PayloadAttributes
-	for t := firstTimestamp; t <= highestSeenTimestamp; t += config.BlockTime {
+	for t := l2Time; t <= highestSeenTimestamp; t += config.BlockTime {
 		if bl, ok := l2Blocks[t]; ok {
 			out = append(out, bl)
 		} else {
