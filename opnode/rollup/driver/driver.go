@@ -19,17 +19,14 @@ type Driver interface {
 	// requestEngineHead retrieves the L2 head reference of the engine, as well as the L1 reference it was derived from.
 	// An error is returned when the L2 head information could not be retrieved (timeout or connection issue)
 	requestEngineHead(ctx context.Context) (refL1 eth.BlockID, refL2 eth.BlockID, err error)
-	// TODO: return buffer of L1 blocks, do seq-window slicing in caller instead
-	// TODO update description
-	// findSyncStart statelessly finds the next L1 block to derive, and on which L2 block it applies.
+	// findSyncStart statelessly finds the next L1 blocks to derive from, and on which L2 block it applies.
 	// If the engine is fully synced, then the last derived L1 block, and parent L2 block, is repeated.
 	// An error is returned if the sync starting point could not be determined (due to timeouts, wrong-chain, etc.)
-	findSyncStart(ctx context.Context) (nextL1SeqWindow []eth.BlockID, refL2 eth.BlockID, l2Time uint64, err error)
-	// driverStep explicitly calls the engine to derive a sequencing window of L1 blocks into L2 blocks,
-	// and apply it on top of the given L2 block, starting at the given l2Time.
+	findSyncStart(ctx context.Context) (nextL1s []eth.BlockID, refL2 eth.BlockID, err error)
+	// driverStep explicitly calls the engine to derive a sequencing window of L1 blocks into L2 blocks.
 	// The finalized L2 block is provided to update the engine with finality, but does not affect the derivation step itself.
 	// The resulting L2 block ID is returned, or an error if the derivation fails.
-	driverStep(ctx context.Context, nextL1SeqWindow []eth.BlockID, refL2 eth.BlockID, l2Time uint64, finalized eth.BlockID) (l2ID eth.BlockID, err error)
+	driverStep(ctx context.Context, seqWindow []eth.BlockID, refL2 eth.BlockID, finalized eth.BlockID) (l2ID eth.BlockID, err error)
 }
 
 type EngineDriver struct {
@@ -64,7 +61,7 @@ func (e *EngineDriver) requestEngineHead(ctx context.Context) (refL1 eth.BlockID
 	return
 }
 
-func (e *EngineDriver) findSyncStart(ctx context.Context) (nextL1SeqWindow []eth.BlockID, refL2 eth.BlockID, l2Time uint64, err error) {
+func (e *EngineDriver) findSyncStart(ctx context.Context) (nextL1s []eth.BlockID, refL2 eth.BlockID, err error) {
 	// TODO: update sync start algo
 	// TODO: maybe change interface to return more than a sequence window, and start slicing windows from that in the driver,
 	// so we can buffer the expected L1 input block IDs, and maybe even pre-fetch the L1 blocks to make sync faster.
@@ -72,8 +69,8 @@ func (e *EngineDriver) findSyncStart(ctx context.Context) (nextL1SeqWindow []eth
 	return
 }
 
-func (e *EngineDriver) driverStep(ctx context.Context, nextL1SeqWindow []eth.BlockID, refL2 eth.BlockID, l2Time uint64, finalized eth.BlockID) (l2ID eth.BlockID, err error) {
-	return DriverStep(ctx, e.Log, e.Conf, e.RPC, e.DL, nextL1SeqWindow, refL2, l2Time, finalized.Hash)
+func (e *EngineDriver) driverStep(ctx context.Context, seqWindow []eth.BlockID, refL2 eth.BlockID, finalized eth.BlockID) (l2ID eth.BlockID, err error) {
+	return DriverStep(ctx, e.Log, e.Conf, e.RPC, e.DL, seqWindow, refL2, finalized.Hash)
 }
 
 func (e *EngineDriver) Close() {

@@ -63,7 +63,14 @@ func ForkchoiceUpdate(ctx context.Context, rpc DriverAPI, l2BlockHash common.Has
 }
 
 type Downloader interface {
-	Fetch(ctx context.Context, id eth.BlockID) (*types.Block, []*types.Receipt, error)
+	// FetchL1Info fetches the L1 header information corresponding to a L1 block ID
+	FetchL1Info(ctx context.Context, id eth.BlockID) (derive.L1Info, error)
+	// FetchReceipts of a L1 block
+	FetchReceipts(ctx context.Context, id eth.BlockID) ([]*types.Receipt, error)
+	// FetchBatches from the given window of L1 blocks
+	FetchBatches(ctx context.Context, window []eth.BlockID) ([]derive.BatchData, error)
+	// FetchL2Info fetches the L2 header information corresponding to a L2 block ID
+	FetchL2Info(ctx context.Context, id eth.BlockID) (derive.L2Info, error)
 }
 
 // DriverStep derives and processes one or more L2 blocks from the given sequencing window of L1 blocks.
@@ -71,27 +78,39 @@ type Downloader interface {
 //
 // After the step completes it returns the block ID of the last processed L2 block, even if an error occurs.
 func DriverStep(ctx context.Context, log log.Logger, config *rollup.Config, rpc DriverAPI,
-	dl Downloader, l1Input []eth.BlockID, l2Parent eth.BlockID, l2Time uint64, l2Finalized common.Hash) (out eth.BlockID, err error) {
+	dl Downloader, l1Input []eth.BlockID, l2Parent eth.BlockID, l2Finalized common.Hash) (out eth.BlockID, err error) {
+
+	if len(l1Input) == 0 {
+		return l2Parent, fmt.Errorf("empty L1 sequencing window on L2 %s", l2Parent)
+	}
 
 	logger := log.New("input_l1_first", l1Input[0], "input_l1_last", l1Input[len(l1Input)-1],
-		"input_l2_parent", l2Parent, "finalized_l2", l2Finalized, "l2_time", l2Time)
+		"input_l2_parent", l2Parent, "finalized_l2", l2Finalized)
 
 	epoch := rollup.Epoch(l1Input[0].Number)
 
-	// TODO: download full seq window
-	//fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
-	//defer cancel()
-	//
-	//
-	//bl, receipts, err := dl.Fetch(fetchCtx, l1Input)
-	//if err != nil {
-	//	return l2Parent, fmt.Errorf("failed to fetch block with receipts: %v", err)
-	//}
-	//logger.Debug("fetched L1 data for driver")
-	seqWindow := []derive.BlockInput{}
+	fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
+	defer cancel()
 
-	// TODO: update args
-	attrsList, err := derive.PayloadAttributes(config, l2Time, seqWindow)
+	l2Info, err := dl.FetchL2Info(fetchCtx, l2Parent)
+	if err != nil {
+		return l2Parent, fmt.Errorf("failed to fetch L2 block info of %s: %v", l2Parent, err)
+	}
+	l1Info, err := dl.FetchL1Info(fetchCtx, l1Input[0])
+	if err != nil {
+		return l2Parent, fmt.Errorf("failed to fetch L1 block info of %s: %v", l1Input[0], err)
+	}
+	receipts, err := dl.FetchReceipts(fetchCtx, l1Input[0])
+	if err != nil {
+		return l2Parent, fmt.Errorf("failed to fetch receipts of %s: %v", l1Input[0], err)
+	}
+	// TODO: with sharding the blobs may be identified in more detail than L1 block hashes
+	batches, err := dl.FetchBatches(fetchCtx, l1Input)
+	if err != nil {
+		return l2Parent, fmt.Errorf("failed to fetch batches from %s: %v", l1Input, err)
+	}
+
+	attrsList, err := derive.PayloadAttributes(config, l1Info, receipts, batches, l2Info)
 	if err != nil {
 		return l2Parent, fmt.Errorf("failed to derive execution payload inputs: %v", err)
 	}

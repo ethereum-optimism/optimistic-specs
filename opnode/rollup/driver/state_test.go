@@ -71,16 +71,16 @@ func (m *mockDriver) requestEngineHead(ctx context.Context) (refL1 eth.BlockID, 
 	return
 }
 
-func (m *mockDriver) findSyncStart(ctx context.Context) (nextRefL1 eth.BlockID, refL2 eth.BlockID, err error) {
+func (m *mockDriver) findSyncStart(ctx context.Context) (nextL1s []eth.BlockID, refL2 eth.BlockID, err error) {
 	returnArgs := m.Called(ctx)
-	nextRefL1 = returnArgs.Get(0).(eth.BlockID)
+	nextL1s = returnArgs.Get(0).([]eth.BlockID)
 	refL2 = returnArgs.Get(1).(eth.BlockID)
 	err, _ = returnArgs.Get(2).(error)
 	return
 }
 
-func (m *mockDriver) driverStep(ctx context.Context, nextRefL1 eth.BlockID, refL2 eth.BlockID, finalized eth.BlockID) (l2ID eth.BlockID, err error) {
-	returnArgs := m.Called(ctx, nextRefL1, refL2, finalized)
+func (m *mockDriver) driverStep(ctx context.Context, seqWindow []eth.BlockID, refL2 eth.BlockID, finalized eth.BlockID) (l2ID eth.BlockID, err error) {
+	returnArgs := m.Called(ctx, seqWindow, refL2, finalized)
 	l2ID = returnArgs.Get(0).(eth.BlockID)
 	err, _ = returnArgs.Get(1).(error)
 	return
@@ -101,8 +101,8 @@ func TestEngineDriverState_RequestSync(t *testing.T) {
 		genesisL1:   "a:0",
 		genesisL2:   "b:0",
 	})
-	driver.On("findSyncStart", ctx).Return(testID("d:3").ID(), testID("C:2").ID(), nil)
-	driver.On("driverStep", ctx, testID("d:3").ID(), testID("C:2").ID(), testID("B:1").ID()).Return(testID("D:3").ID(), nil)
+	driver.On("findSyncStart", ctx).Return([]eth.BlockID{testID("d:3").ID()}, testID("C:2").ID(), nil)
+	driver.On("driverStep", ctx, []eth.BlockID{testID("d:3").ID()}, testID("C:2").ID(), testID("B:1").ID()).Return(testID("D:3").ID(), nil)
 
 	l2Updated := state.RequestSync(ctx, log, driver)
 
