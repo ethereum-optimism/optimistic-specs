@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"math/big"
 	"strconv"
 	"strings"
 	"testing"
@@ -42,19 +43,42 @@ type testState struct {
 	l2Head      testID
 	l2Finalized testID
 	l1Target    testID
-	genesisL1   testID
-	genesisL2   testID
+
+	l1Next       []testID
+	l2NextParent testID
+
+	genesisL1 testID
+	genesisL2 testID
+
+	seqWindowSize uint64
 }
 
 func makeState(st testState) *EngineDriverState {
+	next := make([]eth.BlockID, len(st.l1Next))
+	for i, id := range st.l1Next {
+		next[i] = id.ID()
+	}
 	return &EngineDriverState{
-		l1Head:      st.l1Head.ID(),
-		l2Head:      st.l2Head.ID(),
-		l2Finalized: st.l2Finalized.ID(),
-		l1Target:    st.l1Target.ID(),
-		Genesis: rollup.Genesis{
-			L1: st.genesisL1.ID(),
-			L2: st.genesisL2.ID(),
+		l1Head:       st.l1Head.ID(),
+		l2Head:       st.l2Head.ID(),
+		l2Finalized:  st.l2Finalized.ID(),
+		l1Target:     st.l1Target.ID(),
+		l1Next:       next,
+		l2NextParent: st.l2NextParent.ID(),
+		// TODO: improve testing config (test different seq window sizes and non-zero L2 genesis time?)
+		Config: rollup.Config{
+			Genesis: rollup.Genesis{
+				L1:     st.genesisL1.ID(),
+				L2:     st.genesisL2.ID(),
+				L2Time: 0,
+			},
+			BlockTime:            2,
+			MaxSequencerTimeDiff: 10,
+			SeqWindowSize:        st.seqWindowSize,
+			L1ChainID:            big.NewInt(100),
+			FeeRecipientAddress:  common.Address{0x0a},
+			BatchInboxAddress:    common.Address{0x0b},
+			BatchSenderAddress:   common.Address{0x0c},
 		},
 	}
 }
@@ -94,12 +118,15 @@ func TestEngineDriverState_RequestSync(t *testing.T) {
 	ctx := context.Background()
 
 	state := makeState(testState{
-		l1Head:      "c:2",
-		l2Head:      "C:2",
-		l2Finalized: "B:1",
-		l1Target:    "e:4",
-		genesisL1:   "a:0",
-		genesisL2:   "b:0",
+		l1Head:        "c:2",
+		l2Head:        "C:2",
+		l2Finalized:   "B:1",
+		l1Target:      "e:4",
+		l1Next:        []testID{"d:3", "e:4", "c:5"}, // TODO: multiple batches per L1 block
+		l2NextParent:  "C:2",
+		genesisL1:     "a:0",
+		genesisL2:     "b:0",
+		seqWindowSize: 1, // TODO: test larger sequencing sizes (requires updating test below)
 	})
 	driver.On("findSyncStart", ctx).Return([]eth.BlockID{testID("d:3").ID()}, testID("C:2").ID(), nil)
 	driver.On("driverStep", ctx, []eth.BlockID{testID("d:3").ID()}, testID("C:2").ID(), testID("B:1").ID()).Return(testID("D:3").ID(), nil)

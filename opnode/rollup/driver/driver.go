@@ -57,7 +57,7 @@ func (e *EngineDriver) Drive(ctx context.Context, l1Heads <-chan eth.HeadSignal)
 }
 
 func (e *EngineDriver) requestEngineHead(ctx context.Context) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
-	refL1, refL2, _, err = e.SyncRef.RefByL2Num(ctx, nil, &e.Genesis)
+	refL1, refL2, _, err = e.SyncRef.RefByL2Num(ctx, nil, &e.Config.Genesis)
 	return
 }
 
