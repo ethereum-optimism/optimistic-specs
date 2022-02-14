@@ -37,11 +37,17 @@ type EngineDriverState struct {
 	// (a week for disputes, or maybe shorter if we see L1 finalize and take the derived L2 chain up till there)
 	l2Finalized eth.BlockID
 
+	// l1Next buffers the next L1 block IDs to derive new L2 blocks from, with increasing block height.
+	l1Next []eth.BlockID
+	// l2NextParent buffers the L2 Block ID to build on with l1Next.
+	// This may not be in sync with the l2Head in case of reorgs.
+	l2NextParent eth.BlockID
+
 	// The L1 block we are syncing towards, may be ahead of l1Head
 	l1Target eth.BlockID
 
-	// Genesis starting point
-	Genesis rollup.Genesis
+	// Rollup config
+	Config rollup.Config
 }
 
 // L1Head returns the block-id (hash and number) of the last L1 block that was derived into the L2 block
@@ -86,34 +92,57 @@ func (e *EngineDriverState) RequestUpdate(ctx context.Context, log log.Logger, d
 }
 
 func (e *EngineDriverState) RequestSync(ctx context.Context, log log.Logger, driver Driver) (l2Updated bool) {
+	log = log.New("l1_head", e.l1Head, "l2_head", e.l2Head)
 	if e.l1Head == e.l1Target {
-		log.Debug("Engine is fully synced", "l1_head", e.l1Head, "l2_head", e.l2Head)
+		log.Debug("Engine is fully synced")
 		// TODO: even though we are fully synced, it may be worth attempting anyway,
 		// in case the e.l1Head is not updating (failed/broken L1 head subscription)
 		return false
 	}
-	log.Debug("finding next sync step, engine syncing", "l2", e.l2Head, "l1", e.l1Head)
-	nextL1s, refL2, err := driver.findSyncStart(ctx)
-	if err != nil {
-		log.Error("Failed to find sync starting point", "err", err)
+	// If the engine is not in sync with our previous sync preparation, then we need to reconstruct the buffered L1 ids
+	if e.l2Head != e.l2NextParent {
+		log.Debug("finding next sync step, engine syncing", "buffered_l2", e.l2NextParent)
+		nextL1s, refL2, err := driver.findSyncStart(ctx)
+		if err != nil {
+			log.Error("Failed to find sync starting point", "err", err)
+			return false
+		}
+		e.l1Next = nextL1s
+		e.l2NextParent = refL2
+	} else {
+		log.Debug("attempting new sync step")
+	}
+
+	return e.applyNextWindow(ctx, log, driver)
+}
+
+func (e *EngineDriverState) applyNextWindow(ctx context.Context, log log.Logger, driver Driver) (l2Updated bool) {
+	// If the engine moved faster than our buffer try to move the buffer forward, do not get stuck.
+	for i, id := range e.l1Next {
+		if e.l1Head == id {
+			log.Debug("Engine is ahead of rollup node, skipping forward and aborting sync")
+			e.l1Next = e.l1Next[i+1:]
+			e.l2NextParent = e.l2Head
+			return true
+		}
+	}
+	if uint64(len(e.l1Next)) < e.Config.SeqWindowSize {
+		log.Warn("Not enough known L1 blocks for sequencing window, skipping sync")
 		return false
 	}
-	// TODO: buffer nextL1s
-	// TODO: slice correct seq window
-	seqWindow := nextL1s
-	// TODO adjust sync check
-	if seqWindow[0] == e.l1Head {
-		log.Debug("Engine is already synced, aborting sync", "l1_head", e.l1Head, "l2_head", e.l2Head)
-		return false
-	}
-	if l2ID, err := driver.driverStep(ctx, seqWindow, refL2, e.l2Finalized); err != nil {
-		log.Error("Failed to sync L2 chain with new L1 block", "l1_window", seqWindow, "onto_l2", refL2, "err", err)
+	seqWindow := e.l1Next[:e.Config.SeqWindowSize]
+	log = log.New("l1_window_start", seqWindow[0], "onto_l2", e.l2NextParent)
+	if l2ID, err := driver.driverStep(ctx, seqWindow, e.l2NextParent, e.l2Finalized); err != nil {
+		log.Error("Failed to sync L2 chain with new L1 block", "stopped_at", l2ID, "err", err)
 		return false
 	} else {
-		nextRefL1 := seqWindow[0]     // TODO: we should keep a buffer of L1 and slice the window out of it
-		e.UpdateHead(nextRefL1, l2ID) // l2ID is derived from the nextRefL1
+		log.Debug("Finished driver step", "l1_head", seqWindow[0], "l2_head", l2ID)
+		e.UpdateHead(seqWindow[0], l2ID) // l2ID is derived from the nextRefL1
+		// shift sequencing window: batches overlap, but we continue deposit/l1info processing from the next block.
+		e.l1Next = e.l1Next[1:]
+		e.l2NextParent = l2ID
+		return true
 	}
-	return e.l1Head != e.l1Target
 }
 
 func (e *EngineDriverState) NotifyL1Head(ctx context.Context, log log.Logger, l1HeadSig eth.HeadSignal, driver Driver) (l2Updated bool) {
@@ -121,25 +150,19 @@ func (e *EngineDriverState) NotifyL1Head(ctx context.Context, log log.Logger, l1
 		log.Debug("Received L1 head signal, already synced to it, ignoring event", "l1_head", e.l1Head)
 		return
 	}
-	if e.l1Head == l1HeadSig.Parent {
-		// Simple extend, a linear life is easy
-		// TODO: slice window based on l1HeadSig.Self, and select l2Time
-		if l2ID, err := driver.driverStep(ctx, nil, e.l2Head, e.l2Finalized); err != nil {
-			log.Error("Failed to extend L2 chain with new L1 block", "l1", l1HeadSig.Self, "l2", e.l2Head, "err", err)
-			// Retry sync later
-			e.l1Target = l1HeadSig.Self
-			return false
-		} else {
-			e.UpdateHead(l1HeadSig.Self, l2ID)
-			return true
+	e.l1Target = l1HeadSig.Self
+	// Check if this is a simple extension on top of previous buffered L1 chain we already know of
+	if len(e.l1Next) > 0 && e.l1Next[len(e.l1Next)-1] == l1HeadSig.Parent {
+		// don't buffer more than 20 sequencing windows  (TBD, sanity limit)
+		if uint64(len(e.l1Next)) < e.Config.SeqWindowSize*20 {
+			e.l1Next = append(e.l1Next, l1HeadSig.Self)
 		}
+		return e.applyNextWindow(ctx, log, driver)
 	}
 	if e.l1Head.Number < l1HeadSig.Parent.Number {
 		log.Debug("Received new L1 head, engine is out of sync, cannot immediately process", "l1", l1HeadSig.Self, "l2", e.l2Head)
 	} else {
 		log.Warn("Received a L1 reorg, syncing new alternative chain", "l1", l1HeadSig.Self, "l2", e.l2Head)
 	}
-
-	e.l1Target = l1HeadSig.Self
 	return false
 }
