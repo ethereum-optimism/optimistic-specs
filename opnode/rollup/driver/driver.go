@@ -62,11 +62,7 @@ func (e *EngineDriver) requestEngineHead(ctx context.Context) (refL1 eth.BlockID
 }
 
 func (e *EngineDriver) findSyncStart(ctx context.Context) (nextL1s []eth.BlockID, refL2 eth.BlockID, err error) {
-	// TODO: update sync start algo
-	// TODO: maybe change interface to return more than a sequence window, and start slicing windows from that in the driver,
-	// so we can buffer the expected L1 input block IDs, and maybe even pre-fetch the L1 blocks to make sync faster.
-	//return rollupSync.FindSyncStart(ctx, e.SyncRef, &e.Genesis)
-	return
+	return rollupSync.FindSyncStart(ctx, e.SyncRef, &e.Genesis)
 }
 
 func (e *EngineDriver) driverStep(ctx context.Context, seqWindow []eth.BlockID, refL2 eth.BlockID, finalized eth.BlockID) (l2ID eth.BlockID, err error) {
