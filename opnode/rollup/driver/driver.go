@@ -33,19 +33,17 @@ type Driver struct {
 	dl      Downloader
 	l1Heads <-chan eth.HeadSignal
 	done    chan struct{}
-	genesis rollup.Genesis
 	state   // embedded engine state
 }
 
-func NewDriver(l2 DriverAPI, l1 l1.Source, log log.Logger, genesis rollup.Genesis) *Driver {
+func NewDriver(cfg rollup.Config, l2 DriverAPI, l1 l1.Source, log log.Logger) *Driver {
 	return &Driver{
 		log:     log,
 		rpc:     l2,
 		syncRef: rollupSync.SyncSource{L1: l1, L2: l2},
 		dl:      l1,
 		done:    make(chan struct{}),
-		genesis: genesis,
-		state:   state{Genesis: genesis},
+		state:   state{Config: cfg},
 	}
 }
 
@@ -53,7 +51,7 @@ func (d *Driver) Start(ctx context.Context, l1Heads <-chan eth.HeadSignal) error
 	d.l1Heads = l1Heads
 	if !d.requestUpdate(ctx, d.log, d) {
 		d.log.Error("failed to fetch engine head, defaulting to genesis")
-		d.updateHead(d.Genesis.L1, d.Genesis.L2)
+		d.updateHead(d.state.Config.Genesis.L1, d.state.Config.Genesis.L2)
 	}
 	go d.loop()
 	return nil
@@ -125,12 +123,12 @@ func (d *Driver) loop() {
 // Fulfill the `internalDriver` interface
 
 func (e *Driver) requestEngineHead(ctx context.Context) (refL1 eth.BlockID, refL2 eth.BlockID, err error) {
-	refL1, refL2, _, err = e.syncRef.RefByL2Num(ctx, nil, &e.genesis)
+	refL1, refL2, _, err = e.syncRef.RefByL2Num(ctx, nil, &e.Config.Genesis)
 	return
 }
 
 func (e *Driver) findSyncStart(ctx context.Context) (nextRefL1 eth.BlockID, refL2 eth.BlockID, err error) {
-	return rollupSync.FindSyncStart(ctx, e.syncRef, &e.genesis)
+	return rollupSync.FindSyncStart(ctx, e.syncRef, &e.Config.Genesis)
 }
 
 func (e *Driver) driverStep(ctx context.Context, nextRefL1 eth.BlockID, refL2 eth.BlockID, finalized eth.BlockID) (l2ID eth.BlockID, err error) {
