@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum-optimism/optimistic-specs/opnode/contracts/deposit"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/internal/testlog"
 	rollupNode "github.com/ethereum-optimism/optimistic-specs/opnode/node"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -119,7 +120,18 @@ func TestSystemE2E(t *testing.T) {
 		L1Num:         0,
 		L1NodeAddr:    endpoint(cfg.l1.nodeConfig),
 		L2EngineAddrs: []string{endpoint(cfg.l2.nodeConfig)},
+		Rollup: rollup.Config{
+			BlockTime:            1,
+			MaxSequencerTimeDiff: 10,
+			SeqWindowSize:        1,
+			L1ChainID:            big.NewInt(901),
+			// TODO pick defaults
+			FeeRecipientAddress: common.Address{0xff, 0x01},
+			BatchInboxAddress:   common.Address{0xff, 0x02},
+			BatchSenderAddress:  common.Address{0xff, 0x03},
+		},
 	}
+	nodeCfg.Rollup.Genesis = nodeCfg.GetGenesis()
 	node, err := rollupNode.New(context.Background(), nodeCfg, testlog.Logger(t, log.LvlTrace))
 	if err != nil {
 		t.Fatalf("Failed to create the new node: %v", err)
