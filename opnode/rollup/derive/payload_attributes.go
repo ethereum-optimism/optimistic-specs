@@ -241,7 +241,7 @@ type L2Info interface {
 // This is a pure function.
 func PayloadAttributes(config *rollup.Config, l1Info L1Info, receipts []*types.Receipt, seqWindow []BatchData, l2Info L2Info) ([]*l2.PayloadAttributes, error) {
 	// check if we have the full sequencing window
-	if len(seqWindow) == 0 {
+	if len(seqWindow) == 0 && false {
 		return nil, errors.New("cannot derive payload attributes from empty sequencing window")
 	}
 
@@ -273,6 +273,8 @@ func PayloadAttributes(config *rollup.Config, l1Info L1Info, receipts []*types.R
 			Transactions:          batch.Transactions,
 		}
 	}
+
+	highestSeenTimestamp += 1
 
 	// fill the gaps and always ensure at least one L2 block
 	var out []*l2.PayloadAttributes

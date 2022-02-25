@@ -210,7 +210,7 @@ func TestSystemE2E(t *testing.T) {
 	}
 
 	// Wait (or timeout) for that block to show up on L2
-	timeoutCh := time.After(3 * time.Second)
+	timeoutCh := time.After(6 * time.Second)
 loop:
 	for {
 		select {

@@ -18,7 +18,7 @@ type Driver struct {
 func NewDriver(cfg rollup.Config, l2 DriverAPI, l1 l1.Source, log log.Logger) *Driver {
 	input := &inputImpl{l1: l1,
 		l2:         l2,
-		syncSource: sync.SyncSourceV2{sync.SyncSource{L1: l1, L2: l2}}}
+		syncSource: sync.SyncSourceV2{SyncReference: sync.SyncSource{L1: l1, L2: l2}}}
 	output := &outputImpl{
 		Config: cfg,
 		dl:     l1,

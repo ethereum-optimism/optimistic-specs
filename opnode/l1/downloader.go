@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	fetchBlockTimeout   = 10 * time.Second
+	// fetchBlockTimeout   = 10 * time.Second
 	fetchReceiptTimeout = 10 * time.Second
 	maxReceiptRetry     = 5
 
@@ -47,7 +47,7 @@ type downloadTask struct {
 	// Aligned after above field, atomic changes.
 	downloadedReceipts uint32
 
-	block *types.Block
+	// block *types.Block // unused (structcheck)
 	// receipts slice is allocated in advance, one slot for each transaction, nil until downloaded
 	receipts []*types.Receipt
 
@@ -72,9 +72,9 @@ func (bl *downloadTask) Finish(err wrappedErr) {
 }
 
 type receiptTask struct {
-	blockHash common.Hash
-	txHash    common.Hash
-	txIndex   uint64
+	// blockHash common.Hash // Unused structcheck
+	txHash  common.Hash
+	txIndex uint64
 	// Count the attempts we made to fetch this receipt. Block as a whole fails if we tried too many times.
 	retry uint64
 	// Avoid concurrent Downloader cache access and pruning edge cases with receipts.
