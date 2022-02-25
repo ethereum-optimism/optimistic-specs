@@ -143,60 +143,41 @@ func NewDownloader(dlSource DownloadSource) Downloader {
 }
 
 func (dl *downloader) Fetch(ctx context.Context, id eth.BlockID) (*types.Block, []*types.Receipt, error) {
-	// check if we are already working on it
-	dl.cacheLock.Lock()
-	if dl.src == nil {
-		dl.cacheLock.Unlock()
-		return nil, nil, DownloadClosedErr
+	block, err := dl.src.BlockByHash(ctx, id.Hash)
+	if err != nil {
+		return nil, nil, err
 	}
+	txs := block.Transactions()
+	receipts := make([]*types.Receipt, len(txs))
 
-	var dlTask *downloadTask
-	if dlTaskIfc, ok := dl.cacheEvict.Get(id.Hash); ok {
-		dlTask = dlTaskIfc.(*downloadTask)
-	} else {
-		ctx, cancel := context.WithCancel(ctx)
-		dlTask = &downloadTask{ctx: ctx, cancel: cancel}
-		dl.cacheEvict.Add(id.Hash, dlTask)
-
-		// pull the block in the background
+	semaphoreChan := make(chan struct{}, 100)
+	defer close(semaphoreChan)
+	var wg sync.WaitGroup
+	for idx, tx := range txs {
+		wg.Add(1)
+		i := idx
+		hash := tx.Hash()
 		go func() {
-			ctx, cancel := context.WithTimeout(ctx, fetchBlockTimeout)
-			defer cancel()
-			bl, err := dl.src.BlockByHash(ctx, id.Hash)
-			if err != nil {
-				dlTask.Finish(wrappedErr{fmt.Errorf("failed to download block %s: %v", id.Hash, err)})
-				return
+			semaphoreChan <- struct{}{}
+			maxReceiptRetry := 3
+			for j := 0; j < maxReceiptRetry; j++ {
+				receipt, err := dl.src.TransactionReceipt(ctx, hash)
+				if err != nil && j == maxReceiptRetry-1 {
+					panic(err)
+					// return nil, nil, err
+				} else if err == nil {
+					receipts[i] = receipt
+					break
+				} else {
+					time.Sleep(20 * time.Millisecond)
+				}
 			}
-
-			txs := bl.Transactions()
-			dlTask.block = bl
-			dlTask.receipts = make([]*types.Receipt, len(txs))
-
-			for i, tx := range txs {
-				dl.receiptTasks <- &receiptTask{blockHash: id.Hash, txHash: tx.Hash(), txIndex: uint64(i), dest: dlTask}
-			}
-
-			// no receipts to fetch? Then we are done!
-			if len(txs) == 0 {
-				dlTask.Finish(wrappedErr{nil})
-			}
+			wg.Done()
+			<-semaphoreChan
 		}()
 	}
-	dl.cacheLock.Unlock()
-
-	ch := make(chan wrappedErr)
-	sub := dlTask.feed.Subscribe(ch)
-	select {
-	case wErr := <-ch:
-		if wErr.error != nil {
-			return nil, nil, wErr.error
-		}
-		return dlTask.block, dlTask.receipts, nil
-	case err := <-sub.Err():
-		return nil, nil, err
-	case <-ctx.Done():
-		return nil, nil, ctx.Err()
-	}
+	wg.Wait()
+	return block, receipts, nil
 }
 
 func (dl *downloader) processTask(task *receiptTask) {
