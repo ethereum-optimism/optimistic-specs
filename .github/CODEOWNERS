@@ -1,0 +1,7 @@
+# Lines starting with '#' are comments.
+# Each line is a file pattern followed by one or more owners.
+
+*                    @protolambda @norswap @trianglesphere @maurelian @karlfloersch @ben-chain @cfromknecht @mslipper @tynes
+/l2os/               @protolambda @norswap @trianglesphere @cfromknecht @mslipper @tynes
+/opnode/             @protolambda @norswap @trianglesphere @cfromknecht @mslipper @tynes
+/packages/contracts/ @protolambda @norswap @maurelian @karlfloersch @smartcontracts 
