@@ -51,6 +51,8 @@ currently only concerned with the specification of the rollup driver.
     - [Engine API Error Handling](#engine-api-error-handling)
     - [Finalization Guarantees](#finalization-guarantees)
   - [Whole L2 Chain Derivation](#whole-l2-chain-derivation)
+  - [L2 Output RPC method](#l2-output-rpc-method)
+    - [Output Method API](#output-method-api)
 - [Handling L1 Re-Orgs](#handling-l1-re-orgs)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
@@ -252,7 +254,7 @@ L1 Ethereum [reaches finality approximately every 12 minutes][l1-finality]. L2 b
 are "safer" than most recent L2 blocks because they will never disappear from the chain's history because of a re-org.
 However, they can still be challenged by a fault proof until the end of the fault proof window.
 
-[l1-finality]: https://www.paradigm.xyz/2021/07/ethereum-reorgs-after-the-merge/
+[l1-finality]: https://www.paradigm.xyz/2021/07/ethereum-reorgs-after-the-merge
 
 > **TODO** the spec doesn't encode the notion of fault proof yet, revisit this (and include links) when it does
 
@@ -267,6 +269,25 @@ block at height `L2_CHAIN_INCEPTION + 1` as the next L1 block. Then we iterative
 previous section to each successive L1 block until we have caught up with the L1 head.
 
 > **TODO** specify genesis block
+
+## L2 Output RPC method
+
+The Rollup node has its own RPC method, `optimism_output` which returns the
+a 32 byte hash corresponding to the [SSZ] encoded [L2Output](./proposals.md#l2-output-commitment-construction).
+
+[SSZ]: https://github.com/ethereum/consensus-specs/blob/dev/ssz/simple-serialize.md
+
+### Output Method API
+
+The input and return types here are as defined by the [engine API specs][engine-structures]).
+
+[engine-structures]: https://github.com/ethereum/execution-apis/blob/main/src/engine/specification.md#structures
+
+- method: `optimism_outputAtBlock`
+- params:
+  1. `QUANTITY` - L1 integer block number, or the strings `"safe"`, `"latest"`, or `"pending"`
+- returns:
+  2.`DATA` - The 32 byte output root
 
 # Handling L1 Re-Orgs
 

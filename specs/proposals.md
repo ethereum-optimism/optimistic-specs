@@ -1,4 +1,4 @@
-# L2 output root Proposals Specification
+# L2 Output Root Proposals Specification
 
 <!-- All glossary references in this file. -->
 [g-rollup-node]: glossary.md#rollup-node
@@ -7,8 +7,11 @@
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 **Table of Contents**
 
+- [Constants](#constants)
 - [Proposing L2 output commitments](#proposing-l2-output-commitments)
 - [L2 output commitment construction](#l2-output-commitment-construction)
+- [L2 Output Commitment Smart Contract](#l2-output-commitment-smart-contract)
+- [Security Considerations](#security-considerations)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -24,13 +27,23 @@ are part of later specification milestones.
 
 [cannon]: https://github.com/ethereum-optimism/cannon
 
+## Constants
+
+| Name                   | Value  |
+| ---------------------- | ------ |
+| `SUBMISSION_FREQUENCY` | `100?` |
+
 ## Proposing L2 output commitments
 
-The proposer's role is to construct and submit output commitments on a configurable interval to a contract on L1.
+The proposer's role is to construct and submit output commitments on a configurable interval to a contract on L1, which
+it does by running the [L2 output submitter](../l2os/) service (AKA L2OSS). This service periodically queries the rollup
+ node's [`optimism_outputAtBlock` rpc method](./rollup-node.md#l2-output-rpc-method) for the latest output root derived
+ from the latest [finalized](rollup-node.md#finalization-guarantees) L1 block. The construction of this output root is
+ described [below](#l2-output-commitment-construction).
 
-TODO: describe integration with rollup node and L2 execution engine (see PR #179).
-
-TODO: link to contract specification/source of L2 Output oracle on L1.
+If there is no newly finalized output, the service continues querying until it receives one. It then submits this
+output, and the appropriate timestamp, to the [L2 Output Commitment](#l2-output-commitment-smart-contract) contract's
+`appendL2Output()` function. The timestamp MUST be the next multiple of the `SUBMISSION_FREQUENCY` value.
 
 ## L2 output commitment construction
 
@@ -42,7 +55,7 @@ L1 (beacon-chain). However, we replace `sha256` with `keccak256` to save gas cos
 ```python
 class L2Output(Container):
   state_root: Bytes32
-  withdrawal_storage_root: Bytes32  # TODO: withdrawals specifcation work-in-progress
+  withdrawal_storage_root: Bytes32  # TODO: withdrawals specification work-in-progress
   latest_block: ExecutionPayload  # includes block hash
   history_accumulator_root: Bytes32  # Not functional yet
   extension: Bytes32
@@ -71,3 +84,15 @@ This is a work-in-progress, see [issue 181](https://github.com/ethereum-optimism
 
 The `extension` is a zeroed `Bytes32`, to be substituted with a SSZ container to extend merkleized information in future
 upgrades. This keeps the static merkle structure forwards-compatible.
+
+## L2 Output Commitment Smart Contract
+
+> **TODO** spec for the [L2OutputOracle contract]
+[L2OutputOracle contract]: <https://github.com/ethereum-optimism/optimistic-specs/blob/8c1d509e3882ca49f2415c2b724c8a58a134cec7/packages/contracts/contracts/L1/MockL2OutputOracle.sol#L1>
+
+## Security Considerations
+
+> **TODO**
+>
+> - list invariants
+> - list things that could go wrong and ways to avoid that
