@@ -16,22 +16,22 @@ import (
 )
 
 type Downloader interface {
-	// FetchL1Info fetches the L1 header information corresponding to a L1 block ID
-	FetchL1Info(ctx context.Context, id eth.BlockID) (derive.L1Info, error)
+	// FetchBlock fetches the L1 header information corresponding to a L1 block ID
+	FetchBlock(ctx context.Context, id eth.BlockID) (*types.Block, error)
 	// FetchReceipts of a L1 block
 	FetchReceipts(ctx context.Context, id eth.BlockID) ([]*types.Receipt, error)
 	// FetchTransactions from the given window of L1 blocks
 	FetchTransactions(ctx context.Context, window []eth.BlockID) ([]*types.Transaction, error)
 }
 
-type DriverAPI interface {
-	l2.EngineAPI
-	l2.EthBackend
+type L2Client interface {
+	BlockByHash(context.Context, common.Hash) (*types.Block, error)
 }
 
 type outputImpl struct {
 	dl     Downloader
-	rpc    DriverAPI
+	l2     L2Client
+	engine l2.EngineAPI
 	log    log.Logger
 	Config rollup.Config
 }
@@ -54,11 +54,11 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 	fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
 	defer cancel()
 
-	l2Info, err := d.rpc.BlockByHash(fetchCtx, l2Head.Hash)
+	l2Info, err := d.l2.BlockByHash(fetchCtx, l2Head.Hash)
 	if err != nil {
 		return l2Head, fmt.Errorf("failed to fetch L2 block info of %s: %v", l2Head, err)
 	}
-	l1Info, err := d.dl.FetchL1Info(fetchCtx, l1Input[0])
+	l1Info, err := d.dl.FetchBlock(fetchCtx, l1Input[0])
 	if err != nil {
 		return l2Head, fmt.Errorf("failed to fetch L1 block info of %s: %v", l1Input[0], err)
 	}
@@ -83,7 +83,7 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 
 	last := l2Head
 	for i, attrs := range attrsList {
-		last, err = AddBlock(ctx, logger, d.rpc, last, l2Finalized.Hash, attrs)
+		last, err = AddBlock(ctx, logger, d.engine, last, l2Finalized.Hash, attrs)
 		if err != nil {
 			return last, fmt.Errorf("failed to extend L2 chain at block %d/%d of epoch %d: %v", i, len(attrsList), epoch, err)
 		}
@@ -96,10 +96,10 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 // and then executing and persisting it.
 //
 // After the step completes it returns the block ID of the last processed L2 block, even if an error occurs.
-func AddBlock(ctx context.Context, logger log.Logger, rpc DriverAPI,
+func AddBlock(ctx context.Context, logger log.Logger, engine l2.EngineAPI,
 	l2Parent eth.BlockID, l2Finalized common.Hash, attrs *l2.PayloadAttributes) (eth.BlockID, error) {
 
-	payload, err := derive.ExecutionPayload(ctx, rpc, l2Parent.Hash, l2Finalized, attrs)
+	payload, err := derive.ExecutionPayload(ctx, engine, l2Parent.Hash, l2Finalized, attrs)
 	if err != nil {
 		return l2Parent, fmt.Errorf("failed to derive execution payload: %v", err)
 	}
@@ -107,13 +107,13 @@ func AddBlock(ctx context.Context, logger log.Logger, rpc DriverAPI,
 	logger = logger.New("derived_l2", payload.ID())
 	logger.Info("derived full block", "l2Parent", l2Parent, "attrs", attrs, "payload", payload)
 
-	err = l2.ExecutePayload(ctx, rpc, payload)
+	err = l2.ExecutePayload(ctx, engine, payload)
 	if err != nil {
 		return l2Parent, fmt.Errorf("failed to apply execution payload: %v", err)
 	}
 	logger.Info("executed block")
 
-	err = l2.ForkchoiceUpdate(ctx, rpc, payload.BlockHash, l2Finalized)
+	err = l2.ForkchoiceUpdate(ctx, engine, payload.BlockHash, l2Finalized)
 	if err != nil {
 		return payload.ID(), fmt.Errorf("failed to persist execution payload: %v", err)
 	}

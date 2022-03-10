@@ -4,18 +4,12 @@ import (
 	"context"
 	"time"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/chain"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup/sync"
 	"github.com/ethereum/go-ethereum/log"
 )
-
-type inputInterface interface {
-	L1Head(ctx context.Context) (eth.L1BlockRef, error)
-	L2Head(ctx context.Context) (eth.L2BlockRef, error)
-	L1ChainWindow(ctx context.Context, base eth.BlockID) ([]eth.BlockID, error)
-	// SafeL2Head is the L2 Head found via the sync algorithm
-	SafeL2Head(ctx context.Context) (eth.L2BlockRef, error)
-}
 
 type outputInterface interface {
 	step(ctx context.Context, l2Head eth.BlockID, l2Finalized eth.BlockID, l1Window []eth.BlockID) (eth.BlockID, error)
@@ -34,29 +28,29 @@ type state struct {
 
 	// Connections (in/out)
 	l1Heads <-chan eth.L1BlockRef
-	input   inputInterface
+	chain   chain.ChainSource
 	output  outputInterface
 
 	log  log.Logger
 	done chan struct{}
 }
 
-func NewState(log log.Logger, config rollup.Config, input inputInterface, output outputInterface) *state {
+func NewState(log log.Logger, config rollup.Config, chain chain.ChainSource, output outputInterface) *state {
 	return &state{
 		Config: config,
 		done:   make(chan struct{}),
 		log:    log,
-		input:  input,
+		chain:  chain,
 		output: output,
 	}
 }
 
 func (s *state) Start(ctx context.Context, l1Heads <-chan eth.L1BlockRef) error {
-	l1Head, err := s.input.L1Head(ctx)
+	l1Head, err := s.chain.L1BlockRefByNumber(ctx, nil)
 	if err != nil {
 		return err
 	}
-	l2Head, err := s.input.L2Head(ctx)
+	l2Head, err := s.chain.L2BlockRefByNumber(ctx, nil, &s.Config.Genesis)
 	if err != nil {
 		return err
 	}
@@ -88,7 +82,7 @@ func (s *state) l1WindowEnd() eth.BlockID {
 // It starts just after `s.l1WindowEnd()`.
 func (s *state) extendL1Window(ctx context.Context) error {
 	s.log.Trace("Extending the cached window from L1", "cached_size", len(s.l1Window), "window_end", s.l1WindowEnd())
-	nexts, err := s.input.L1ChainWindow(ctx, s.l1WindowEnd())
+	nexts, err := sync.FindL1Range(ctx, s.chain, s.l1WindowEnd())
 	if err != nil {
 		return err
 	}
@@ -147,7 +141,7 @@ func (s *state) loop() {
 				}
 			} else {
 				s.log.Warn("L1 Head signal indicates an L1 re-org", "old_l1_head", s.l1Head, "new_l1_head_parent", newL1Head.Parent, "new_l1_head", newL1Head.Self)
-				nextL2Head, err := s.input.SafeL2Head(ctx)
+				nextL2Head, err := sync.FindSafeL2Head(ctx, s.chain, &s.Config.Genesis)
 				if err != nil {
 					s.log.Error("Could not get new safe L2 head when trying to handle a re-org", "err", err)
 					continue

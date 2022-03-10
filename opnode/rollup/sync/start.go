@@ -35,9 +35,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/chain"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
 )
@@ -58,7 +61,7 @@ var MaxBlocksInL1Range = uint64(100)
 // If err is not nil, the above return values are not well defined. An error will be returned in the following cases:
 //     - Wrapped ethereum.NotFound if it could not find a block in L1 or L2. This error may be temporary.
 //     - Wrapped WrongChainErr if the l1_rollup_genesis block is not reachable from the L2 chain.
-func FindSyncStart(ctx context.Context, source ChainSource, genesis *rollup.Genesis) ([]eth.BlockID, eth.BlockID, error) {
+func FindSyncStart(ctx context.Context, source chain.ChainSource, genesis *rollup.Genesis) ([]eth.BlockID, eth.BlockID, error) {
 	l2Head, err := FindSafeL2Head(ctx, source, genesis)
 	if err != nil {
 		return nil, eth.BlockID{}, err
@@ -75,16 +78,17 @@ func FindSyncStart(ctx context.Context, source ChainSource, genesis *rollup.Gene
 // FindSafeL2Head takes the current L2 Head and then finds the topmost L2 head that is valid
 // In the case that there are no re-orgs, this is just the L2 head. Otherwise it has to walk back
 // until it finds the first L2 block that is based on a canonical L1 block.
-func FindSafeL2Head(ctx context.Context, source ChainSource, genesis *rollup.Genesis) (eth.L2BlockRef, error) {
+func FindSafeL2Head(ctx context.Context, source chain.ChainSource, genesis *rollup.Genesis) (eth.L2BlockRef, error) {
 	// Starting point
-	l2Head, err := source.L2BlockRefByNumber(ctx, nil)
+	l2Head, err := source.L2BlockRefByNumber(ctx, nil, genesis)
 	if err != nil {
 		return eth.L2BlockRef{}, fmt.Errorf("failed to fetch L2 head: %w", err)
 	}
 	reorgDepth := 0
+	bn := new(big.Int)
 	// Walk L2 chain from L2 head to first L2 block which has a L1 Parent that is canonical. May walk to L2 genesis
 	for n := l2Head; ; {
-		l1header, err := source.L1BlockRefByNumber(ctx, n.L1Origin.Number)
+		l1header, err := source.L1BlockRefByNumber(ctx, bn.SetUint64(n.L1Origin.Number))
 		if err != nil {
 			// Generic error, bail out.
 			if !errors.Is(err, ethereum.NotFound) {
@@ -105,7 +109,7 @@ func FindSafeL2Head(ctx context.Context, source ChainSource, genesis *rollup.Gen
 		}
 
 		// Pull L2 parent for next iteration
-		n, err = source.L2BlockRefByHash(ctx, n.Parent.Hash)
+		n, err = source.L2BlockRefByHash(ctx, n.Parent.Hash, genesis)
 		if err != nil {
 			return eth.L2BlockRef{}, fmt.Errorf("failed to fetch L2 block by hash %v: %w", n.Parent.Hash, err)
 		}
@@ -117,9 +121,10 @@ func FindSafeL2Head(ctx context.Context, source ChainSource, genesis *rollup.Gen
 }
 
 // FindL1Range returns a range of L1 block beginning just after `begin`.
-func FindL1Range(ctx context.Context, source ChainSource, begin eth.BlockID) ([]eth.BlockID, error) {
+func FindL1Range(ctx context.Context, source chain.ChainSource, begin eth.BlockID) ([]eth.BlockID, error) {
 	// Ensure that we start on the expected chain.
-	if canonicalBegin, err := source.L1BlockRefByNumber(ctx, begin.Number); err != nil {
+	bn := new(big.Int)
+	if canonicalBegin, err := source.L1BlockRefByNumber(ctx, bn.SetUint64(begin.Number)); err != nil {
 		return nil, fmt.Errorf("failed to fetch L1 block %v %v: %w", begin.Number, begin.Hash, err)
 	} else {
 		if canonicalBegin.Self != begin {
@@ -127,7 +132,7 @@ func FindL1Range(ctx context.Context, source ChainSource, begin eth.BlockID) ([]
 		}
 	}
 
-	l1head, err := source.L1HeadBlockRef(ctx)
+	l1head, err := source.L1BlockRefByNumber(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch head L1 block: %w", err)
 	}
@@ -143,8 +148,11 @@ func FindL1Range(ctx context.Context, source ChainSource, begin eth.BlockID) ([]
 
 	prevHash := begin.Hash
 	var res []eth.BlockID
+	bn.SetUint64(begin.Number)
+	// TODO: Walk backwards to enable using L1BlockRefByHash and thus caching.
 	for i := begin.Number + 1; i < begin.Number+maxBlocks+1; i++ {
-		n, err := source.L1BlockRefByNumber(ctx, i)
+		bn = bn.Add(bn, common.Big1)
+		n, err := source.L1BlockRefByNumber(ctx, bn)
 		if err != nil {
 			return nil, fmt.Errorf("failed to fetch L1 block %v: %w", i, err)
 		}

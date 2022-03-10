@@ -3,10 +3,10 @@ package driver
 import (
 	"context"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/chain"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
-	"github.com/ethereum-optimism/optimistic-specs/opnode/l1"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
-	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup/sync"
 	"github.com/ethereum/go-ethereum/log"
 )
 
@@ -14,19 +14,16 @@ type Driver struct {
 	s *state
 }
 
-func NewDriver(cfg rollup.Config, l2 DriverAPI, l1 l1.Source, log log.Logger) *Driver {
-	input := &inputImpl{
-		chainSource: sync.NewChainSource(l1, l2, &cfg.Genesis),
-		genesis:     &cfg.Genesis,
-	}
+func NewDriver(cfg rollup.Config, l2 L2Client, engine l2.EngineAPI, dl Downloader, chain chain.ChainSource, log log.Logger) *Driver {
 	output := &outputImpl{
 		Config: cfg,
-		dl:     l1,
+		dl:     dl,
 		log:    log,
-		rpc:    l2,
+		l2:     l2,
+		engine: engine,
 	}
 	return &Driver{
-		s: NewState(log, cfg, input, output),
+		s: NewState(log, cfg, chain, output),
 	}
 }
 
@@ -35,26 +32,4 @@ func (d *Driver) Start(ctx context.Context, l1Heads <-chan eth.L1BlockRef) error
 }
 func (d *Driver) Close() error {
 	return d.s.Close()
-}
-
-type inputImpl struct {
-	chainSource sync.ChainSource
-	genesis     *rollup.Genesis
-}
-
-func (i *inputImpl) L1Head(ctx context.Context) (eth.L1BlockRef, error) {
-	return i.chainSource.L1HeadBlockRef(ctx)
-}
-
-func (i *inputImpl) L2Head(ctx context.Context) (eth.L2BlockRef, error) {
-	return i.chainSource.L2BlockRefByNumber(ctx, nil)
-
-}
-
-func (i *inputImpl) L1ChainWindow(ctx context.Context, base eth.BlockID) ([]eth.BlockID, error) {
-	return sync.FindL1Range(ctx, i.chainSource, base)
-}
-
-func (i *inputImpl) SafeL2Head(ctx context.Context) (eth.L2BlockRef, error) {
-	return sync.FindSafeL2Head(ctx, i.chainSource, i.genesis)
 }

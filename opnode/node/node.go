@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum-optimism/optimistic-specs/opnode/chain"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l1"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
@@ -39,7 +40,7 @@ func (cfg *Config) Check() error {
 
 type OpNode struct {
 	log       log.Logger
-	l1Source  l1.Source        // Source to fetch data from (also implements the Downloader interface)
+	l1Client  *ethclient.Client
 	l2Engines []*driver.Driver // engines to keep synced
 	done      chan struct{}
 }
@@ -69,7 +70,8 @@ func New(ctx context.Context, cfg *Config, log log.Logger) (*OpNode, error) {
 
 	// TODO: we may need to authenticate the connection with L1
 	// l1Node.SetHeader()
-	l1Source := l1.NewSource(ethclient.NewClient(l1Node))
+	l1Client := ethclient.NewClient(l1Node)
+	downloader := l1.NewDownloader(l1Client)
 	var l2Engines []*driver.Driver
 
 	for i, addr := range cfg.L2EngineAddrs {
@@ -88,13 +90,14 @@ func New(ctx context.Context, cfg *Config, log log.Logger) (*OpNode, error) {
 			EthBackend: ethclient.NewClient(backend),
 			Log:        log.New("engine_client", i),
 		}
-		engine := driver.NewDriver(cfg.Rollup, client, l1Source, log.New("engine", i))
+		chainSource := chain.NewChainSource(l1Client, client)
+		engine := driver.NewDriver(cfg.Rollup, client, client, downloader, chainSource, log.New("engine", i))
 		l2Engines = append(l2Engines, engine)
 	}
 
 	n := &OpNode{
 		log:       log,
-		l1Source:  l1Source,
+		l1Client:  l1Client,
 		l2Engines: l2Engines,
 		done:      make(chan struct{}),
 	}
@@ -144,7 +147,7 @@ func (c *OpNode) Start(ctx context.Context) error {
 		if err != nil {
 			c.log.Warn("resubscribing after failed L1 subscription", "err", err)
 		}
-		return eth.WatchHeadChanges(context.Background(), c.l1Source, func(sig eth.L1BlockRef) {
+		return eth.WatchHeadChanges(context.Background(), c.l1Client, func(sig eth.L1BlockRef) {
 			l1HeadsFeed.Send(sig)
 		})
 	})
@@ -169,7 +172,7 @@ func (c *OpNode) Start(ctx context.Context) error {
 					f()
 				}
 				// close L1 data source
-				c.l1Source.Close()
+				c.l1Client.Close()
 				// close L2 engines
 				for _, eng := range c.l2Engines {
 					eng.Close()

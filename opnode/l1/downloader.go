@@ -2,6 +2,7 @@ package l1
 
 import (
 	"context"
+	"math/big"
 	"sync"
 	"time"
 
@@ -11,24 +12,34 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
+// TODO: Make these configurable and part of a configuration object
 const MaxConcurrentFetchesPerCall = 10
 const MaxReceiptRetry = 3
+const MaxBlocksInL1Range = uint64(100)
 
-type EthClient interface {
+type DownloaderClient interface {
 	BlockByHash(context.Context, common.Hash) (*types.Block, error)
+	BlockByNumber(context.Context, *big.Int) (*types.Block, error)
 	TransactionReceipt(context.Context, common.Hash) (*types.Receipt, error)
 }
 
+// Block
+// Receipts
+// Transactions (from range of blocks)
+
 type Downloader struct {
-	client EthClient
+	client DownloaderClient
 	// log    log.Logger
+
+	// Block Cache
+	// Receipt Cache
 }
 
-func NewDownloader(client EthClient) *Downloader {
+func NewDownloader(client DownloaderClient) *Downloader {
 	return &Downloader{client: client}
 }
 
-func (dl Downloader) Fetch(ctx context.Context, id eth.BlockID) (*types.Block, []*types.Receipt, error) {
+func (dl *Downloader) FetchBlockAndReceipts(ctx context.Context, id eth.BlockID) (*types.Block, []*types.Receipt, error) {
 	block, err := dl.client.BlockByHash(ctx, id.Hash)
 	if err != nil {
 		return nil, nil, err
@@ -70,4 +81,26 @@ func (dl Downloader) Fetch(ctx context.Context, id eth.BlockID) (*types.Block, [
 		return nil, nil, retErr
 	}
 	return block, receipts, nil
+}
+
+func (dl *Downloader) FetchReceipts(ctx context.Context, id eth.BlockID) ([]*types.Receipt, error) {
+	_, receipts, err := dl.FetchBlockAndReceipts(ctx, id)
+	return receipts, err
+}
+
+func (dl *Downloader) FetchBlock(ctx context.Context, id eth.BlockID) (*types.Block, error) {
+	return dl.client.BlockByHash(ctx, id.Hash)
+}
+
+func (dl *Downloader) FetchTransactions(ctx context.Context, window []eth.BlockID) ([]*types.Transaction, error) {
+	var txns []*types.Transaction
+	for _, id := range window {
+		block, err := dl.client.BlockByHash(ctx, id.Hash)
+		if err != nil {
+			return nil, err
+		}
+		txns = append(txns, block.Transactions()...)
+	}
+	return txns, nil
+
 }
