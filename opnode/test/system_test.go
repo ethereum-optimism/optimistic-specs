@@ -160,8 +160,8 @@ func TestSystemE2E(t *testing.T) {
 	require.Nil(t, err)
 	opts.Nonce = big.NewInt(int64(nonce))
 
-	submissionFrequency := big.NewInt(10) // 10 seconds
-	l2BlockTime := big.NewInt(2)          // 2 seconds
+	submissionFrequency := big.NewInt(2) // 2 seconds
+	l2BlockTime := big.NewInt(1)         // 1 seconds
 	l2ooAddr, tx, l2OutputOracle, err := l2oo.DeployMockL2OutputOracle(
 		opts, l1Client, submissionFrequency, l2BlockTime, [32]byte{}, big.NewInt(0),
 	)
@@ -180,9 +180,9 @@ func TestSystemE2E(t *testing.T) {
 		L1EthRpc:                  endpoint(cfg.l1.nodeConfig),
 		L2EthRpc:                  endpoint(cfg.l2.nodeConfig),
 		L2OOAddress:               l2ooAddr.String(),
-		PollInterval:              5 * time.Second,
+		PollInterval:              2 * time.Second,
 		NumConfirmations:          1,
-		ResubmissionTimeout:       5 * time.Second,
+		ResubmissionTimeout:       2 * time.Second,
 		SafeAbortNonceTooLowCount: 3,
 		LogLevel:                  "debug",
 		Mnemonic:                  cfg.mnemonic,
@@ -308,7 +308,7 @@ loop:
 		select {
 		case <-timeoutCh:
 			t.Fatalf("State root oracle not updated")
-		case <-time.After(time.Second):
+		case <-time.After(200 * time.Millisecond):
 		}
 	}
 }
