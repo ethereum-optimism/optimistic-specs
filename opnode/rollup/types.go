@@ -22,12 +22,6 @@ type Config struct {
 	Genesis Genesis
 	// Seconds per L2 block
 	BlockTime uint64
-	// Sequencer batches may not be more than MaxSequencerTimeDiff seconds after
-	// the L1 timestamp of the sequencing window end.
-	//
-	// Note: When L1 has many 1 second consecutive blocks, and L2 grows at fixed 2 seconds,
-	// the L2 time may still grow beyond this difference.
-	MaxSequencerTimeDiff uint64
 	// Number of epochs (L1 blocks) per sequencing window
 	SeqWindowSize uint64
 	// Required to verify L1 signatures
