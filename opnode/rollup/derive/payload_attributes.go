@@ -187,15 +187,18 @@ func BatchesFromEVMTransactions(config *rollup.Config, txs []*types.Transaction)
 		if to := tx.To(); to != nil && *to == config.BatchInboxAddress {
 			seqDataSubmitter, err := l1Signer.Sender(tx)
 			if err != nil {
+				fmt.Println(err)
 				// TODO: log error
 				continue // bad signature, ignore
 			}
 			// some random L1 user might have sent a transaction to our batch inbox, ignore them
 			if seqDataSubmitter != config.BatchSenderAddress {
+				fmt.Println("Invalid submitter", "got", seqDataSubmitter, "expected", config.BatchSenderAddress)
 				continue // not an authorized batch submitter, ignore
 			}
 			batches, err := DecodeBatches(config, bytes.NewReader(tx.Data()))
 			if err != nil {
+				fmt.Println(err)
 				// TODO: log error
 				continue
 			}
@@ -207,15 +210,16 @@ func BatchesFromEVMTransactions(config *rollup.Config, txs []*types.Transaction)
 
 func FilterBatches(config *rollup.Config, epoch rollup.Epoch, minL2Time uint64, maxL2Time uint64, batches []*BatchData) (out []*BatchData) {
 	uniqueTime := make(map[uint64]struct{})
+
 	for _, batch := range batches {
 		if batch.Epoch != epoch {
 			// Batch was tagged for past or future epoch,
 			// i.e. it was included too late or depends on the given L1 block to be processed first.
 			continue
 		}
-		if (batch.Timestamp-config.Genesis.L2Time)%config.BlockTime != 0 {
-			continue // bad timestamp, not a multiple of the block time
-		}
+		// if (batch.Timestamp-config.Genesis.L2Time)%config.BlockTime != 0 {
+		// 	continue // bad timestamp, not a multiple of the block time
+		// }
 		if batch.Timestamp < minL2Time {
 			continue // old batch
 		}
@@ -231,6 +235,7 @@ func FilterBatches(config *rollup.Config, epoch rollup.Epoch, minL2Time uint64, 
 		uniqueTime[batch.Timestamp] = struct{}{}
 		out = append(out, batch)
 	}
+
 	return
 }
 
@@ -292,7 +297,7 @@ func PayloadAttributes(config *rollup.Config, l1Info L1Info, receipts []*types.R
 
 	// fill the gaps and always ensure at least one L2 block
 	var out []*l2.PayloadAttributes
-	for t := l1Info.Time() + config.BlockTime; t <= highestSeenTimestamp; t += config.BlockTime {
+	for t := l2Info.Time() + config.BlockTime; t <= highestSeenTimestamp; t += config.BlockTime {
 		if bl, ok := l2Blocks[t]; ok {
 			out = append(out, bl)
 		} else {
@@ -307,6 +312,7 @@ func PayloadAttributes(config *rollup.Config, l1Info L1Info, receipts []*types.R
 			})
 		}
 	}
+	// TODO: Assert that this does not panic here
 
 	// Force deposits into the first block. TODO: Clean up L1 Info handling.
 	out[0].Transactions = append(append(make([]l2.Data, 0), deposits...), out[0].Transactions[1:]...)
