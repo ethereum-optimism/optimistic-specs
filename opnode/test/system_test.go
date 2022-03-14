@@ -10,9 +10,6 @@ import (
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 
-	"github.com/ethereum-optimism/optimistic-specs/l2os"
-	"github.com/ethereum-optimism/optimistic-specs/l2os/bindings/l2oo"
-	"github.com/ethereum-optimism/optimistic-specs/l2os/txmgr"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/contracts/deposit"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/internal/testlog"
 	rollupNode "github.com/ethereum-optimism/optimistic-specs/opnode/node"
@@ -93,6 +90,7 @@ func TestSystemE2E(t *testing.T) {
 			"m/44'/60'/0'/0/2": 10000000,
 			l2OutputHDPath:     10000000,
 			bssHDPath:          10000000,
+			"m/44'/60'/0'/0/9": 10000000,
 		},
 		cliqueSigners:           []string{"m/44'/60'/0'/0/0"},
 		depositContractAddress:  "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001",
@@ -151,7 +149,7 @@ func TestSystemE2E(t *testing.T) {
 	// Account
 	ethPrivKey, err := cfg.wallet.PrivateKey(accounts.Account{
 		URL: accounts.URL{
-			Path: "m/44'/60'/0'/0/0",
+			Path: "m/44'/60'/0'/0/9",
 		},
 	})
 	require.Nil(t, err)
@@ -212,66 +210,12 @@ func TestSystemE2E(t *testing.T) {
 	require.Nil(t, err)
 	defer sequencer.Stop()
 
-	// Deploy StateRootOracle
-	l2OutputPrivKey, err := cfg.wallet.PrivateKey(accounts.Account{
-		URL: accounts.URL{
-			Path: l2OutputHDPath,
-		},
-	})
-	require.Nil(t, err)
-	l2OutputAddr := crypto.PubkeyToAddress(l2OutputPrivKey.PublicKey)
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	nonce, err := l1Client.NonceAt(ctx, l2OutputAddr, nil)
-	require.Nil(t, err)
-
-	opts, err := bind.NewKeyedTransactorWithChainID(
-		l2OutputPrivKey, cfg.l1.ethConfig.Genesis.Config.ChainID,
-	)
-	require.Nil(t, err)
-	opts.Nonce = big.NewInt(int64(nonce))
-
-	submissionFrequency := big.NewInt(10) // 10 seconds
-	l2BlockTime := big.NewInt(2)          // 2 seconds
-	l2ooAddr, tx, l2OutputOracle, err := l2oo.DeployMockL2OutputOracle(
-		opts, l1Client, submissionFrequency, l2BlockTime, [32]byte{}, big.NewInt(0),
-	)
-	require.Nil(t, err)
-
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_, err = txmgr.WaitMined(ctx, l1Client, tx, time.Second, 1)
-	require.Nil(t, err)
-
-	initialSroTimestamp, err := l2OutputOracle.LatestBlockTimestamp(&bind.CallOpts{})
-	require.Nil(t, err)
-
-	// L2Output Submitter
-	l2OutputSubmitter, err := l2os.NewL2OutputSubmitter(l2os.Config{
-		L1EthRpc:                  endpoint(cfg.l1.nodeConfig),
-		L2EthRpc:                  endpoint(cfg.l2Verifier.nodeConfig),
-		L2OOAddress:               l2ooAddr.String(),
-		PollInterval:              5 * time.Second,
-		NumConfirmations:          1,
-		ResubmissionTimeout:       5 * time.Second,
-		SafeAbortNonceTooLowCount: 3,
-		LogLevel:                  "error",
-		Mnemonic:                  cfg.mnemonic,
-		L2OutputHDPath:            l2OutputHDPath,
-	}, "")
-	require.Nil(t, err)
-
-	err = l2OutputSubmitter.Start()
-	require.Nil(t, err)
-	defer l2OutputSubmitter.Stop()
-
 	// Send Transaction & wait for success
 	contractAddr := common.HexToAddress(cfg.depositContractAddress)
 	fromAddr := common.HexToAddress("0x30ec912c5b1d14aa6d1cb9aa7a6682415c4f7eb0")
 
 	// start balance
-	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 	startBalance, err := l2Client.BalanceAt(ctx, fromAddr, nil)
 	require.Nil(t, err)
@@ -282,7 +226,7 @@ func TestSystemE2E(t *testing.T) {
 
 	// Signer
 	ks := l1Node.AccountManager().Backends(keystore.KeyStoreType)[0].(*keystore.KeyStore)
-	opts, err = bind.NewKeyStoreTransactorWithChainID(ks, ks.Accounts()[0], big.NewInt(int64(cfg.l1.ethConfig.NetworkId)))
+	opts, err := bind.NewKeyStoreTransactorWithChainID(ks, ks.Accounts()[0], big.NewInt(int64(cfg.l1.ethConfig.NetworkId)))
 	require.Nil(t, err)
 
 	// Setup for L1 Confirmation
@@ -291,16 +235,24 @@ func TestSystemE2E(t *testing.T) {
 	require.Nil(t, err, "with watcher")
 	defer watcher.Unsubscribe()
 
-	// Setup for L2 Confirmation
-	headChan := make(chan *types.Header, 100)
-	l2HeadSub, err := l2Client.SubscribeNewHead(context.Background(), headChan)
-	require.Nil(t, err, "with l2 head sub")
-	defer l2HeadSub.Unsubscribe()
-
 	// Finally send TX
 	mintAmount := big.NewInt(1_000_000_000_000)
 	tx, err = depositContract.DepositTransaction(opts, fromAddr, mintAmount, big.NewInt(1_000_000), false, nil)
 	require.Nil(t, err, "with deposit tx")
+
+	// Submit TX to L2 sequencer node
+	toAddr := common.Address{0xff, 0xff}
+	tx := types.MustSignNewTx(ethPrivKey, types.LatestSignerForChainID(new(big.Int).SetUint64(cfg.l2Verifier.ethConfig.NetworkId)), &types.DynamicFeeTx{
+		ChainID:   big.NewInt(int64(cfg.l2Verifier.ethConfig.NetworkId)),
+		Nonce:     0,
+		To:        &toAddr,
+		Value:     big.NewInt(1_000_000_000),
+		GasTipCap: big.NewInt(10),
+		GasFeeCap: big.NewInt(200),
+		Gas:       21000,
+	})
+	err = l2SequencerClient.SendTransaction(context.Background(), tx)
+	require.Nil(t, err)
 
 	// Wait for tx to be mined on L1 (or timeout)
 	select {
@@ -313,29 +265,27 @@ func TestSystemE2E(t *testing.T) {
 
 	}
 
-	// Get the L1 Block of the tx
-	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	receipt, err := l1Client.TransactionReceipt(ctx, tx.Hash())
-	require.Nil(t, err, "Could not get transaction receipt")
-	waitNumber := new(big.Int).Add(receipt.BlockNumber, common.Big2) // sequence window effect
-
 	// Wait (or timeout) for that block to show up on L2
 	timeoutCh := time.After(6 * time.Second)
-loop:
+loop1:
 	for {
+		// Confirm balance
+		ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+		endBalance, err := l2Client.BalanceAt(ctx, fromAddr, nil)
+		cancel()
+		require.Nil(t, err)
+
+		diff := new(big.Int)
+		diff = diff.Sub(endBalance, startBalance)
+		if diff.Cmp(mintAmount) == 0 {
+			break loop1
+		}
 		select {
-		case head := <-headChan:
-			if head.Number.Cmp(waitNumber) >= 0 {
-				break loop
-			}
-		case err := <-l2HeadSub.Err():
-			t.Fatalf("Error in l2 head subscription: %v", err)
 		case <-timeoutCh:
-			t.Fatal("Timeout waiting for l2 head")
+			t.Fatalf("Did not see balance change")
+		case <-time.After(200 * time.Millisecond):
 		}
 	}
-
 	// Confirm balance
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -346,64 +296,11 @@ loop:
 	diff = diff.Sub(endBalance, startBalance)
 	require.Equal(t, diff, mintAmount, "Did not get expected balance change")
 
-	// Wait for batch submitter to update L2 output oracle.
-	timeoutCh = time.After(15 * time.Second)
-	for {
-		l2ooTimestamp, err := l2OutputOracle.LatestBlockTimestamp(&bind.CallOpts{})
-		require.Nil(t, err)
-
-		// Wait for the L2 output oracle to have been changed from the initial
-		// timestamp set in the contract constructor.
-		if l2ooTimestamp.Cmp(initialSroTimestamp) > 0 {
-			// Retrieve the l2 output committed at this updated timestamp.
-			committedL2Output, err := l2OutputOracle.L2Outputs(&bind.CallOpts{}, l2ooTimestamp)
-			require.Nil(t, err)
-
-			// Compute the committed L2 output's L2 block number.
-			l2ooBlockNumber, err := l2OutputOracle.ComputeL2BlockNumber(
-				&bind.CallOpts{}, l2ooTimestamp,
-			)
-			require.Nil(t, err)
-
-			// Fetch the corresponding L2 block and assert the committed L2
-			// output matches the block's state root.
-			//
-			// NOTE: This assertion will change once the L2 output format is
-			// finalized.
-			ctx, cancel = context.WithTimeout(context.Background(), time.Second)
-			defer cancel()
-			l2Block, err := l2Client.BlockByNumber(ctx, l2ooBlockNumber)
-			require.Nil(t, err)
-			require.Equal(t, l2Block.Root(), common.Hash(committedL2Output))
-			break
-		}
-
-		select {
-		case <-timeoutCh:
-			t.Fatalf("State root oracle not updated")
-		case <-time.After(time.Second):
-		}
-	}
-
-	// Submit TX to L2 sequencer node
-	toAddr := common.Address{0xff, 0xff}
-	tx = types.MustSignNewTx(ethPrivKey, types.LatestSignerForChainID(new(big.Int).SetUint64(cfg.l2Verifier.ethConfig.NetworkId)), &types.DynamicFeeTx{
-		ChainID:   big.NewInt(int64(cfg.l2Verifier.ethConfig.NetworkId)),
-		Nonce:     1, // guess
-		To:        &toAddr,
-		Value:     big.NewInt(1_000_000_000),
-		GasTipCap: big.NewInt(10),
-		GasFeeCap: big.NewInt(200),
-		Gas:       21000,
-	})
-	err = l2SequencerClient.SendTransaction(context.Background(), tx)
-	require.Nil(t, err)
-
 	var l2IncludedBlock *big.Int
 
 	// Wait for tx to show up in chain (on sequencer)
 	timeoutCh = time.After(6 * time.Second)
-lastLoop:
+loop2:
 	for {
 		select {
 		case <-timeoutCh:
@@ -414,7 +311,7 @@ lastLoop:
 		receipt, err := l2Client.TransactionReceipt(context.Background(), tx.Hash())
 		if receipt != nil && err == nil {
 			l2IncludedBlock = receipt.BlockNumber
-			break lastLoop
+			break loop2
 		} else if err != nil && !errors.Is(err, ethereum.NotFound) {
 			require.Nil(t, err)
 		}
