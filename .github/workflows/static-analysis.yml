@@ -37,16 +37,15 @@ jobs:
       - uses: actions/cache@v2
         id: yarn-cache
         with:
-          path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
-          key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-yarn-
+            path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
+            key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
+            restore-keys: |
+                ${{ runner.os }}-yarn-
 
       - name: Install Dependencies
-        # only install dependencies if there was a change in the deps
-        # if: steps.yarn-cache.outputs.cache-hit != 'true'
-        working-directory: ./packages/contracts
-        run: yarn install
+        # only install dependencies if there was a change in the deps:
+        if: steps.yarn-cache.outputs.cache-hit != 'true'
+        run: yarn
 
       - name: Build
         run: yarn build
