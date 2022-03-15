@@ -40,7 +40,7 @@ jobs:
             path: ${{ steps.yarn-cache-dir-path.outputs.dir }}
             key: ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
             restore-keys: |
-                ${{ runner.os }}-yarn-
+                ${{ runner.os }}-yarn-${{ hashFiles('**/yarn.lock') }}
 
       - name: Install Dependencies
         # only install dependencies if there was a change in the deps:
