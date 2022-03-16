@@ -251,7 +251,7 @@ type L2Info interface {
 //  - The L2 information of the block the new derived blocks build on
 //
 // This is a pure function.
-func PayloadAttributes(config *rollup.Config, l1Info L1Info, receipts []*types.Receipt, seqWindow []*BatchData, l2Info L2Info) ([]*l2.PayloadAttributes, error) {
+func PayloadAttributes(config *rollup.Config, l1Info L1Info, receipts []*types.Receipt, seqWindow []*BatchData, l2Info L2Info, minL2Time, maxL2Time uint64) ([]*l2.PayloadAttributes, error) {
 	// Retrieve the deposits of this epoch (all deposits from the first block)
 	deposits, err := DeriveDeposits(l1Info, receipts)
 	if err != nil {
@@ -271,13 +271,7 @@ func PayloadAttributes(config *rollup.Config, l1Info L1Info, receipts []*types.R
 
 	// Collect all L2 batches, the batches may be out-of-order, or possibly missing.
 	l2Blocks := make(map[uint64]*l2.PayloadAttributes)
-	highestSeenTimestamp := l1Info.Time()
 	for _, batch := range seqWindow {
-
-		// Track the last batch we've seen (gaps will be filled with empty L2 blocks)
-		if batch.Timestamp > highestSeenTimestamp {
-			highestSeenTimestamp = batch.Timestamp
-		}
 
 		txns := make([]l2.Data, 0, len(batch.Transactions)+1)
 		txns = append(txns, l1InfoTx)
@@ -291,14 +285,9 @@ func PayloadAttributes(config *rollup.Config, l1Info L1Info, receipts []*types.R
 		}
 	}
 
-	// If there are no submitted batches, at least derive the deposit block.
-	if len(seqWindow) == 0 {
-		highestSeenTimestamp += config.BlockTime
-	}
-
 	// fill the gaps and always ensure at least one L2 block
 	var out []*l2.PayloadAttributes
-	for t := l2Info.Time() + config.BlockTime; t <= highestSeenTimestamp; t += config.BlockTime {
+	for t := minL2Time; t < maxL2Time; t += config.BlockTime {
 		if bl, ok := l2Blocks[t]; ok {
 			out = append(out, bl)
 		} else {

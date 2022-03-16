@@ -79,7 +79,7 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 		NoTxPool:              false,
 	}
 
-	newHead, batch, err := AddBlockForBSS(ctx, d.log, d.rpc, l2Parent, l2Finalized.Hash, attrs, depositStart)
+	newHead, batch, err := AddBlockForBSS(ctx, d.log, d.rpc, l1Info.NumberU64(), l2Parent, l2Finalized.Hash, attrs, depositStart)
 	if err != nil {
 		return l2Parent, nil, fmt.Errorf("failed to extend L2 chain: %v", err)
 	}
@@ -98,7 +98,6 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 		return l2Head, errors.New("Invalid sequencing window size")
 	}
 
-	// fmt.Println("l1first", l1Input[0].Number, "l1last", l1Input[len(l1Input)-1].Number)
 	logger := d.log.New("input_l1_first", l1Input[0], "input_l1_last", l1Input[len(l1Input)-1],
 		"input_l2_parent", l2Head, "finalized_l2", l2Finalized)
 	logger.Trace("Running update step on the L2 node")
@@ -130,7 +129,7 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 	maxL2Time := l1Info.Time()
 	batches = derive.FilterBatches(&d.Config, epoch, minL2Time, maxL2Time, batches)
 
-	attrsList, err := derive.PayloadAttributes(&d.Config, l1Info, receipts, batches, l2Info)
+	attrsList, err := derive.PayloadAttributes(&d.Config, l1Info, receipts, batches, l2Info, minL2Time, maxL2Time)
 	if err != nil {
 		return l2Head, fmt.Errorf("failed to derive execution payload inputs: %v", err)
 	}
@@ -160,7 +159,6 @@ func AddBlock(ctx context.Context, logger log.Logger, rpc DriverAPI,
 
 	logger = logger.New("derived_l2", payload.ID())
 	logger.Info("derived full block", "l2Parent", l2Parent, "attrs", attrs, "payload", payload)
-	fmt.Println("Verify   block", uint64(payload.BlockNumber), payload.BlockHash.String(), uint64(payload.Timestamp), len(payload.Transactions))
 
 	err = l2.ExecutePayload(ctx, rpc, payload)
 	if err != nil {
@@ -180,15 +178,13 @@ func AddBlock(ctx context.Context, logger log.Logger, rpc DriverAPI,
 // and then executing and persisting it.
 //
 // After the step completes it returns the block ID of the last processed L2 block, even if an error occurs.
-func AddBlockForBSS(ctx context.Context, logger log.Logger, rpc DriverAPI,
+func AddBlockForBSS(ctx context.Context, logger log.Logger, rpc DriverAPI, epoch uint64,
 	l2Parent eth.BlockID, l2Finalized common.Hash, attrs *l2.PayloadAttributes, depositStart int) (eth.BlockID, *derive.BatchData, error) {
 
 	payload, err := derive.ExecutionPayload(ctx, rpc, l2Parent.Hash, l2Finalized, attrs)
 	if err != nil {
 		return l2Parent, nil, fmt.Errorf("failed to derive execution payload: %v", err)
 	}
-
-	fmt.Println("Sequence block", uint64(payload.BlockNumber), payload.BlockHash.String(), uint64(payload.Timestamp), len(payload.Transactions))
 
 	logger = logger.New("derived_l2", payload.ID())
 	logger.Info("derived full block", "l2Parent", l2Parent, "attrs", attrs, "payload", payload)
@@ -207,7 +203,7 @@ func AddBlockForBSS(ctx context.Context, logger log.Logger, rpc DriverAPI,
 
 	batch := &derive.BatchData{
 		BatchV1: derive.BatchV1{
-			Epoch:        rollup.Epoch(payload.ID().Number),
+			Epoch:        rollup.Epoch(epoch),
 			Timestamp:    uint64(payload.Timestamp),
 			Transactions: payload.Transactions[depositStart:],
 		},

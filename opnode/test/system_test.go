@@ -47,7 +47,7 @@ func endpoint(cfg *node.Config) string {
 // TestSystemE2E sets up a L1 Geth node, a rollup node, and a L2 geth node and then confirms that L1 deposits are reflected on L2.
 // All nodes are run in process (but are the full nodes, not mocked or stubbed).
 func TestSystemE2E(t *testing.T) {
-	// log.Root().SetHandler(log.DiscardHandler()) // Comment this out to see geth l1/l2 logs
+	log.Root().SetHandler(log.DiscardHandler()) // Comment this out to see geth l1/l2 logs
 
 	const l2OutputHDPath = "m/44'/60'/0'/0/3"
 	const bssHDPath = "m/44'/60'/0'/0/4"
@@ -396,6 +396,8 @@ loop:
 	err = l2SequencerClient.SendTransaction(context.Background(), tx)
 	require.Nil(t, err)
 
+	var l2IncludedBlock *big.Int
+
 	// Wait for tx to show up in chain (on sequencer)
 	timeoutCh = time.After(6 * time.Second)
 lastLoop:
@@ -408,9 +410,17 @@ lastLoop:
 
 		receipt, err := l2Client.TransactionReceipt(context.Background(), tx.Hash())
 		if receipt != nil && err == nil {
+			l2IncludedBlock = receipt.BlockNumber
 			break lastLoop
 		} else if err != nil && !errors.Is(err, ethereum.NotFound) {
 			require.Nil(t, err)
 		}
 	}
+
+	verifBlock, err := l2Client.BlockByNumber(context.Background(), l2IncludedBlock)
+	require.Nil(t, err)
+	seqBlock, err := l2SequencerClient.BlockByNumber(context.Background(), l2IncludedBlock)
+	require.Nil(t, err)
+	require.Equal(t, verifBlock.Hash(), seqBlock.Hash(), "Verifier and sequencer blocks not the same after including a batch tx")
+
 }
