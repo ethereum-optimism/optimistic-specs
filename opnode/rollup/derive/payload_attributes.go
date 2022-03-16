@@ -216,9 +216,9 @@ func FilterBatches(config *rollup.Config, epoch rollup.Epoch, minL2Time uint64, 
 			// i.e. it was included too late or depends on the given L1 block to be processed first.
 			continue
 		}
-		// if (batch.Timestamp-config.Genesis.L2Time)%config.BlockTime != 0 {
-		// 	continue // bad timestamp, not a multiple of the block time
-		// }
+		if (batch.Timestamp-config.Genesis.L2Time)%config.BlockTime != 0 {
+			continue // bad timestamp, not a multiple of the block time
+		}
 		if batch.Timestamp < minL2Time {
 			continue // old batch
 		}
