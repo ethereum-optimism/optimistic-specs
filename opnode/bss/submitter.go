@@ -39,7 +39,11 @@ func (b *BatchSubmitter) Submit(config *rollup.Config, batches []*derive.BatchDa
 	if err := derive.EncodeBatches(config, batches, &buf); err != nil {
 		return common.Hash{}, err
 	}
-
+	// spew.Dump(batches)
+	// if len(batches) > 0 && len(batches[0].BatchV1.Transactions) > 0 {
+	// 	fmt.Println(buf.Bytes())
+	// 	fmt.Println(batches[0].BatchV1.Transactions)
+	// }
 	addr := crypto.PubkeyToAddress(b.PrivKey.PublicKey)
 	nonce, err := b.Client.PendingNonceAt(ctx, addr)
 	if err != nil {

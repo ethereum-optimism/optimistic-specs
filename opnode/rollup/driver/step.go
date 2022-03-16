@@ -67,9 +67,9 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 
 	depositStart := len(deposits)
 	timestamp := l2Info.Time() + d.Config.BlockTime
-	// if timestamp < l1Info.Time() {
-	// 	timestamp = l1Info.Time()
-	// }
+	if timestamp >= l1Info.Time() {
+		return l2Parent, nil, errors.New("L2 Timestamp is too large")
+	}
 
 	attrs := &l2.PayloadAttributes{
 		Timestamp:             hexutil.Uint64(timestamp),
@@ -126,9 +126,9 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 		return l2Head, fmt.Errorf("failed to fetch transactions from %s: %v", l1Input, err)
 	}
 	batches := derive.BatchesFromEVMTransactions(&d.Config, transactions)
-	// minL2Time := l2Info.Time() + d.Config.BlockTime
-	// maxL2Time := l1Info.Time() + d.Config.BlockTime
-	// batches = derive.FilterBatches(&d.Config, epoch, minL2Time, maxL2Time, batches)
+	minL2Time := l2Info.Time() + d.Config.BlockTime
+	maxL2Time := l1Info.Time()
+	batches = derive.FilterBatches(&d.Config, epoch, minL2Time, maxL2Time, batches)
 
 	attrsList, err := derive.PayloadAttributes(&d.Config, l1Info, receipts, batches, l2Info)
 	if err != nil {
@@ -160,6 +160,7 @@ func AddBlock(ctx context.Context, logger log.Logger, rpc DriverAPI,
 
 	logger = logger.New("derived_l2", payload.ID())
 	logger.Info("derived full block", "l2Parent", l2Parent, "attrs", attrs, "payload", payload)
+	fmt.Println("Verify   block", uint64(payload.BlockNumber), payload.BlockHash.String(), uint64(payload.Timestamp), len(payload.Transactions))
 
 	err = l2.ExecutePayload(ctx, rpc, payload)
 	if err != nil {
@@ -186,6 +187,8 @@ func AddBlockForBSS(ctx context.Context, logger log.Logger, rpc DriverAPI,
 	if err != nil {
 		return l2Parent, nil, fmt.Errorf("failed to derive execution payload: %v", err)
 	}
+
+	fmt.Println("Sequence block", uint64(payload.BlockNumber), payload.BlockHash.String(), uint64(payload.Timestamp), len(payload.Transactions))
 
 	logger = logger.New("derived_l2", payload.ID())
 	logger.Info("derived full block", "l2Parent", l2Parent, "attrs", attrs, "payload", payload)

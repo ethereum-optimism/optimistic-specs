@@ -199,6 +199,7 @@ func BatchesFromEVMTransactions(config *rollup.Config, txs []*types.Transaction)
 			batches, err := DecodeBatches(config, bytes.NewReader(tx.Data()))
 			if err != nil {
 				fmt.Println(err)
+				fmt.Println(tx.Data())
 				// TODO: log error
 				continue
 			}

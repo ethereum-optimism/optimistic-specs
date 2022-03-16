@@ -160,6 +160,7 @@ func (s *state) loop() {
 			newUnsafeL2Head, batch, err := s.output.newBlock(context.Background(), s.l2Finalized, s.l2UnsafeHead, s.l1Origin, firstOfEpoch)
 			if err != nil {
 				s.log.Error("Could not extend chain as sequencer", "err", err, "l2UnsafeHead", s.l2UnsafeHead, "l1Origin", s.l1Origin)
+				continue
 			}
 			// 3. Update unsafe l2 head + epoch
 			s.l2UnsafeHead = newUnsafeL2Head
