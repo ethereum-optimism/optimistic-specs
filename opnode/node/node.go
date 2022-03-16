@@ -77,20 +77,11 @@ func New(ctx context.Context, cfg *Config, log log.Logger) (*OpNode, error) {
 	var l2Engines []*driver.Driver
 
 	for i, addr := range cfg.L2EngineAddrs {
-		// L2 exec engine: updated by this OpNode (L2 consensus layer node)
-		backend, err := rpc.DialContext(ctx, addr)
-		if err != nil {
-			if backend == nil {
-				return nil, fmt.Errorf("failed to dial L2 address %d (%s): %v", i, addr, err)
-			}
-			log.Warn("failed to dial L2 address, but may connect later", "i", i, "addr", addr, "err", err)
-		}
 		// TODO: we may need to authenticate the connection with L2
 		// backend.SetHeader()
-		client := &l2.EngineClient{
-			RPCBackend: backend,
-			EthBackend: ethclient.NewClient(backend),
-			Log:        log.New("engine_client", i),
+		client, err := l2.NewSource(addr, log.New("engine_client", i))
+		if err != nil {
+			return nil, fmt.Errorf("failed to dial L2 address %d (%s): %v", i, addr, err)
 		}
 		var submitter *bss.BatchSubmitter
 		if cfg.Sequencer {

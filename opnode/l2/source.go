@@ -2,57 +2,61 @@ package l2
 
 import (
 	"context"
-	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rpc"
 )
 
-type RPC interface {
-	ExecutePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error)
-	ForkchoiceUpdated(ctx context.Context, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error)
+type internalRPC interface {
+	executePayload(ctx context.Context, payload *ExecutionPayload) (*ExecutePayloadResult, error)
+	forkchoiceUpdated(ctx context.Context, state *ForkchoiceState, attr *PayloadAttributes) (ForkchoiceUpdatedResult, error)
 }
 
-// ExecutePayload executes the payload and parses the return status into a useful error code
-func ExecutePayload(ctx context.Context, rpc RPC, payload *ExecutionPayload) error {
-	execCtx, cancel := context.WithTimeout(ctx, time.Second*5)
-	defer cancel()
-	execRes, err := rpc.ExecutePayload(execCtx, payload)
-	if err != nil {
-		return fmt.Errorf("failed to execute payload: %v", err)
-	}
-	switch execRes.Status {
-	case ExecutionValid:
-		return nil
-	case ExecutionSyncing:
-		return fmt.Errorf("failed to execute payload %s, node is syncing, latest valid hash is %s", payload.ID(), execRes.LatestValidHash)
-	case ExecutionInvalid:
-		return fmt.Errorf("execution payload %s was INVALID! Latest valid hash is %s, ignoring bad block: %q", payload.ID(), execRes.LatestValidHash, execRes.ValidationError)
-	default:
-		return fmt.Errorf("unknown execution status on %s: %q, ", payload.ID(), string(execRes.Status))
-	}
+type Source struct {
+	rpc    *rpc.Client       // raw RPC client. Used for the consensus namespace
+	client *ethclient.Client // go-ethereum's wrapper around the rpc client for the eth namespace
+	log    log.Logger
 }
 
-// ForkchoiceUpdate updates the forkchoive for L2 and parses the return status into a useful error code
-func ForkchoiceUpdate(ctx context.Context, rpc RPC, l2BlockHash common.Hash, l2Finalized common.Hash) error {
-	postState := &ForkchoiceState{
-		HeadBlockHash:      l2BlockHash, // no difference yet between Head and Safe, no data ahead of L1 yet.
-		SafeBlockHash:      l2BlockHash,
-		FinalizedBlockHash: l2Finalized,
-	}
-
-	fcCtx, cancel := context.WithTimeout(ctx, time.Second*5)
+func NewSource(l2addr string, log log.Logger) (*Source, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
-	fcRes, err := rpc.ForkchoiceUpdated(fcCtx, postState, nil)
+	rpc, err := rpc.DialContext(ctx, l2addr)
 	if err != nil {
-		return fmt.Errorf("failed to update forkchoice: %v", err)
+		return nil, err
 	}
-	switch fcRes.Status {
-	case UpdateSyncing:
-		return fmt.Errorf("updated forkchoice, but node is syncing: %v", err)
-	case UpdateSuccess:
-		return nil
-	default:
-		return fmt.Errorf("unknown forkchoice status on %s: %q, ", l2BlockHash, string(fcRes.Status))
-	}
+	return &Source{
+		rpc:    rpc,
+		client: ethclient.NewClient(rpc),
+		log:    log,
+	}, nil
+}
+
+func (s *Source) Close() {
+	s.rpc.Close()
+}
+
+func (s *Source) ForkchoiceUpdate(ctx context.Context, fc *ForkchoiceState, attributes *PayloadAttributes) (*ForkchoiceUpdatedResult, error) {
+	return ForkchoiceUpdate(ctx, s, fc, attributes)
+}
+
+func (s *Source) ExecutePayload(ctx context.Context, payload *ExecutionPayload) error {
+	return ExecutePayloadStatic(ctx, s, payload)
+}
+
+func (s *Source) GetPayload(ctx context.Context, payloadId PayloadID) (*ExecutionPayload, error) {
+	return s.getPayload(ctx, payloadId)
+}
+
+func (s *Source) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
+	return s.client.BlockByHash(ctx, hash)
+}
+
+func (s *Source) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+	return s.client.BlockByNumber(ctx, number)
 }
