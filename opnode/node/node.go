@@ -92,7 +92,7 @@ func New(ctx context.Context, cfg *Config, log log.Logger) (*OpNode, error) {
 				PrivKey:   cfg.SubmitterPrivKey,
 			}
 		}
-		engine := driver.NewDriver(cfg.Rollup, client, l1Source, log.New("engine", i, "Sequencer", cfg.Sequencer), submitter, cfg.Sequencer)
+		engine := driver.NewDriver(cfg.Rollup, client, &l1Source, log.New("engine", i, "Sequencer", cfg.Sequencer), submitter, cfg.Sequencer)
 		l2Engines = append(l2Engines, engine)
 	}
 

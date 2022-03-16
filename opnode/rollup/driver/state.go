@@ -19,8 +19,8 @@ type inputInterface interface {
 }
 
 type outputInterface interface {
-	step(ctx context.Context, l2Head eth.BlockID, l2Finalized eth.BlockID, l1Window []eth.BlockID) (eth.BlockID, error)
-	newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.BlockID, l1Origin eth.BlockID, includeDeposits bool) (eth.BlockID, *derive.BatchData, error)
+	step(ctx context.Context, l2Head eth.BlockID, l2Finalized eth.BlockID, unsafeL2Head eth.BlockID, l1Input []eth.BlockID) (eth.BlockID, error)
+	newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.BlockID, l2Safe eth.BlockID, l1Origin eth.BlockID, includeDeposits bool) (eth.BlockID, *derive.BatchData, error)
 }
 
 type state struct {
@@ -157,7 +157,7 @@ func (s *state) loop() {
 				continue
 			}
 			// 2. Ask output to create new block
-			newUnsafeL2Head, batch, err := s.output.newBlock(context.Background(), s.l2Finalized, s.l2UnsafeHead, s.l1Origin, firstOfEpoch)
+			newUnsafeL2Head, batch, err := s.output.newBlock(context.Background(), s.l2Finalized, s.l2UnsafeHead, s.l2Head, s.l1Origin, firstOfEpoch)
 			if err != nil {
 				s.log.Error("Could not extend chain as sequencer", "err", err, "l2UnsafeHead", s.l2UnsafeHead, "l1Origin", s.l1Origin)
 				continue
@@ -224,7 +224,7 @@ func (s *state) loop() {
 			if window, ok := s.sequencingWindow(); ok {
 				s.log.Trace("Have enough cached blocks to run step.")
 				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				newL2Head, err := s.output.step(ctx, s.l2Head, s.l2Finalized, window)
+				newL2Head, err := s.output.step(ctx, s.l2Head, s.l2Finalized, s.l2UnsafeHead, window)
 				cancel()
 				if err != nil {
 					s.log.Error("Error in running the output step.", "err", err, "l2Head", s.l2Head, "l2Finalized", s.l2Finalized, "window", window)
