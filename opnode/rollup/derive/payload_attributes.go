@@ -209,7 +209,6 @@ func BatchesFromEVMTransactions(config *rollup.Config, txs []*types.Transaction)
 
 func FilterBatches(config *rollup.Config, epoch rollup.Epoch, minL2Time uint64, maxL2Time uint64, batches []*BatchData) (out []*BatchData) {
 	uniqueTime := make(map[uint64]struct{})
-
 	for _, batch := range batches {
 		if batch.Epoch != epoch {
 			// Batch was tagged for past or future epoch,
@@ -234,7 +233,6 @@ func FilterBatches(config *rollup.Config, epoch rollup.Epoch, minL2Time uint64, 
 		uniqueTime[batch.Timestamp] = struct{}{}
 		out = append(out, batch)
 	}
-
 	return
 }
 
@@ -303,7 +301,7 @@ func PayloadAttributes(config *rollup.Config, l1Info L1Info, receipts []*types.R
 			})
 		}
 	}
-	// TODO: Assert that this does not panic here
+	// TODO: Assert that this does not panic here (i.e. make sure that len(out) > 0)
 
 	// Force deposits into the first block. TODO: Clean up L1 Info handling.
 	out[0].Transactions = append(append(make([]l2.Data, 0), deposits...), out[0].Transactions[1:]...)
