@@ -124,7 +124,10 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 	if err != nil {
 		return l2Head, fmt.Errorf("failed to fetch transactions from %s: %v", l1Input, err)
 	}
-	batches := derive.BatchesFromEVMTransactions(&d.Config, transactions)
+	batches, err := derive.BatchesFromEVMTransactions(&d.Config, transactions)
+	if err != nil {
+		return l2Head, fmt.Errorf("failed to fetch create batches from transactions: %w", err)
+	}
 	minL2Time := l2Info.Time() + d.Config.BlockTime
 	maxL2Time := l1Info.Time()
 	batches = derive.FilterBatches(&d.Config, epoch, minL2Time, maxL2Time, batches)

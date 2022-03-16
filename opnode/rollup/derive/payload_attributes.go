@@ -181,32 +181,30 @@ func UserDeposits(height uint64, receipts []*types.Receipt) ([]*types.DepositTx,
 	return out, nil
 }
 
-func BatchesFromEVMTransactions(config *rollup.Config, txs []*types.Transaction) (out []*BatchData) {
+func BatchesFromEVMTransactions(config *rollup.Config, txs []*types.Transaction) ([]*BatchData, error) {
+	var out []*BatchData
 	l1Signer := config.L1Signer()
 	for _, tx := range txs {
 		if to := tx.To(); to != nil && *to == config.BatchInboxAddress {
 			seqDataSubmitter, err := l1Signer.Sender(tx)
 			if err != nil {
-				fmt.Println(err)
 				// TODO: log error
 				continue // bad signature, ignore
 			}
 			// some random L1 user might have sent a transaction to our batch inbox, ignore them
 			if seqDataSubmitter != config.BatchSenderAddress {
-				fmt.Println("Invalid submitter", "got", seqDataSubmitter, "expected", config.BatchSenderAddress)
+				// TODO: log/record metric
 				continue // not an authorized batch submitter, ignore
 			}
 			batches, err := DecodeBatches(config, bytes.NewReader(tx.Data()))
 			if err != nil {
-				fmt.Println(err)
-				fmt.Println(tx.Data())
-				// TODO: log error
-				continue
+				// TODO: Maybe log, otherwise this is unrecoverable
+				return nil, err
 			}
 			out = append(out, batches...)
 		}
 	}
-	return
+	return out, nil
 }
 
 func FilterBatches(config *rollup.Config, epoch rollup.Epoch, minL2Time uint64, maxL2Time uint64, batches []*BatchData) (out []*BatchData) {
