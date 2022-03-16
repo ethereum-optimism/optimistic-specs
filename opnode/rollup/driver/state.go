@@ -20,7 +20,7 @@ type inputInterface interface {
 
 type outputInterface interface {
 	step(ctx context.Context, l2Head eth.BlockID, l2Finalized eth.BlockID, l1Window []eth.BlockID) (eth.BlockID, error)
-	newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.BlockID, l1Origin eth.BlockID, includeDeposits bool) (eth.BlockID, derive.BatchV1, error)
+	newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.BlockID, l1Origin eth.BlockID, includeDeposits bool) (eth.BlockID, *derive.BatchData, error)
 }
 
 type state struct {
@@ -166,7 +166,7 @@ func (s *state) loop() {
 			s.log.Trace("Created new l2 block", "l2UnsafeHead", s.l2UnsafeHead)
 			// 4. Ask for batch submission
 			go func() {
-				_, err := s.bss.Submit(&batch)
+				_, err := s.bss.Submit(&s.Config, []*derive.BatchData{batch}) // TODO: submit multiple batches
 				if err != nil {
 					s.log.Error("Error submitting batch", "err", err)
 				}

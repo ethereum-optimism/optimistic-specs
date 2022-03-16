@@ -38,31 +38,31 @@ type outputImpl struct {
 	Config rollup.Config
 }
 
-func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.BlockID, l1Origin eth.BlockID, includeDeposits bool) (eth.BlockID, derive.BatchV1, error) {
+func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.BlockID, l1Origin eth.BlockID, includeDeposits bool) (eth.BlockID, *derive.BatchData, error) {
 	d.log.Info("creating new block", "l2Parent", l2Parent, "l1Origin", l1Origin, "includeDeposits", includeDeposits)
 	fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
 	defer cancel()
 	l2Info, err := d.rpc.BlockByHash(fetchCtx, l2Parent.Hash)
 	if err != nil {
-		return l2Parent, derive.BatchV1{}, fmt.Errorf("failed to fetch L2 block info of %s: %v", l2Parent, err)
+		return l2Parent, nil, fmt.Errorf("failed to fetch L2 block info of %s: %v", l2Parent, err)
 	}
 	l1Info, err := d.dl.FetchL1Info(fetchCtx, l1Origin)
 	if err != nil {
-		return l2Parent, derive.BatchV1{}, fmt.Errorf("failed to fetch L1 block info of %s: %v", l1Origin, err)
+		return l2Parent, nil, fmt.Errorf("failed to fetch L1 block info of %s: %v", l1Origin, err)
 	}
 
 	var receipts types.Receipts
 	if includeDeposits {
 		receipts, err = d.dl.FetchReceipts(fetchCtx, l1Origin)
 		if err != nil {
-			return l2Parent, derive.BatchV1{}, fmt.Errorf("failed to fetch receipts of %s: %v", l1Origin, err)
+			return l2Parent, nil, fmt.Errorf("failed to fetch receipts of %s: %v", l1Origin, err)
 		}
 
 	}
 	deposits, err := derive.DeriveDeposits(l1Info, receipts)
 	d.log.Info("Derived deposits", "deposits", deposits, "l2Parent", l2Parent, "l1Origin", l1Origin)
 	if err != nil {
-		return l2Parent, derive.BatchV1{}, fmt.Errorf("failed to derive deposits: %v", err)
+		return l2Parent, nil, fmt.Errorf("failed to derive deposits: %v", err)
 	}
 
 	depositStart := len(deposits)
@@ -76,14 +76,14 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 		Random:                l2.Bytes32(l1Info.MixDigest()),
 		SuggestedFeeRecipient: d.Config.FeeRecipientAddress,
 		Transactions:          deposits,
+		NoTxPool:              false,
 	}
 
 	newHead, batch, err := AddBlockForBSS(ctx, d.log, d.rpc, l2Parent, l2Finalized.Hash, attrs, depositStart)
 	if err != nil {
-		return l2Parent, derive.BatchV1{}, fmt.Errorf("failed to extend L2 chain: %v", err)
+		return l2Parent, nil, fmt.Errorf("failed to extend L2 chain: %v", err)
 	}
 	return newHead, batch, nil
-
 }
 
 // DriverStep derives and processes one or more L2 blocks from the given sequencing window of L1 blocks.
@@ -180,11 +180,11 @@ func AddBlock(ctx context.Context, logger log.Logger, rpc DriverAPI,
 //
 // After the step completes it returns the block ID of the last processed L2 block, even if an error occurs.
 func AddBlockForBSS(ctx context.Context, logger log.Logger, rpc DriverAPI,
-	l2Parent eth.BlockID, l2Finalized common.Hash, attrs *l2.PayloadAttributes, depositStart int) (eth.BlockID, derive.BatchV1, error) {
+	l2Parent eth.BlockID, l2Finalized common.Hash, attrs *l2.PayloadAttributes, depositStart int) (eth.BlockID, *derive.BatchData, error) {
 
 	payload, err := derive.ExecutionPayload(ctx, rpc, l2Parent.Hash, l2Finalized, attrs)
 	if err != nil {
-		return l2Parent, derive.BatchV1{}, fmt.Errorf("failed to derive execution payload: %v", err)
+		return l2Parent, nil, fmt.Errorf("failed to derive execution payload: %v", err)
 	}
 
 	logger = logger.New("derived_l2", payload.ID())
@@ -192,20 +192,22 @@ func AddBlockForBSS(ctx context.Context, logger log.Logger, rpc DriverAPI,
 
 	err = l2.ExecutePayload(ctx, rpc, payload)
 	if err != nil {
-		return l2Parent, derive.BatchV1{}, fmt.Errorf("failed to apply execution payload: %v", err)
+		return l2Parent, nil, fmt.Errorf("failed to apply execution payload: %v", err)
 	}
 	logger.Info("executed block")
 
 	err = l2.ForkchoiceUpdate(ctx, rpc, payload.BlockHash, l2Finalized)
 	if err != nil {
-		return payload.ID(), derive.BatchV1{}, fmt.Errorf("failed to persist execution payload: %v", err)
+		return payload.ID(), nil, fmt.Errorf("failed to persist execution payload: %v", err)
 	}
 	logger.Info("updated fork-choice with block")
 
-	batch := derive.BatchV1{
-		Epoch:        payload.ID().Number,
-		Timestamp:    uint64(payload.Timestamp),
-		Transactions: payload.Transactions[depositStart:],
+	batch := &derive.BatchData{
+		BatchV1: derive.BatchV1{
+			Epoch:        rollup.Epoch(payload.ID().Number),
+			Timestamp:    uint64(payload.Timestamp),
+			Transactions: payload.Transactions[depositStart:],
+		},
 	}
 	return payload.ID(), batch, nil
 }

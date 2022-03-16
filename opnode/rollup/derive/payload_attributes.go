@@ -309,6 +309,9 @@ func PayloadAttributes(config *rollup.Config, l1Info L1Info, receipts []*types.R
 				Random:                randomnessSeed,
 				SuggestedFeeRecipient: config.FeeRecipientAddress,
 				Transactions:          txns,
+				// we are verifying, not sequencing, we've all transactions and do not pull from the tx-pool
+				// (that would make the block derivation non-deterministic)
+				NoTxPool: true,
 			})
 		}
 	}

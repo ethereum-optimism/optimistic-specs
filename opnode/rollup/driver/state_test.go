@@ -44,7 +44,7 @@ func (fn outputHandlerFn) step(ctx context.Context, l2Head eth.BlockID, l2Finali
 	return fn(ctx, l2Head, l2Finalized, l1Window)
 }
 
-func (fn outputHandlerFn) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.BlockID, l1Origin eth.BlockID, includeDeposits bool) (eth.BlockID, derive.BatchV1, error) {
+func (fn outputHandlerFn) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.BlockID, l1Origin eth.BlockID, includeDeposits bool) (eth.BlockID, *derive.BatchData, error) {
 	panic("Unimplemented")
 
 }

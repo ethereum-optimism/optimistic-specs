@@ -17,7 +17,7 @@ type Driver struct {
 }
 
 type BatchSubmitter interface {
-	Submit(*derive.BatchV1) (common.Hash, error)
+	Submit(config *rollup.Config, batches []*derive.BatchData) (common.Hash, error)
 }
 
 func NewDriver(cfg rollup.Config, l2 DriverAPI, l1 l1.Source, log log.Logger, submitter BatchSubmitter, sequencer bool) *Driver {

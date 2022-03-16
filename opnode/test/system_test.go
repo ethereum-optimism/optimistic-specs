@@ -137,9 +137,10 @@ func TestSystemE2E(t *testing.T) {
 	l2SequencerClient, err := ethclient.Dial(endpoint(cfg.l2Sequencer.nodeConfig))
 	require.Nil(t, err)
 
-	if false {
-		l2SequencerClient.BlockByNumber(context.Background(), nil)
-	}
+	// TODO: found this because linter, this "if false" is for debugging or something?
+	//if false {
+	//	l2SequencerClient.BlockByNumber(context.Background(), nil)
+	//}
 
 	// BSS
 	bssPrivKey, err := cfg.wallet.PrivateKey(accounts.Account{
