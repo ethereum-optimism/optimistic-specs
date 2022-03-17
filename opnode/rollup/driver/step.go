@@ -51,6 +51,11 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 		return l2Parent, nil, fmt.Errorf("failed to fetch L1 block info of %s: %v", l1Origin, err)
 	}
 
+	timestamp := l2Info.Time() + d.Config.BlockTime
+	if timestamp >= l1Info.Time() {
+		return l2Parent, nil, errors.New("L2 Timestamp is too large")
+	}
+
 	var receipts types.Receipts
 	if includeDeposits {
 		receipts, err = d.dl.FetchReceipts(fetchCtx, l1Origin)
@@ -66,10 +71,6 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 	}
 
 	depositStart := len(deposits)
-	timestamp := l2Info.Time() + d.Config.BlockTime
-	if timestamp >= l1Info.Time() {
-		return l2Parent, nil, errors.New("L2 Timestamp is too large")
-	}
 
 	attrs := &l2.PayloadAttributes{
 		Timestamp:             hexutil.Uint64(timestamp),
