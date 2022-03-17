@@ -16,25 +16,9 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
-type Downloader interface {
-	// FetchL1Info fetches the L1 header information corresponding to a L1 block ID
-	FetchL1Info(ctx context.Context, id eth.BlockID) (derive.L1Info, error)
-	// FetchReceipts of a L1 block
-	FetchReceipts(ctx context.Context, id eth.BlockID) ([]*types.Receipt, error)
-	// FetchTransactions from the given window of L1 blocks
-	FetchTransactions(ctx context.Context, window []eth.BlockID) ([]*types.Transaction, error)
-}
-
-// L2 is block preparer + BlockByHash
-// type BlockPreparer interface {
-// 	GetPayload(ctx context.Context, payloadId l2.PayloadID) (*l2.ExecutionPayload, error)
-// 	ForkchoiceUpdated(ctx context.Context, state *l2.ForkchoiceState, attr *l2.PayloadAttributes) (l2.ForkchoiceUpdatedResult, error)
-//      ExecutePayload(ctx context.Context, payload *l2.ExecutionPayload) error
-// }
-
 type outputImpl struct {
 	dl     Downloader
-	l2     *l2.Source
+	l2     BlockPreparer
 	log    log.Logger
 	Config rollup.Config
 }
@@ -191,7 +175,7 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 			return last, fmt.Errorf("failed to extend L2 chain at block %d/%d of epoch %d: %w", i, len(batches), epoch, err)
 		}
 		last = payload.ID()
-		fc.HeadBlockHash = last.Hash
+		fc.HeadBlockHash = last.Hash // should be safe block, but geth is broken
 	}
 
 	return last, nil

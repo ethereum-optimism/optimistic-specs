@@ -75,11 +75,12 @@ func New(ctx context.Context, cfg *Config, log log.Logger) (*OpNode, error) {
 	// l1Node.SetHeader()
 	l1Source := l1.NewSource(ethclient.NewClient(l1Node))
 	var l2Engines []*driver.Driver
+	genesis := cfg.GetGenesis()
 
 	for i, addr := range cfg.L2EngineAddrs {
 		// TODO: we may need to authenticate the connection with L2
 		// backend.SetHeader()
-		client, err := l2.NewSource(addr, log.New("engine_client", i))
+		client, err := l2.NewSource(addr, &genesis, log.New("engine_client", i))
 		if err != nil {
 			return nil, fmt.Errorf("failed to dial L2 address %d (%s): %v", i, addr, err)
 		}
