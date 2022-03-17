@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
@@ -152,6 +153,10 @@ func (s *state) loop() {
 			// 2. Ask output to create new block
 			newUnsafeL2Head, batch, err := s.output.newBlock(context.Background(), s.l2Finalized, s.l2Head, s.l2SafeHead, s.l1Origin, firstOfEpoch)
 			if err != nil {
+				if errors.Is(err, newBlockTooNew) {
+					s.log.Trace("Tried to build L2 block, but latest L1 time is already reached by L2")
+					continue
+				}
 				s.log.Error("Could not extend chain as sequencer", "err", err, "l2UnsafeHead", s.l2Head, "l1Origin", s.l1Origin)
 				continue
 			}

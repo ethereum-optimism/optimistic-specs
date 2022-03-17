@@ -91,10 +91,12 @@ meaning that gaps between the batches (ordered by timestamp) are interpreted as 
 thus construing L2 blocks that only contain deposit transaction(s).
 
 The L2 blocks produced by a sequencing window are bounded by timestamp:
+`min_l2_timestamp <= block.timestamp < max_l2_timestamp`
 
 - `min_l2_timestamp = prev_l2_timestamp + l2_block_time`
-- `max_l2_timestamp = l1_timestamp + l2_block_time`, where `l1_timestamp` is the timestamp of the
-  first L1 block of the sequencing window. (maximum bound, may not be aligned with block time)
+- `max_l2_timestamp = l1_timestamp + max_l2_seq_time_diff` is the maximum bound, and may not be aligned with block time.
+  - `l1_timestamp` is the timestamp of the first L1 block of the sequencing window,
+  - `max_l2_seq_time_diff` is the time a L2 sequencer can be ahead of L1, which defaults to `l2_block_time`.
 
 If there are no batches present in the sequencing window then the L2 chain is extended up to `max_l2_timestamp` (incl.)
 with empty batches, but otherwise regular block derivation.

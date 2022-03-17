@@ -167,7 +167,7 @@ func TestSystemE2E(t *testing.T) {
 				L2Time: l2GenesisTime,
 			},
 			BlockTime:            1,
-			MaxSequencerTimeDiff: 10,
+			MaxSequencerTimeDiff: 1,
 			SeqWindowSize:        2,
 			L1ChainID:            big.NewInt(900),
 			// TODO pick defaults
@@ -194,7 +194,7 @@ func TestSystemE2E(t *testing.T) {
 				L2Time: l2GenesisTime,
 			},
 			BlockTime:            1,
-			MaxSequencerTimeDiff: 10,
+			MaxSequencerTimeDiff: 1,
 			SeqWindowSize:        2,
 			L1ChainID:            big.NewInt(900),
 			// TODO pick defaults
