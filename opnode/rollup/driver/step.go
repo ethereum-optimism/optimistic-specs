@@ -79,11 +79,19 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 		NoTxPool:              false,
 	}
 
-	newHead, batch, err := AddBlockForBSS(ctx, d.log, d.rpc, l1Info.NumberU64(), l2Parent, l2Finalized.Hash, attrs, depositStart)
+	payload, err := AddBlock(ctx, d.log, d.rpc, l2Parent, l2Finalized.Hash, attrs)
 	if err != nil {
 		return l2Parent, nil, fmt.Errorf("failed to extend L2 chain: %v", err)
 	}
-	return newHead, batch, nil
+	batch := &derive.BatchData{
+		BatchV1: derive.BatchV1{
+			Epoch:        rollup.Epoch(l1Info.NumberU64()),
+			Timestamp:    uint64(payload.Timestamp),
+			Transactions: payload.Transactions[depositStart:],
+		},
+	}
+
+	return payload.ID(), batch, nil
 }
 
 // DriverStep derives and processes one or more L2 blocks from the given sequencing window of L1 blocks.
@@ -139,10 +147,11 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 
 	last := l2Head
 	for i, attrs := range attrsList {
-		last, err = AddBlock(ctx, logger, d.rpc, last, l2Finalized.Hash, attrs)
+		payload, err := AddBlock(ctx, logger, d.rpc, last, l2Finalized.Hash, attrs)
 		if err != nil {
 			return last, fmt.Errorf("failed to extend L2 chain at block %d/%d of epoch %d: %v", i, len(attrsList), epoch, err)
 		}
+		last = payload.ID()
 	}
 
 	return last, nil
@@ -153,11 +162,11 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 //
 // After the step completes it returns the block ID of the last processed L2 block, even if an error occurs.
 func AddBlock(ctx context.Context, logger log.Logger, rpc DriverAPI,
-	l2Parent eth.BlockID, l2Finalized common.Hash, attrs *l2.PayloadAttributes) (eth.BlockID, error) {
+	l2Parent eth.BlockID, l2Finalized common.Hash, attrs *l2.PayloadAttributes) (*l2.ExecutionPayload, error) {
 
 	payload, err := derive.ExecutionPayload(ctx, rpc, l2Parent.Hash, l2Finalized, attrs)
 	if err != nil {
-		return l2Parent, fmt.Errorf("failed to derive execution payload: %v", err)
+		return nil, fmt.Errorf("failed to derive execution payload: %v", err)
 	}
 
 	logger = logger.New("derived_l2", payload.ID())
@@ -165,51 +174,14 @@ func AddBlock(ctx context.Context, logger log.Logger, rpc DriverAPI,
 
 	err = l2.ExecutePayload(ctx, rpc, payload)
 	if err != nil {
-		return l2Parent, fmt.Errorf("failed to apply execution payload: %v", err)
+		return nil, fmt.Errorf("failed to apply execution payload: %v", err)
 	}
 	logger.Info("executed block")
 
 	err = l2.ForkchoiceUpdate(ctx, rpc, payload.BlockHash, l2Finalized)
 	if err != nil {
-		return payload.ID(), fmt.Errorf("failed to persist execution payload: %v", err)
+		return nil, fmt.Errorf("failed to persist execution payload: %v", err)
 	}
 	logger.Info("updated fork-choice with block")
-	return payload.ID(), nil
-}
-
-// AddBlockForBSS extends the L2 chain by deriving the full execution payload from inputs,
-// and then executing and persisting it.
-//
-// After the step completes it returns the block ID of the last processed L2 block, even if an error occurs.
-func AddBlockForBSS(ctx context.Context, logger log.Logger, rpc DriverAPI, epoch uint64,
-	l2Parent eth.BlockID, l2Finalized common.Hash, attrs *l2.PayloadAttributes, depositStart int) (eth.BlockID, *derive.BatchData, error) {
-
-	payload, err := derive.ExecutionPayload(ctx, rpc, l2Parent.Hash, l2Finalized, attrs)
-	if err != nil {
-		return l2Parent, nil, fmt.Errorf("failed to derive execution payload: %v", err)
-	}
-
-	logger = logger.New("derived_l2", payload.ID())
-	logger.Info("derived full block", "l2Parent", l2Parent, "attrs", attrs, "payload", payload)
-
-	err = l2.ExecutePayload(ctx, rpc, payload)
-	if err != nil {
-		return l2Parent, nil, fmt.Errorf("failed to apply execution payload: %v", err)
-	}
-	logger.Info("executed block")
-
-	err = l2.ForkchoiceUpdate(ctx, rpc, payload.BlockHash, l2Finalized)
-	if err != nil {
-		return payload.ID(), nil, fmt.Errorf("failed to persist execution payload: %v", err)
-	}
-	logger.Info("updated fork-choice with block")
-
-	batch := &derive.BatchData{
-		BatchV1: derive.BatchV1{
-			Epoch:        rollup.Epoch(epoch),
-			Timestamp:    uint64(payload.Timestamp),
-			Transactions: payload.Transactions[depositStart:],
-		},
-	}
-	return payload.ID(), batch, nil
+	return payload, nil
 }
