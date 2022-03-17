@@ -118,7 +118,12 @@ func (s *state) sequencingWindow() ([]eth.BlockID, bool) {
 func (s *state) loop() {
 	s.log.Info("State loop started")
 	ctx := context.Background()
-	l2BlockCreation := time.NewTicker(time.Duration(s.Config.BlockTime) * time.Second)
+	var l2BlockCreation *time.Ticker
+	if s.sequencer {
+		l2BlockCreation = time.NewTicker(time.Duration(s.Config.BlockTime) * time.Second)
+		defer l2BlockCreation.Stop()
+	}
+
 	// l1Poll := time.NewTicker(1 * time.Second)
 	// l2Poll := time.NewTicker(1 * time.Second)
 	stepRequest := make(chan struct{}, 1)
@@ -142,10 +147,6 @@ func (s *state) loop() {
 		case <-s.done:
 			return
 		case <-l2BlockCreation.C:
-			// 0. Make sure to only do this as a sequencer
-			if !s.sequencer {
-				continue
-			}
 			// 1. Check if new epoch (new L1 head)
 			firstOfEpoch := false
 			if s.l1Head != s.l1Origin {
