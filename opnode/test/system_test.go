@@ -392,7 +392,6 @@ loop:
 		GasFeeCap: big.NewInt(200),
 		Gas:       21000,
 	})
-	fmt.Println("Tx Hash", tx.Hash())
 	err = l2SequencerClient.SendTransaction(context.Background(), tx)
 	require.Nil(t, err)
 
