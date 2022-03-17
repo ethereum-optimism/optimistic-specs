@@ -198,8 +198,8 @@ func BatchesFromEVMTransactions(config *rollup.Config, txs []*types.Transaction)
 			}
 			batches, err := DecodeBatches(config, bytes.NewReader(tx.Data()))
 			if err != nil {
-				// TODO: Maybe log, otherwise this is unrecoverable
-				return nil, err
+				// TODO: log/record metric
+				continue
 			}
 			out = append(out, batches...)
 		}
