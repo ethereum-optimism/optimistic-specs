@@ -43,7 +43,7 @@ L1 (beacon-chain). However, we replace `sha256` with `keccak256` to save gas cos
 class L2Output(Container):
   state_root: Bytes32
   withdrawal_storage_root: Bytes32  # TODO: withdrawals specifcation work-in-progress
-  latest_block: ExecutionPayload  # includes block hash
+  latest_block: ExecutionPayload  # includes block hash // should use sha2 here...
   history_accumulator_root: Bytes32  # Not functional yet
   extension: Bytes32
 ```
