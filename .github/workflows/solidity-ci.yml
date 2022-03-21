@@ -17,9 +17,9 @@ defaults:
       working-directory: ./packages/contracts
 
 jobs:
-  setup:
+  solidity-ci:
     runs-on: ubuntu-latest
-    name: Install and Build
+    name: Solidity Checks
     steps:
       - uses: actions/checkout@v2
         with:
@@ -31,39 +31,28 @@ jobs:
             cache: 'yarn'
       - run: yarn install
 
+
       - name: Install Foundry
         uses: onbjerg/foundry-toolchain@v1
         with:
           version: nightly
 
-      - name: Yarn Build
+      - name: Compile contracts
         run: yarn build
+
+      - name: Test
+        run: yarn test
+
+      - name: Lint
+        run: yarn lint:check
 
       - name: Set up Python 3.8
         uses: actions/setup-python@v2
         with:
           python-version: '3.8'
 
-  lint:
-    runs-on: ubuntu-latest
-    name: Lint
-    steps:
-      - name: Lint
-        run: yarn lint:check
-
-  test:
-    runs-on: ubuntu-latest
-    name: Test
-    steps:
-      - name: Test
-        run: yarn test
-
-  static:
-    runs-on: ubuntu-latest
-    name: Slither run
-    steps:
       - name: Install Slither
         run: pip3 install slither-analyzer
 
-      - name: Run analysis
+      - name: Run Slither
         run: yarn test:slither
