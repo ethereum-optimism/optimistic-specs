@@ -37,8 +37,11 @@ jobs:
         with:
           version: nightly
 
-      - name: Compile contracts
-        run: yarn build
+      - name: Build with Forge
+        run: yarn build:forge
+
+      - name: Build with HH
+        run: yarn build:hh
 
       - name: Test
         run: yarn test
