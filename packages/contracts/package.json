@@ -8,8 +8,9 @@
     "hardhat": "^2.7.1"
   },
   "scripts": {
-    "build": "forge build --root . -c contracts --out forge-artifacts",
+    "build:forge": "forge build --root . -c contracts --out forge-artifacts",
     "build:hh": "yarn hardhat compile",
+    "build": "yarn build:forge && yarn build:hh",
     "test:hh": "yarn hardhat test",
     "test:forge": "forge test --root . -c contracts --out forge-artifacts",
     "test": "yarn test:forge && yarn test:hh",

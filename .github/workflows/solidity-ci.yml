@@ -38,13 +38,10 @@ jobs:
           version: nightly
 
       - name: Build with Forge
-        run: yarn build
+        run: yarn build:forge
 
-      # - name: Build with Forge
-      #   run: yarn build:forge
-
-      # - name: Build with HH
-      #   run: yarn build:hh
+      - name: Build with HH
+        run: yarn build:hh
 
       - name: Test
         run: yarn test
