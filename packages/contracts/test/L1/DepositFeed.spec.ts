@@ -310,6 +310,32 @@ describe('DepositFeed', () => {
           data: NON_ZERO_DATA,
         })
       })
+
+      it('when doing a simple send', async () => {
+        const balBefore = await ethers.provider.getBalance(depositFeed.address)
+
+        const tx = await signer.sendTransaction({
+          to: depositFeed.address,
+          value: NON_ZERO_VALUE,
+        })
+
+        const receipt = await tx.wait()
+        expect(receipt.status).to.equal(1)
+
+        const balAfter = await ethers.provider.getBalance(depositFeed.address)
+        const eventArgs = await decodeDepositEvent(depositFeed)
+
+        expect(balAfter.sub(balBefore)).to.equal(NON_ZERO_VALUE)
+        expect(eventArgs).to.deep.equal({
+          from: signerAddress,
+          to: await signer.getAddress(),
+          value: NON_ZERO_VALUE,
+          mint: NON_ZERO_VALUE,
+          gasLimit: BigNumber.from(30000),
+          isCreation: false,
+          data: '0x',
+        })
+      })
     })
   })
 })
