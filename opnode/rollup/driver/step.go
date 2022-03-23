@@ -23,14 +23,15 @@ type outputImpl struct {
 	Config rollup.Config
 }
 
-func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.BlockID, l2Safe eth.BlockID, l1Origin eth.BlockID, includeDeposits bool) (eth.BlockID, *derive.BatchData, error) {
-	d.log.Info("creating new block", "l2Parent", l2Parent, "l1Origin", l1Origin, "includeDeposits", includeDeposits)
+func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.L2BlockRef, l2Safe eth.BlockID, l1Origin eth.BlockID) (eth.L2BlockRef, *derive.BatchData, error) {
+	d.log.Info("creating new block", "l2Parent", l2Parent)
 	fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
 	defer cancel()
-	l2Info, err := d.l2.BlockByHash(fetchCtx, l2Parent.Hash)
+	l2Info, err := d.l2.BlockByHash(fetchCtx, l2Parent.Self.Hash)
 	if err != nil {
 		return l2Parent, nil, fmt.Errorf("failed to fetch L2 block info of %s: %v", l2Parent, err)
 	}
+
 	l1Info, err := d.dl.FetchL1Info(fetchCtx, l1Origin)
 	if err != nil {
 		return l2Parent, nil, fmt.Errorf("failed to fetch L1 block info of %s: %v", l1Origin, err)
@@ -42,7 +43,11 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 	}
 
 	var receipts types.Receipts
-	if includeDeposits {
+	l2BLockRef, err := derive.BlockReferences(l2Info, &d.Config.Genesis)
+	if err != nil {
+		return l2Parent, nil, fmt.Errorf("failed to derive L2BlockRef from l2Block: %w", err)
+	}
+	if l2BLockRef.L1Origin.Number != l1Origin.Number {
 		receipts, err = d.dl.FetchReceipts(fetchCtx, l1Origin, l1Info.ReceiptHash())
 		if err != nil {
 			return l2Parent, nil, fmt.Errorf("failed to fetch receipts of %s: %v", l1Origin, err)
@@ -54,7 +59,7 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 	}
 	var txns []l2.Data
 	txns = append(txns, l1InfoTx)
-	deposits, err := derive.DeriveDeposits(l2Parent.Number+1, receipts)
+	deposits, err := derive.DeriveDeposits(l2Parent.Self.Number+1, receipts)
 	d.log.Info("Derived deposits", "deposits", deposits, "l2Parent", l2Parent, "l1Origin", l1Origin)
 	if err != nil {
 		return l2Parent, nil, fmt.Errorf("failed to derive deposits: %v", err)
@@ -71,7 +76,7 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 		NoTxPool:              false,
 	}
 	fc := l2.ForkchoiceState{
-		HeadBlockHash:      l2Parent.Hash,
+		HeadBlockHash:      l2Parent.Self.Hash,
 		SafeBlockHash:      l2Safe.Hash,
 		FinalizedBlockHash: l2Finalized.Hash,
 	}
@@ -84,18 +89,18 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 		BatchV1: derive.BatchV1{
 			Epoch:        rollup.Epoch(l1Info.NumberU64()),
 			Timestamp:    uint64(payload.Timestamp),
-			Transactions: payload.Transactions[depositStart:],
+			Transactions: payload.TransactionsField[depositStart:],
 		},
 	}
-
-	return payload.ID(), batch, nil
+	ref, err := derive.BlockReferences(payload, &d.Config.Genesis)
+	return ref, batch, err
 }
 
 // DriverStep derives and processes one or more L2 blocks from the given sequencing window of L1 blocks.
 // An incomplete sequencing window will result in an incomplete L2 chain if so.
 //
 // After the step completes it returns the block ID of the last processed L2 block, even if an error occurs.
-func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized eth.BlockID, unsafeL2Head eth.BlockID, l1Input []eth.BlockID) (out eth.BlockID, err error) {
+func (d *outputImpl) step(ctx context.Context, l2Head eth.L2BlockRef, l2Finalized eth.BlockID, unsafeL2Head eth.BlockID, l1Input []eth.BlockID) (out eth.L2BlockRef, err error) {
 	// Sanity Checks
 	if len(l1Input) == 0 {
 		return l2Head, fmt.Errorf("empty L1 sequencing window on L2 %s", l2Head)
@@ -111,7 +116,7 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 	epoch := rollup.Epoch(l1Input[0].Number)
 	fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
 	defer cancel()
-	l2Info, err := d.l2.BlockByHash(fetchCtx, l2Head.Hash)
+	l2Info, err := d.l2.BlockByHash(fetchCtx, l2Head.Self.Hash)
 	if err != nil {
 		return l2Head, fmt.Errorf("failed to fetch L2 block info of %s: %w", l2Head, err)
 	}
@@ -127,7 +132,7 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 	if err != nil {
 		return l2Head, fmt.Errorf("failed to fetch receipts of %s: %w", l1Input[0], err)
 	}
-	deposits, err := derive.DeriveDeposits(l2Head.Number+1, receipts)
+	deposits, err := derive.DeriveDeposits(l2Head.Self.Number+1, receipts)
 	if err != nil {
 		return l2Head, fmt.Errorf("failed to derive deposits: %w", err)
 	}
@@ -148,11 +153,11 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 
 	// Note: SafeBlockHash currently needs to be set b/c of Geth
 	fc := l2.ForkchoiceState{
-		HeadBlockHash:      l2Head.Hash,
-		SafeBlockHash:      l2Head.Hash,
+		HeadBlockHash:      l2Head.Self.Hash,
+		SafeBlockHash:      l2Head.Self.Hash,
 		FinalizedBlockHash: l2Finalized.Hash,
 	}
-	updateUnsafeHead := unsafeL2Head.Hash == l2Head.Hash // If unsafe head is the same as the safe head, keep it up to date
+	updateUnsafeHead := unsafeL2Head.Hash == l2Head.Self.Hash // If unsafe head is the same as the safe head, keep it up to date
 	// Execute each L2 block in the epoch
 	last := l2Head
 	for i, batch := range batches {
@@ -174,10 +179,14 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.BlockID, l2Finalized e
 		if err != nil {
 			return last, fmt.Errorf("failed to extend L2 chain at block %d/%d of epoch %d: %w", i, len(batches), epoch, err)
 		}
-		last = payload.ID()
+		newLast, err := derive.BlockReferences(payload, &d.Config.Genesis)
+		if err != nil {
+			return last, fmt.Errorf("failed to derive block references: %w", err)
+		}
+		last = newLast
 		// TODO(Joshua): Update this to handle verifiers + sequencers
-		fc.HeadBlockHash = last.Hash
-		fc.SafeBlockHash = last.Hash
+		fc.HeadBlockHash = last.Self.Hash
+		fc.SafeBlockHash = last.Self.Hash
 	}
 
 	return last, nil
