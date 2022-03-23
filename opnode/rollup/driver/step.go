@@ -27,7 +27,7 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 	d.log.Info("creating new block", "l2Parent", l2Parent)
 	fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
 	defer cancel()
-	l2Info, err := d.l2.BlockByHash(fetchCtx, l2Parent.Self.Hash)
+	l2Info, err := d.l2.BlockByHash(fetchCtx, l2Parent.Hash)
 	if err != nil {
 		return l2Parent, nil, fmt.Errorf("failed to fetch L2 block info of %s: %v", l2Parent, err)
 	}
@@ -60,7 +60,7 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 	}
 	var txns []l2.Data
 	txns = append(txns, l1InfoTx)
-	deposits, err := derive.DeriveDeposits(l2Parent.Self.Number+1, receipts)
+	deposits, err := derive.DeriveDeposits(l2Parent.Number+1, receipts)
 	d.log.Info("Derived deposits", "deposits", deposits, "l2Parent", l2Parent, "l1Origin", l1Origin)
 	if err != nil {
 		return l2Parent, nil, fmt.Errorf("failed to derive deposits: %v", err)
@@ -77,7 +77,7 @@ func (d *outputImpl) newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Pa
 		NoTxPool:              false,
 	}
 	fc := l2.ForkchoiceState{
-		HeadBlockHash:      l2Parent.Self.Hash,
+		HeadBlockHash:      l2Parent.Hash,
 		SafeBlockHash:      l2Safe.Hash,
 		FinalizedBlockHash: l2Finalized.Hash,
 	}
@@ -117,7 +117,7 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.L2BlockRef, l2Finalize
 	epoch := rollup.Epoch(l1Input[0].Number)
 	fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
 	defer cancel()
-	l2Info, err := d.l2.BlockByHash(fetchCtx, l2Head.Self.Hash)
+	l2Info, err := d.l2.BlockByHash(fetchCtx, l2Head.Hash)
 	if err != nil {
 		return l2Head, fmt.Errorf("failed to fetch L2 block info of %s: %w", l2Head, err)
 	}
@@ -133,7 +133,7 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.L2BlockRef, l2Finalize
 	if err != nil {
 		return l2Head, fmt.Errorf("failed to fetch receipts of %s: %w", l1Input[0], err)
 	}
-	deposits, err := derive.DeriveDeposits(l2Head.Self.Number+1, receipts)
+	deposits, err := derive.DeriveDeposits(l2Head.Number+1, receipts)
 	if err != nil {
 		return l2Head, fmt.Errorf("failed to derive deposits: %w", err)
 	}
@@ -154,11 +154,11 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.L2BlockRef, l2Finalize
 
 	// Note: SafeBlockHash currently needs to be set b/c of Geth
 	fc := l2.ForkchoiceState{
-		HeadBlockHash:      l2Head.Self.Hash,
-		SafeBlockHash:      l2Head.Self.Hash,
+		HeadBlockHash:      l2Head.Hash,
+		SafeBlockHash:      l2Head.Hash,
 		FinalizedBlockHash: l2Finalized.Hash,
 	}
-	updateUnsafeHead := unsafeL2Head.Hash == l2Head.Self.Hash // If unsafe head is the same as the safe head, keep it up to date
+	updateUnsafeHead := unsafeL2Head.Hash == l2Head.Hash // If unsafe head is the same as the safe head, keep it up to date
 	// Execute each L2 block in the epoch
 	last := l2Head
 	for i, batch := range batches {
@@ -186,8 +186,8 @@ func (d *outputImpl) step(ctx context.Context, l2Head eth.L2BlockRef, l2Finalize
 		}
 		last = newLast
 		// TODO(Joshua): Update this to handle verifiers + sequencers
-		fc.HeadBlockHash = last.Self.Hash
-		fc.SafeBlockHash = last.Self.Hash
+		fc.HeadBlockHash = last.Hash
+		fc.SafeBlockHash = last.Hash
 	}
 
 	return last, nil

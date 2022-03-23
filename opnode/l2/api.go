@@ -127,6 +127,10 @@ func (payload *ExecutionPayload) NumberU64() uint64 {
 	return uint64(payload.BlockNumber)
 }
 
+func (payload *ExecutionPayload) Time() uint64 {
+	return uint64(payload.Timestamp)
+}
+
 func (payload *ExecutionPayload) ParentHash() common.Hash {
 	return payload.ParentHashField
 }

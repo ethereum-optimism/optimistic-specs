@@ -105,7 +105,7 @@ func (s *state) sequencingWindow() ([]eth.BlockID, bool) {
 }
 
 func (s *state) findNextL1Origin(ctx context.Context) (eth.BlockID, error) {
-	return s.l1Head.Self, nil // Temporary until timestamps are working correctly
+	return s.l1Head.ID(), nil // Temporary until timestamps are working correctly
 	// [prev L2 + blocktime, L1 Bock)
 	// currentL1Origin := s.l2Head.L1Origin
 	// s.log.Info("Find next l1Origin", "l2Head", s.l2Head, "l1Origin", currentL1Origin)
@@ -159,7 +159,7 @@ func (s *state) loop() {
 				continue
 			}
 			// 2. Ask output to create new block
-			newUnsafeL2Head, batch, err := s.output.newBlock(context.Background(), s.l2Finalized, s.l2Head, s.l2SafeHead.Self, nextOrigin)
+			newUnsafeL2Head, batch, err := s.output.newBlock(context.Background(), s.l2Finalized, s.l2Head, s.l2SafeHead.ID(), nextOrigin)
 			if err != nil {
 				s.log.Error("Could not extend chain as sequencer", "err", err, "l2UnsafeHead", s.l2Head, "l1Origin", nextOrigin)
 				continue
@@ -176,29 +176,29 @@ func (s *state) loop() {
 			}()
 
 		case newL1Head := <-s.l1Heads:
-			s.log.Trace("Received new L1 Head", "new_head", newL1Head.Self, "old_head", s.l1Head)
+			s.log.Trace("Received new L1 Head", "new_head", newL1Head, "old_head", s.l1Head)
 			// Check if we have a stutter step. May be due to a L1 Poll operation.
-			if s.l1Head.Self.Hash == newL1Head.Self.Hash {
-				log.Trace("Received L1 head signal that is the same as the current head", "l1_head", newL1Head.Self)
+			if s.l1Head.Hash == newL1Head.Hash {
+				log.Trace("Received L1 head signal that is the same as the current head", "l1_head", newL1Head)
 				continue
 			}
 
 			// Typically get linear extension, but if not, handle a re-org
-			if s.l1Head.Self.Hash == newL1Head.Parent.Hash {
+			if s.l1Head.Hash == newL1Head.ParentHash {
 				s.log.Trace("Linear extension")
 				s.l1Head = newL1Head
-				if s.l1WindowEnd() == newL1Head.Parent {
-					s.l1Window = append(s.l1Window, newL1Head.Self)
+				if s.l1WindowEnd().Hash == newL1Head.ParentHash {
+					s.l1Window = append(s.l1Window, newL1Head.ID())
 				}
 			} else {
-				s.log.Warn("L1 Head signal indicates an L1 re-org", "old_l1_head", s.l1Head, "new_l1_head_parent", newL1Head.Parent, "new_l1_head", newL1Head.Self)
+				s.log.Warn("L1 Head signal indicates an L1 re-org", "old_l1_head", s.l1Head, "new_l1_head_parent", newL1Head.ParentHash, "new_l1_head", newL1Head)
 				// TODO(Joshua): Fix having to make this call when being careful about the exact state
 				l2Head, err := s.l2.L2BlockRefByNumber(context.Background(), nil)
 				if err != nil {
 					s.log.Error("Could not get fetch L2 head when trying to handle a re-org", "err", err)
 					continue
 				}
-				nextL2Head, err := sync.FindSafeL2Head(ctx, l2Head.Self, s.l1, s.l2, &s.Config.Genesis)
+				nextL2Head, err := sync.FindSafeL2Head(ctx, l2Head.ID(), s.l1, s.l2, &s.Config.Genesis)
 				if err != nil {
 					s.log.Error("Could not get new safe L2 head when trying to handle a re-org", "err", err)
 					continue
@@ -210,7 +210,7 @@ func (s *state) loop() {
 			}
 
 			// Run step if we are able to
-			if s.l1Head.Self.Number-s.l2Head.L1Origin.Number >= s.Config.SeqWindowSize {
+			if s.l1Head.Number-s.l2Head.L1Origin.Number >= s.Config.SeqWindowSize {
 				requestStep()
 			}
 		case <-stepRequest:
@@ -232,7 +232,7 @@ func (s *state) loop() {
 			if window, ok := s.sequencingWindow(); ok {
 				s.log.Trace("Have enough cached blocks to run step.")
 				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				newL2Head, err := s.output.step(ctx, s.l2SafeHead, s.l2Finalized, s.l2Head.Self, window)
+				newL2Head, err := s.output.step(ctx, s.l2SafeHead, s.l2Finalized, s.l2Head.ID(), window)
 				cancel()
 				if err != nil {
 					s.log.Error("Error in running the output step.", "err", err, "l2SafeHead", s.l2SafeHead, "l2Finalized", s.l2Finalized, "window", window)
@@ -249,7 +249,7 @@ func (s *state) loop() {
 			}
 
 			// Immediately run next step if we have enough blocks.
-			if s.l1Head.Self.Number-s.l2Head.L1Origin.Number >= s.Config.SeqWindowSize {
+			if s.l1Head.Number-s.l2Head.L1Origin.Number >= s.Config.SeqWindowSize {
 				requestStep()
 			}
 

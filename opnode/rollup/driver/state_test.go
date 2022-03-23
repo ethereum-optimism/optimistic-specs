@@ -135,7 +135,7 @@ func (tc *stateTestCase) Run(t *testing.T) {
 	outputIn := make(chan outputArgs)
 	outputReturn := make(chan outputReturnArgs)
 	outputHandler := func(ctx context.Context, l2Head eth.L2BlockRef, l2Finalized eth.BlockID, unsafeL2Head eth.BlockID, l1Input []eth.BlockID) (eth.L2BlockRef, error) {
-		outputIn <- outputArgs{l2Head: l2Head.Self, l2Finalized: l2Finalized, l1Window: l1Input}
+		outputIn <- outputArgs{l2Head: l2Head.ID(), l2Finalized: l2Finalized, l1Window: l1Input}
 		r := <-outputReturn
 		return r.l2Head, r.err
 	}
@@ -157,8 +157,8 @@ func (tc *stateTestCase) Run(t *testing.T) {
 		step.l2act(t, step.window, state, chainSource, outputIn, outputReturn)
 		<-time.After(5 * time.Millisecond)
 
-		assert.Equal(t, step.l1head.ID(), state.l1Head.Self, "l1 head")
-		assert.Equal(t, step.l2head.ID(), state.l2SafeHead.Self, "l2 head")
+		assert.Equal(t, step.l1head.ID(), state.l1Head.ID(), "l1 head")
+		assert.Equal(t, step.l2head.ID(), state.l2SafeHead.ID(), "l2 head")
 	}
 }
 
