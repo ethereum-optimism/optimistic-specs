@@ -29,7 +29,7 @@ func WatchHeadChanges(ctx context.Context, src NewHeadSource, fn HeadSignalFn) (
 			case header := <-headChanges:
 				hash := header.Hash()
 				height := header.Number.Uint64()
-				self := BlockID{Hash: hash, Number: height}
+				self := BlockID{Hash: hash, Number: height, Time: header.Time}
 				parent := BlockID{}
 				if height > 0 {
 					parent = BlockID{Hash: header.ParentHash, Number: height - 1}

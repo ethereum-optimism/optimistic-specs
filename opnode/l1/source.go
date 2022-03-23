@@ -114,7 +114,7 @@ func (s Source) l1BlockRefByNumber(ctx context.Context, number *big.Int) (eth.L1
 		parentNum -= 1
 	}
 	return eth.L1BlockRef{
-		Self:   eth.BlockID{Hash: header.Hash(), Number: l1Num},
+		Self:   eth.BlockID{Hash: header.Hash(), Number: l1Num, Time: header.Time},
 		Parent: eth.BlockID{Hash: header.ParentHash, Number: parentNum},
 	}, nil
 }

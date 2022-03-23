@@ -108,7 +108,7 @@ type ExecutionPayload struct {
 }
 
 func (payload *ExecutionPayload) ID() eth.BlockID {
-	return eth.BlockID{Hash: payload.BlockHash, Number: uint64(payload.BlockNumber)}
+	return eth.BlockID{Hash: payload.BlockHash, Number: uint64(payload.BlockNumber), Time: uint64(payload.Timestamp)}
 }
 
 // Implement block interface to enable derive.BlockReferences over a payload
@@ -125,6 +125,10 @@ func (payload *ExecutionPayload) Hash() common.Hash {
 
 func (payload *ExecutionPayload) NumberU64() uint64 {
 	return uint64(payload.BlockNumber)
+}
+
+func (payload *ExecutionPayload) Time() uint64 {
+	return uint64(payload.Timestamp)
 }
 
 func (payload *ExecutionPayload) ParentHash() common.Hash {

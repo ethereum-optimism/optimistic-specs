@@ -9,6 +9,7 @@ import (
 type BlockID struct {
 	Hash   common.Hash `json:"hash"`
 	Number uint64      `json:"number"`
+	Time   uint64      `json:"timestamp"`
 }
 
 func (id BlockID) String() string {
