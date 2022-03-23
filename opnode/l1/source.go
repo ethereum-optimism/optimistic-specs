@@ -125,7 +125,7 @@ func (s Source) L1Range(ctx context.Context, begin eth.BlockID) ([]eth.BlockID, 
 	if canonicalBegin, err := s.L1BlockRefByNumber(ctx, begin.Number); err != nil {
 		return nil, fmt.Errorf("failed to fetch L1 block %v %v: %w", begin.Number, begin.Hash, err)
 	} else {
-		if canonicalBegin.Self != begin {
+		if canonicalBegin.Self.Hash != begin.Hash {
 			return nil, fmt.Errorf("Re-org at begin block. Expected: %v. Actual: %v", begin, canonicalBegin.Self)
 		}
 	}
