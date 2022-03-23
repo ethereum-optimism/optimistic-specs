@@ -151,7 +151,7 @@ func initializeGenesis(cfg *systemConfig) {
 		Difficulty: common.Big1,
 		GasLimit:   5000000,
 		Nonce:      4660,
-		Timestamp:  genesisTimestamp,
+		Timestamp:  genesisTimestamp - 2,
 		BaseFee:    big.NewInt(7),
 	}
 

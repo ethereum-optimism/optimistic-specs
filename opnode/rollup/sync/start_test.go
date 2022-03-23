@@ -47,16 +47,6 @@ func fakeL2Block(self rune, parent rune, l1parent eth.BlockID, num uint64) eth.L
 	return eth.L2BlockRef{Self: fakeID(self, num), Parent: parentID, L1Origin: l1parent}
 }
 
-type chainConfig struct {
-	L1           string
-	ReorgBase    rune
-	L2           string
-	GenesisL1    rune
-	GenesisL1Num uint64
-	GenesisL2    rune
-	GenesisL2Num uint64
-}
-
 func (c *syncStartTestCase) generateFakeL2() (*fakeChainSource, eth.L2BlockRef, eth.L1BlockRef, rollup.Genesis) {
 	var l1 []eth.L1BlockRef
 	var base eth.L1BlockRef

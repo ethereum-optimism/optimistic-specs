@@ -110,16 +110,19 @@ func (s *state) sequencingWindow() ([]eth.BlockID, bool) {
 }
 
 func (s *state) findNextL1Origin(ctx context.Context) (eth.BlockID, error) {
-	return s.l1Head.Self, nil // Temporary until timestamps are working correctly
 	// [prev L2 + blocktime, L1 Bock)
-	// currentL1Origin := s.l2Head.L1Origin
-	// s.log.Info("Find next l1Origin", "l2Head", s.l2Head, "l1Origin", currentL1Origin)
-	// if s.l2Head.Time+int64(s.Config.BlockTime) >= currentL1Origin.Time {
-	// 	ref, err := s.l1.L1BlockRefByNumber(ctx, currentL1Origin.Number+1)
-	// 	s.log.Info("Lookuing up new L1 Origin", "nextL1Origin", ref)
-	// 	return ref.Self, err
-	// }
-	// return currentL1Origin, nil
+	currentL1Origin := s.l2Head.L1Origin
+	if currentL1Origin.Hash == s.l1Head.Self.Hash {
+		return currentL1Origin, nil
+	}
+	s.log.Info("Find next l1Origin", "l2Head", s.l2Head, "l1Origin", currentL1Origin)
+	if s.l2Head.Self.Time+s.Config.BlockTime >= currentL1Origin.Time {
+		// TODO: Need to walk more?
+		ref, err := s.l1.L1BlockRefByNumber(ctx, currentL1Origin.Number+1)
+		s.log.Info("Looking up new L1 Origin", "nextL1Origin", ref)
+		return ref.Self, err
+	}
+	return currentL1Origin, nil
 }
 
 func findL1ReorgBase(ctx context.Context, newL1Head eth.L1BlockRef, l1 L1Chain) (eth.L1BlockRef, error) {
@@ -148,11 +151,15 @@ func (s *state) loop() {
 		l2BlockCreation = l2BlockCreationTicker.C
 	}
 
-	// l1Poll := time.NewTicker(1 * time.Second)
-	// l2Poll := time.NewTicker(1 * time.Second)
 	stepRequest := make(chan struct{}, 1)
-	// defer l1Poll.Stop()
-	// defer l2Poll.Stop()
+	l2BlockCreationReq := make(chan struct{}, 1)
+
+	createBlock := func() {
+		select {
+		case l2BlockCreationReq <- struct{}{}:
+		default:
+		}
+	}
 
 	requestStep := func() {
 		select {
@@ -165,14 +172,19 @@ func (s *state) loop() {
 
 	for {
 		select {
-		// TODO: Poll cases (and move to bottom)
-		// case <-l1Poll.C:
-		// case <-l2Poll.C:
 		case <-s.done:
 			return
 		case <-l2BlockCreation:
+			s.log.Trace("L2 Creation Ticker")
+			createBlock()
+		case <-l2BlockCreationReq:
 			nextOrigin, err := s.findNextL1Origin(context.Background())
 			if err != nil {
+				s.log.Error("Error finding next L1 Origin")
+				continue
+			}
+			if nextOrigin.Time <= s.Config.BlockTime+s.l2Head.Self.Time {
+				s.log.Trace("Skipping block production", "l2Head", s.l2Head)
 				continue
 			}
 			// Don't produce blocks until past the L1 genesis
@@ -185,7 +197,7 @@ func (s *state) loop() {
 				s.log.Error("Could not extend chain as sequencer", "err", err, "l2UnsafeHead", s.l2Head, "l1Origin", nextOrigin)
 				continue
 			}
-			// 3. Update unsafe l2 head + epoch
+			// 3. Update unsafe l2 head
 			s.l2Head = newUnsafeL2Head
 			s.log.Trace("Created new l2 block", "l2UnsafeHead", s.l2Head)
 			// 4. Ask for batch submission
@@ -195,44 +207,44 @@ func (s *state) loop() {
 					s.log.Error("Error submitting batch", "err", err)
 				}
 			}()
+			if nextOrigin.Time > s.l2Head.Self.Time+s.Config.BlockTime {
+				s.log.Trace("Asking for a second L2 block asap", "l2Head", s.l2Head)
+				createBlock()
+			}
 
 		case newL1Head := <-s.l1Heads:
 			s.log.Trace("Received new L1 Head", "new_head", newL1Head.Self, "old_head", s.l1Head)
-			// Check if we have a stutter step. May be due to a L1 Poll operation.
 			if s.l1Head.Self.Hash == newL1Head.Self.Hash {
 				log.Trace("Received L1 head signal that is the same as the current head", "l1_head", newL1Head.Self)
-				continue
-			}
-
-			// Typically get linear extension, but if not, handle a re-org
-			if s.l1Head.Self.Hash == newL1Head.Parent.Hash {
+			} else if s.l1Head.Self.Hash == newL1Head.Parent.Hash {
 				s.log.Trace("Linear extension")
 				s.l1Head = newL1Head
 				if s.l1WindowEnd() == newL1Head.Parent {
 					s.l1Window = append(s.l1Window, newL1Head.Self)
 				}
 			} else {
+				// Not strictly always a reorg, but that is the most likely case
 				s.log.Warn("L1 Head signal indicates an L1 re-org", "old_l1_head", s.l1Head, "new_l1_head_parent", newL1Head.Parent, "new_l1_head", newL1Head.Self)
-				// TODO(Joshua): Fix having to make this call when being careful about the exact state
-				l2Head, err := s.l2.L2BlockRefByNumber(context.Background(), nil)
-				if err != nil {
-					s.log.Error("Could not get fetch L2 head when trying to handle a re-org", "err", err)
-					continue
-				}
 				base, err := findL1ReorgBase(ctx, newL1Head, s.l1)
 				if err != nil {
 					s.log.Error("Could not get fetch L1 reorg base when trying to handle a re-org", "err", err)
 					continue
 				}
-				nextL2Head, err := sync.FindUnsafeL2Head(ctx, l2Head, base.Self, s.l2, &s.Config.Genesis)
+				unsafeL2Head, err := sync.FindUnsafeL2Head(ctx, s.l2Head, base.Self, s.l2, &s.Config.Genesis)
+				if err != nil {
+					s.log.Error("Could not get new unsafe L2 head when trying to handle a re-org", "err", err)
+					continue
+				}
+				safeL2Head, err := sync.FindSafeL2Head(ctx, s.l2Head, base.Self, int(s.Config.SeqWindowSize), s.l2, &s.Config.Genesis)
 				if err != nil {
 					s.log.Error("Could not get new safe L2 head when trying to handle a re-org", "err", err)
 					continue
 				}
+				// TODO: Fork choice update
 				s.l1Head = newL1Head
 				s.l1Window = nil
-				s.l2Head = nextL2Head
-				s.l2SafeHead = nextL2Head // TODO: Handle this more carefully
+				s.l2Head = unsafeL2Head // Note that verify only nodes can get an unsafe head because of a reorg. May want to remove that.
+				s.l2SafeHead = safeL2Head
 			}
 
 			// Run step if we are able to
