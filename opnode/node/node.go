@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/backoff"
@@ -14,6 +15,7 @@ import (
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup/driver"
 
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
@@ -21,10 +23,13 @@ import (
 )
 
 type OpNode struct {
-	log       log.Logger
-	l1Source  l1.Source        // Source to fetch data from (also implements the Downloader interface)
-	l2Engines []*driver.Driver // engines to keep synced
-	done      chan struct{}
+	log                    log.Logger
+	l1Source               l1.Source        // Source to fetch data from (also implements the Downloader interface)
+	l2Engines              []*driver.Driver // engines to keep synced
+	l2RPCClient            *rpc.Client
+	withdrawalContractAddr common.Address
+	rpcServer              *http.Server
+	done                   chan struct{}
 }
 
 func dialRPCClientWithBackoff(ctx context.Context, log log.Logger, addr string) (*rpc.Client, error) {
@@ -88,11 +93,26 @@ func New(ctx context.Context, cfg *Config, log log.Logger) (*OpNode, error) {
 		l2Engines = append(l2Engines, engine)
 	}
 
+	l2Node, err := dialRPCClientWithBackoff(ctx, log, cfg.L2NodeAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial l2 addres (%s): %w", cfg.L2NodeAddr, err)
+	}
+
 	n := &OpNode{
-		log:       log,
-		l1Source:  l1Source,
-		l2Engines: l2Engines,
-		done:      make(chan struct{}),
+		log:                    log,
+		l1Source:               l1Source,
+		l2Engines:              l2Engines,
+		l2RPCClient:            l2Node,
+		withdrawalContractAddr: cfg.WithdrawalContractAddr,
+		done:                   make(chan struct{}),
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", n.rootHandler)
+	addr := fmt.Sprintf("%s:%s", cfg.RPCListenAddr, cfg.RPCListenPort)
+	n.rpcServer = &http.Server{
+		Handler: mux,
+		Addr:    addr,
 	}
 
 	return n, nil
@@ -151,8 +171,10 @@ func (c *OpNode) Start(ctx context.Context) error {
 	l1HeadsFeed.Subscribe(l1Heads)
 
 	c.log.Info("Start-up complete!")
-	go func() {
 
+	c.startRPC()
+
+	go func() {
 		for {
 			select {
 			case l1Head := <-l1Heads:
@@ -175,10 +197,4 @@ func (c *OpNode) Start(ctx context.Context) error {
 		}
 	}()
 	return nil
-}
-
-func (c *OpNode) Stop() {
-	if c.done != nil {
-		close(c.done)
-	}
 }

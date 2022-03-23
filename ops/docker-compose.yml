@@ -34,6 +34,8 @@ services:
     build:
       context: ../
       dockerfile: ./ops/Dockerfile.opnode
+    ports:
+        - "7545:8545"
     volumes:
       - ${PWD}/bss-key.txt:/config/bss-key.txt
       - ${PWD}/rollup.json:/config/rollup.json
@@ -48,3 +50,11 @@ services:
       - "/config/rollup.json"
       - "--batchsubmitter.key"
       - "/config/bss-key.txt"
+      - "--eth.l2"
+      - "http://l2:8545"
+      - "--rpc.addr"
+      - "0.0.0.0"
+      - "--rpc.port"
+      - "8545"
+      - "--rpc.withdrawalcontractaddress"
+      - $WITHDRAWAL_CONTRACT_ADDRESS
