@@ -92,12 +92,29 @@ func (s Source) FetchTransactions(ctx context.Context, window []eth.BlockID) ([]
 	}
 	return txns, nil
 }
+
 func (s Source) L1HeadBlockRef(ctx context.Context) (eth.L1BlockRef, error) {
 	return s.l1BlockRefByNumber(ctx, nil)
 }
 
 func (s Source) L1BlockRefByNumber(ctx context.Context, l1Num uint64) (eth.L1BlockRef, error) {
 	return s.l1BlockRefByNumber(ctx, new(big.Int).SetUint64(l1Num))
+}
+
+func (s Source) L1BlockRefByHash(ctx context.Context, hash common.Hash) (eth.L1BlockRef, error) {
+	header, err := s.client.HeaderByHash(ctx, hash)
+	if err != nil {
+		return eth.L1BlockRef{}, err
+	}
+	l1Num := header.Number.Uint64()
+	parentNum := l1Num
+	if parentNum > 0 {
+		parentNum -= 1
+	}
+	return eth.L1BlockRef{
+		Self:   eth.BlockID{Hash: header.Hash(), Number: l1Num, Time: header.Time},
+		Parent: eth.BlockID{Hash: header.ParentHash, Number: parentNum},
+	}, nil
 }
 
 // l1BlockRefByNumber wraps l1.HeaderByNumber to return an eth.L1BlockRef
