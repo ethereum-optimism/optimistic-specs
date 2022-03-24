@@ -11,6 +11,14 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 )
 
+type ReorgType int
+
+const (
+	NoReorg ReorgType = iota
+	ShallowReorg
+	DeepReorg
+)
+
 type state struct {
 	// Chain State
 	l1Head      eth.L1BlockRef // Latest recorded head of the L1 Chain
@@ -141,6 +149,42 @@ func findL1ReorgBase(ctx context.Context, newL1Head eth.L1BlockRef, l1 L1Chain) 
 	}
 }
 
+// handleEpoch inserts an L2 epoch into the chain. It is assumed to be the tip of the safe chain,
+// however there may be an unsafe portion of the chain. If there is an unsafe portion of the chain,
+// this function checks blocks for validity and may perform a shllow reorg.
+func (s *state) handleEpoch(ctx context.Context) (eth.L2BlockRef, eth.L2BlockRef, ReorgType, error) {
+	log := s.log.New("l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead, "l1Base", s.l2SafeHead.L1Origin)
+	log.Trace("Handling epoch")
+	// Extend cached window if we do not have enough saved blocks
+	if len(s.l1Window) < int(s.Config.SeqWindowSize) {
+		err := s.extendL1Window(context.Background())
+		if err != nil {
+			s.log.Error("Could not extend the cached L1 window", "err", err, "window_end", s.l1WindowEnd())
+			return s.l2Head, s.l2SafeHead, NoReorg, err
+		}
+	}
+
+	// Get next window (& ensure that it exists)
+	window, ok := s.sequencingWindow()
+	if !ok {
+		s.log.Trace("Not enough cached blocks to run step", "cached_window_len", len(s.l1Window))
+		return s.l2Head, s.l2SafeHead, NoReorg, nil
+	}
+	// TODO: switch between modes here.
+	newL2Head, err := s.output.step(ctx, s.l2SafeHead, s.l2Finalized, s.l2Head.Self, window)
+	if err != nil {
+		s.log.Error("Error in running the output step.", "err", err)
+		return s.l2Head, s.l2SafeHead, NoReorg, err
+	}
+	s.l1Window = s.l1Window[1:] // TODO: Where to place this
+	// Bump head if safehead and head are already the same. Note: not strictly true and should handle better.
+	// head := s.l2Head
+	// if head.Self.Hash == s.l2SafeHead.Self.Hash {
+	// 	head = newL2Head
+	// }
+	return newL2Head, newL2Head, NoReorg, nil
+}
+
 func (s *state) loop() {
 	s.log.Info("State loop started")
 	ctx := context.Background()
@@ -257,34 +301,13 @@ func (s *state) loop() {
 				continue
 			}
 			s.log.Trace("Got step request")
-			// Extend cached window if we do not have enough saved blocks
-			if len(s.l1Window) < int(s.Config.SeqWindowSize) {
-				err := s.extendL1Window(context.Background())
-				if err != nil {
-					s.log.Error("Could not extend the cached L1 window", "err", err, "l1Head", s.l1Head, "window_end", s.l1WindowEnd())
-					continue
-				}
+			// Handle epoch always returns valid values for head/safehead
+			newHead, newSafeHead, _, err := s.handleEpoch(context.Background())
+			if err != nil {
+				s.log.Error("Error handling epoch", "err", err)
 			}
-
-			// Get next window (& ensure that it exists)
-			if window, ok := s.sequencingWindow(); ok {
-				s.log.Trace("Have enough cached blocks to run step.")
-				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				newL2Head, err := s.output.step(ctx, s.l2SafeHead, s.l2Finalized, s.l2Head.Self, window)
-				cancel()
-				if err != nil {
-					s.log.Error("Error in running the output step.", "err", err, "l2SafeHead", s.l2SafeHead, "l2Finalized", s.l2Finalized, "window", window)
-					continue
-				}
-				if s.l2Head == s.l2SafeHead {
-					s.l2Head = newL2Head
-				}
-				s.l2SafeHead = newL2Head
-				s.l1Window = s.l1Window[1:]
-				// TODO: l2Finalized
-			} else {
-				s.log.Trace("Not enough cached blocks to run step", "cached_window_len", len(s.l1Window))
-			}
+			s.l2Head = newHead
+			s.l2SafeHead = newSafeHead
 
 			// Immediately run next step if we have enough blocks.
 			if s.l1Head.Self.Number-s.l2Head.L1Origin.Number >= s.Config.SeqWindowSize {
