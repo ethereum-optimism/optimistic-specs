@@ -30,13 +30,13 @@ type Config struct {
 
 type Driver struct {
 	cfg             Config
-	l2ooContract    *l2oo.MockL2OutputOracle
+	l2ooContract    *l2oo.L2OutputOracle
 	rawL2ooContract *bind.BoundContract
 	walletAddr      common.Address
 }
 
 func NewDriver(cfg Config) (*Driver, error) {
-	l2ooContract, err := l2oo.NewMockL2OutputOracle(
+	l2ooContract, err := l2oo.NewL2OutputOracle(
 		cfg.L2OOAddr, cfg.L1Client,
 	)
 	if err != nil {
@@ -44,7 +44,7 @@ func NewDriver(cfg Config) (*Driver, error) {
 	}
 
 	parsed, err := abi.JSON(strings.NewReader(
-		l2oo.MockL2OutputOracleMetaData.ABI,
+		l2oo.L2OutputOracleMetaData.ABI,
 	))
 	if err != nil {
 		return nil, err
@@ -206,7 +206,7 @@ func (d *Driver) CraftTx(
 	opts.NoSend = true
 
 	return d.l2ooContract.AppendL2Output(
-		opts, checkpointBlock.Root, timestamp,
+		opts, checkpointBlock.Root, timestamp, [32]byte{}, big.NewInt(0),
 	)
 }
 

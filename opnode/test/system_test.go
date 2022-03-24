@@ -232,10 +232,10 @@ func TestSystemE2E(t *testing.T) {
 	require.Nil(t, err)
 	opts.Nonce = big.NewInt(int64(nonce))
 
-	submissionFrequency := big.NewInt(10) // 10 seconds
+	submissionInterval := big.NewInt(10) // 10 seconds
 	l2BlockTime := big.NewInt(2)          // 2 seconds
-	l2ooAddr, tx, l2OutputOracle, err := l2oo.DeployMockL2OutputOracle(
-		opts, l1Client, submissionFrequency, l2BlockTime, [32]byte{}, big.NewInt(0),
+	l2ooAddr, tx, l2OutputOracle, err := l2oo.DeployL2OutputOracle(
+		opts, l1Client, submissionInterval, l2BlockTime, [32]byte{}, big.NewInt(0), l2OutputSubmitter.address, // this is wrong, I know.
 	)
 	require.Nil(t, err)
 
