@@ -122,6 +122,22 @@ func (s *state) findNextL1Origin(ctx context.Context) (eth.BlockID, error) {
 	// return currentL1Origin, nil
 }
 
+func findL1ReorgBase(ctx context.Context, newL1Head eth.L1BlockRef, l1 L1Chain) (eth.L1BlockRef, error) {
+	for n := newL1Head; ; {
+		canonical, err := l1.L1BlockRefByNumber(ctx, n.Self.Number)
+		if err != nil {
+			return eth.L1BlockRef{}, nil
+		}
+		if canonical.Self.Hash == n.Self.Hash {
+			return n, nil
+		}
+		n, err = l1.L1BlockRefByHash(ctx, n.Parent.Hash)
+		if err != nil {
+			return eth.L1BlockRef{}, nil
+		}
+	}
+}
+
 func (s *state) loop() {
 	s.log.Info("State loop started")
 	ctx := context.Background()
@@ -203,7 +219,12 @@ func (s *state) loop() {
 					s.log.Error("Could not get fetch L2 head when trying to handle a re-org", "err", err)
 					continue
 				}
-				nextL2Head, err := sync.FindSafeL2Head(ctx, l2Head.Self, s.l1, s.l2, &s.Config.Genesis)
+				base, err := findL1ReorgBase(ctx, newL1Head, s.l1)
+				if err != nil {
+					s.log.Error("Could not get fetch L1 reorg base when trying to handle a re-org", "err", err)
+					continue
+				}
+				nextL2Head, err := sync.FindUnsafeL2Head(ctx, l2Head, base.Self, s.l2, &s.Config.Genesis)
 				if err != nil {
 					s.log.Error("Could not get new safe L2 head when trying to handle a re-org", "err", err)
 					continue
