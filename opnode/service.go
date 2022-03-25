@@ -39,7 +39,7 @@ func NewConfig(ctx *cli.Context) (*node.Config, error) {
 		}
 	}
 
-	withdrawalContractAddress := common.BytesToAddress([]byte(ctx.GlobalString(flags.WithdrawalContractAddr.Name)))
+	withdrawalContractAddress := common.HexToAddress(ctx.GlobalString(flags.WithdrawalContractAddr.Name))
 
 	cfg := &node.Config{
 		L1NodeAddr:             ctx.GlobalString(flags.L1NodeAddr.Name),

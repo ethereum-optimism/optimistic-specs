@@ -167,11 +167,3 @@ type ForkchoiceUpdatedResult struct {
 	// the payload id if requested
 	PayloadID *PayloadID `json:"payloadId"`
 }
-
-type L2Output struct {
-	StateRoot              Bytes32          `json:"stateRoot"`
-	WithdrawalStorageRoot  Bytes32          `json:"withdrawalStorageRoot"`
-	LatestBlock            ExecutionPayload `json:"latestBlock"`
-	HistoryAccumulatorRoot Bytes32          `json:"historyAccumulatorRoot"`
-	Extension              Bytes32          `json:"extension"`
-}
