@@ -48,7 +48,7 @@ func dialRPCClientWithBackoff(ctx context.Context, log log.Logger, addr string) 
 	return ret, nil
 }
 
-func New(ctx context.Context, cfg *Config, log log.Logger) (*OpNode, error) {
+func New(ctx context.Context, cfg *Config, log log.Logger, appVersion string) (*OpNode, error) {
 	if err := cfg.Check(); err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func New(ctx context.Context, cfg *Config, log log.Logger) (*OpNode, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial l2 addres (%s): %w", cfg.L2NodeAddr, err)
 	}
-	server := newRPCServer(ctx, cfg.RPCListenAddr, cfg.RPCListenPort, l2Node, cfg.WithdrawalContractAddr, log)
+	server := newRPCServer(ctx, cfg.RPCListenAddr, cfg.RPCListenPort, l2Node, cfg.WithdrawalContractAddr, log, appVersion)
 
 	n := &OpNode{
 		log:       log,

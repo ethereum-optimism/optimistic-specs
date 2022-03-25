@@ -52,18 +52,21 @@ type rpcServer struct {
 	server                 *http.Server
 	withdrawalContractAddr common.Address
 	log                    log.Logger
+	appVersion             string
 }
 
-func newRPCServer(ctx context.Context, addr string, port int, l2RPCClient *rpc.Client, withdrawalContractAddress common.Address, log log.Logger) *rpcServer {
+func newRPCServer(ctx context.Context, addr string, port int, l2RPCClient *rpc.Client, withdrawalContractAddress common.Address, log log.Logger, appVersionn string) *rpcServer {
 	r := &rpcServer{
 		l2RPCClient:            l2RPCClient,
 		withdrawalContractAddr: withdrawalContractAddress,
 		log:                    log,
+		appVersion:             appVersionn,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", r.rootHandler)
-	addrPort := fmt.Sprintf("%s:%s", addr, port)
+	mux.HandleFunc("/healthz", r.healthzHandler)
+	addrPort := fmt.Sprintf("%s:%d", addr, port)
 	r.server = &http.Server{
 		Handler: mux,
 		Addr:    addrPort,
@@ -119,6 +122,10 @@ func (s *rpcServer) rootHandler(w http.ResponseWriter, r *http.Request) {
 	writeRPCRes(s.log, w, res)
 }
 
+func (s *rpcServer) healthzHandler(w http.ResponseWriter, r *http.Request) {
+	_, _ = w.Write([]byte(s.appVersion))
+}
+
 func writeRPCError(log log.Logger, w http.ResponseWriter, id json.RawMessage, err error) {
 	var res *RPCRes
 	if r, ok := err.(*RPCErr); ok {
@@ -144,15 +151,18 @@ func writeRPCRes(log log.Logger, w http.ResponseWriter, res *RPCRes) {
 	}
 }
 
+type rpcBlock struct {
+	*types.Header
+	Hash         common.Hash        `json:"hash"`
+	Tranasctions types.Transactions `json:"transactions"`
+}
+
 type getProof struct {
 	Address     common.Address `json:"address"`
 	StorageHash common.Hash    `json:"storage_hash"`
 }
 
 func (s *rpcServer) outputAtBlock(ctx context.Context, req *RPCReq) *RPCRes {
-	// TODO
-	var txs []l2.Data
-
 	var params []string
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return NewRPCErrorRes(req.ID, err)
@@ -167,12 +177,12 @@ func (s *rpcServer) outputAtBlock(ctx context.Context, req *RPCReq) *RPCRes {
 		// TODO: handle this via getBlockNumber() - FINALIZED_PERIOD
 	}
 
-	var head *types.Header
-	err := s.l2RPCClient.CallContext(ctx, &head, "eth_getBlockByNumber", blockTag, false)
+	var block *rpcBlock
+	err := s.l2RPCClient.CallContext(ctx, &block, "eth_getBlockByNumber", blockTag, false)
 	if err == nil {
 		return NewRPCErrorRes(req.ID, err)
 	}
-	if head == nil {
+	if block == nil {
 		return NewRPCErrorRes(req.ID, ethereum.NotFound)
 	}
 
@@ -185,22 +195,31 @@ func (s *rpcServer) outputAtBlock(ctx context.Context, req *RPCReq) *RPCRes {
 	}
 
 	var random l2.Bytes32
-	copy(random[:], head.Difficulty.Bytes())
+	copy(random[:], block.Difficulty.Bytes())
+
+	txs := make([]l2.Data, 0, len(block.Tranasctions))
+	for _, tx := range block.Tranasctions {
+		w := new(bytes.Buffer)
+		if err := tx.EncodeRLP(w); err != nil {
+			return NewRPCErrorRes(req.ID, fmt.Errorf("invalid transaction found in block"))
+		}
+		txs = append(txs, w.Bytes())
+	}
 
 	payload := &l2.ExecutionPayload{
-		ParentHash:    head.ParentHash,
-		FeeRecipient:  head.Coinbase,
-		StateRoot:     l2.Bytes32(head.Root),
-		ReceiptsRoot:  l2.Bytes32(head.ReceiptHash),
-		LogsBloom:     l2.Bytes256(head.Bloom),
+		ParentHash:    block.ParentHash,
+		FeeRecipient:  block.Coinbase,
+		StateRoot:     l2.Bytes32(block.Root),
+		ReceiptsRoot:  l2.Bytes32(block.ReceiptHash),
+		LogsBloom:     l2.Bytes256(block.Bloom),
 		Random:        random,
-		BlockNumber:   hexutil.Uint64(head.Number.Uint64()),
-		GasLimit:      hexutil.Uint64(head.GasLimit),
-		GasUsed:       hexutil.Uint64(head.GasUsed),
-		Timestamp:     hexutil.Uint64(head.Time),
-		ExtraData:     head.Extra,
-		BaseFeePerGas: *uint256.NewInt(head.BaseFee.Uint64()),
-		BlockHash:     head.Hash(),
+		BlockNumber:   hexutil.Uint64(block.Number.Uint64()),
+		GasLimit:      hexutil.Uint64(block.GasLimit),
+		GasUsed:       hexutil.Uint64(block.GasUsed),
+		Timestamp:     hexutil.Uint64(block.Time),
+		ExtraData:     block.Extra,
+		BaseFeePerGas: *uint256.NewInt(block.BaseFee.Uint64()),
+		BlockHash:     block.Hash,
 		Transactions:  txs,
 	}
 
