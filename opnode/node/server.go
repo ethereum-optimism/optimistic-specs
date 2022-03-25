@@ -206,7 +206,7 @@ func (s *rpcServer) outputAtBlock(ctx context.Context, req *RPCReq) *RPCRes {
 		txs = append(txs, w.Bytes())
 	}
 
-	payload := &l2.ExecutionPayload{
+	payload := l2.ExecutionPayload{
 		ParentHash:    block.ParentHash,
 		FeeRecipient:  block.Coinbase,
 		StateRoot:     l2.Bytes32(block.Root),
