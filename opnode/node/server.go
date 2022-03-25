@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/holiman/uint256"
 	"github.com/protolambda/zssz"
 )
@@ -46,69 +47,89 @@ func ErrInvalidRequest(msg string) *RPCErr {
 
 type RPCHandler func(context.Context, *RPCReq) *RPCRes
 
-func (c *OpNode) startRPC() {
+type rpcServer struct {
+	l2RPCClient            *rpc.Client
+	server                 *http.Server
+	withdrawalContractAddr common.Address
+	log                    log.Logger
+}
+
+func newRPCServer(ctx context.Context, addr string, port int, l2RPCClient *rpc.Client, withdrawalContractAddress common.Address, log log.Logger) *rpcServer {
+	r := &rpcServer{
+		l2RPCClient:            l2RPCClient,
+		withdrawalContractAddr: withdrawalContractAddress,
+		log:                    log,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", r.rootHandler)
+	addrPort := fmt.Sprintf("%s:%s", addr, port)
+	r.server = &http.Server{
+		Handler: mux,
+		Addr:    addrPort,
+	}
+
+	return r
+}
+
+func (s *rpcServer) Start() {
 	go func() {
-		if err := c.rpcServer.ListenAndServe(); err != nil {
+		if err := s.server.ListenAndServe(); err != nil {
 			if errors.Is(err, http.ErrServerClosed) {
-				c.log.Info("RPC server shutdown")
+				s.log.Info("RPC server shutdown")
 				return
 			}
-			c.log.Error("error starting RPC server", "err", err)
-		}
-	}()
-
-	go func() {
-		for {
-			select {
-			case <-c.done:
-				_ = c.rpcServer.Shutdown(context.Background())
-			}
+			s.log.Error("error starting RPC server", "err", err)
 		}
 	}()
 }
 
-func (c *OpNode) rootHandler(w http.ResponseWriter, r *http.Request) {
-	log.Info("received RPC request", "user_agent", r.Header.Get("user-agent"))
+func (r *rpcServer) Stop() {
+	_ = r.server.Shutdown(context.Background())
+}
+
+func (s *rpcServer) rootHandler(w http.ResponseWriter, r *http.Request) {
+	s.log.Info("received RPC request", "user_agent", r.Header.Get("user-agent"))
 
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		log.Error("error reading request body", "err", err)
-		writeRPCError(w, nil, ErrInternal)
+		s.log.Error("error reading request body", "err", err)
+		writeRPCError(s.log, w, nil, ErrInternal)
 		return
 	}
 
 	req, err := ParseRPCReq(body)
 	if err != nil {
-		log.Info("error parsing RPC call", "err", err)
-		writeRPCError(w, nil, err)
+		s.log.Info("error parsing RPC call", "err", err)
+		writeRPCError(s.log, w, nil, err)
 		return
 	}
 
 	if err := ValidateRPCReq(req); err != nil {
-		writeRPCRes(w, NewRPCErrorRes(nil, err))
+		writeRPCRes(s.log, w, NewRPCErrorRes(nil, err))
 		return
 	}
 
 	if req.Method != "optimism_outputAtBlock" {
-		writeRPCRes(w, NewRPCErrorRes(nil, fmt.Errorf("unknown method")))
+		writeRPCRes(s.log, w, NewRPCErrorRes(nil, fmt.Errorf("unknown method")))
 		return
 	}
 
-	res := c.outputAtBlock(r.Context(), req)
-	writeRPCRes(w, res)
+	res := s.outputAtBlock(r.Context(), req)
+	writeRPCRes(s.log, w, res)
 }
 
-func writeRPCError(w http.ResponseWriter, id json.RawMessage, err error) {
+func writeRPCError(log log.Logger, w http.ResponseWriter, id json.RawMessage, err error) {
 	var res *RPCRes
 	if r, ok := err.(*RPCErr); ok {
 		res = NewRPCErrorRes(id, r)
 	} else {
 		res = NewRPCErrorRes(id, ErrInternal)
 	}
-	writeRPCRes(w, res)
+	writeRPCRes(log, w, res)
 }
 
-func writeRPCRes(w http.ResponseWriter, res *RPCRes) {
+func writeRPCRes(log log.Logger, w http.ResponseWriter, res *RPCRes) {
 	statusCode := 200
 	if res.IsError() && res.Error.HTTPErrorCode != 0 {
 		statusCode = res.Error.HTTPErrorCode
@@ -128,8 +149,7 @@ type getProof struct {
 	StorageHash common.Hash    `json:"storage_hash"`
 }
 
-//func (c *OpNode) outputAtBlock(ctx context.Context, req *RPCReq) (l2.Bytes32, l2.Bytes32, error) {
-func (c *OpNode) outputAtBlock(ctx context.Context, req *RPCReq) *RPCRes {
+func (s *rpcServer) outputAtBlock(ctx context.Context, req *RPCReq) *RPCRes {
 	// TODO
 	var txs []l2.Data
 
@@ -148,7 +168,7 @@ func (c *OpNode) outputAtBlock(ctx context.Context, req *RPCReq) *RPCRes {
 	}
 
 	var head *types.Header
-	err := c.l2RPCClient.CallContext(ctx, &head, "eth_getBlockByNumber", blockTag, false)
+	err := s.l2RPCClient.CallContext(ctx, &head, "eth_getBlockByNumber", blockTag, false)
 	if err == nil {
 		return NewRPCErrorRes(req.ID, err)
 	}
@@ -157,7 +177,7 @@ func (c *OpNode) outputAtBlock(ctx context.Context, req *RPCReq) *RPCRes {
 	}
 
 	var getProofResponse *getProof
-	err = c.l2RPCClient.CallContext(ctx, &getProofResponse, "eth_getProof", c.withdrawalContractAddr, nil, blockTag)
+	err = s.l2RPCClient.CallContext(ctx, &getProofResponse, "eth_getProof", s.withdrawalContractAddr, nil, blockTag)
 	if err != nil {
 		return NewRPCErrorRes(req.ID, err)
 	} else if getProofResponse == nil {
@@ -215,10 +235,4 @@ func (c *OpNode) outputAtBlock(ctx context.Context, req *RPCReq) *RPCRes {
 	res.Result = []l2.Bytes32{l2OutputRootVersion, l2OutputRootHash}
 	res.JSONRPC = JSONRPCVersion
 	return res
-}
-
-func (c *OpNode) Stop() {
-	if c.done != nil {
-		close(c.done)
-	}
 }
