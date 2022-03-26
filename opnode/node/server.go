@@ -1,19 +1,14 @@
 package node
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"math/big"
+	"net"
 	"net/http"
+	"strings"
 
-	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
-	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/node"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -22,59 +17,60 @@ import (
 // TODO(inphi): add metrics
 
 type rpcServer struct {
-	server *http.Server
-	log    log.Logger
+	endpoint   string
+	api        *nodeAPI
+	httpServer *http.Server
+	appVersion string
+	listenAddr net.Addr
 }
 
-func newRPCServer(ctx context.Context, addr string, port int, l2RPCClient *rpc.Client, withdrawalContractAddress common.Address, log log.Logger, appVersion string) (*rpcServer, error) {
-	api := &nodeAPI{
-		l2RPCClient:            l2RPCClient,
-		l2EthClient:            ethclient.NewClient(l2RPCClient),
-		withdrawalContractAddr: withdrawalContractAddress,
-		log:                    log,
-	}
-	apis := []rpc.API{{
-		Namespace:     "optimism",
-		Service:       api,
-		Public:        true,
-		Authenticated: false,
-	}}
-
-	srv := rpc.NewServer()
-	if err := node.RegisterApis(apis, nil, srv, true); err != nil {
-		return nil, err
-	}
-	nodeHandler := node.NewHTTPHandlerStack(srv, nil, []string{addr}, nil)
-
-	mux := http.NewServeMux()
-	mux.Handle("/", nodeHandler)
-	mux.HandleFunc("/healthz", healthzHandler(appVersion))
-	addrPort := fmt.Sprintf("%s:%d", addr, port)
-
+func newRPCServer(ctx context.Context, addr string, port int, l2Client l2EthClient, withdrawalContractAddress common.Address, log log.Logger, appVersion string) (*rpcServer, error) {
+	api := newNodeAPI(l2Client, withdrawalContractAddress, log)
+	endpoint := fmt.Sprintf("%s:%d", addr, port)
 	r := &rpcServer{
-		log: log,
-		server: &http.Server{
-			Handler: mux,
-			Addr:    addrPort,
-		},
+		endpoint:   endpoint,
+		api:        api,
+		appVersion: appVersion,
 	}
 	return r, nil
 }
 
-func (s *rpcServer) Start() {
-	go func() {
-		if err := s.server.ListenAndServe(); err != nil {
-			if errors.Is(err, http.ErrServerClosed) {
-				s.log.Info("RPC server shutdown")
-				return
-			}
-			s.log.Error("error starting RPC server", "err", err)
-		}
-	}()
+func (s *rpcServer) Start() error {
+	apis := []rpc.API{{
+		Namespace:     "optimism",
+		Service:       s.api,
+		Public:        true,
+		Authenticated: false,
+	}}
+	srv := rpc.NewServer()
+	if err := node.RegisterApis(apis, nil, srv, true); err != nil {
+		return err
+	}
+
+	host := strings.Split(s.endpoint, ":")[0]
+	nodeHandler := node.NewHTTPHandlerStack(srv, nil, []string{host}, nil)
+
+	mux := http.NewServeMux()
+	mux.Handle("/", nodeHandler)
+	mux.HandleFunc("/healthz", healthzHandler(s.appVersion))
+
+	listener, err := net.Listen("tcp", s.endpoint)
+	if err != nil {
+		return err
+	}
+	s.listenAddr = listener.Addr()
+
+	s.httpServer = &http.Server{Handler: mux}
+	go s.httpServer.Serve(listener)
+	return nil
 }
 
 func (r *rpcServer) Stop() {
-	_ = r.server.Shutdown(context.Background())
+	_ = r.httpServer.Shutdown(context.Background())
+}
+
+func (r *rpcServer) Addr() net.Addr {
+	return r.listenAddr
 }
 
 func healthzHandler(appVersion string) http.HandlerFunc {
@@ -83,60 +79,28 @@ func healthzHandler(appVersion string) http.HandlerFunc {
 	}
 }
 
-type nodeAPI struct {
-	l2RPCClient            *rpc.Client
-	l2EthClient            *ethclient.Client
-	withdrawalContractAddr common.Address
-	log                    log.Logger
+type l2EthClientImpl struct {
+	l2RPCClient *rpc.Client
 }
 
-type getProof struct {
-	Address     common.Address `json:"address"`
-	StorageHash common.Hash    `json:"storage_hash"`
+func (c *l2EthClientImpl) GetBlockHeader(ctx context.Context, blockTag string) (*types.Header, error) {
+	var head *types.Header
+	err := c.l2RPCClient.CallContext(ctx, &head, "eth_getBlockByNumber", blockTag, false)
+	return head, err
 }
 
-func (n *nodeAPI) OutputAtBlock(ctx context.Context, number rpc.BlockNumber) ([]l2.Bytes32, error) {
-	// TODO: rpc.BlockNumber doesn't support the "safe" tag. Need a new type
-
-	numberB := big.NewInt(number.Int64())
-	block, err := n.l2EthClient.BlockByNumber(ctx, numberB)
-	if err != nil {
-		return nil, err
-	}
-	if block == nil {
-		return nil, ethereum.NotFound
+func (c *l2EthClientImpl) GetProof(ctx context.Context, address common.Address, blockTag string) (*common.Hash, error) {
+	type getProof struct {
+		Address     common.Address `json:"address"`
+		StorageHash common.Hash    `json:"storage_hash"`
 	}
 
+	var proof *common.Hash
 	var getProofResponse *getProof
-	err = n.l2RPCClient.CallContext(ctx, &getProofResponse, "eth_getProof", n.withdrawalContractAddr, nil, toBlockNumArg(numberB))
-	if err != nil {
-		return nil, err
-	} else if getProofResponse == nil {
-		return nil, ethereum.NotFound
+	err := c.l2RPCClient.CallContext(ctx, &getProofResponse, "eth_getProof", address, nil, blockTag)
+	if getProofResponse != nil {
+		proof = new(common.Hash)
+		*proof = getProofResponse.StorageHash
 	}
-
-	var l2OutputRootVersion l2.Bytes32 // it's zero for now
-
-	var buf bytes.Buffer
-	buf.Write(l2OutputRootVersion[:])
-	buf.Write(block.Root().Bytes())
-	buf.Write(getProofResponse.StorageHash[:])
-	buf.Write(block.Hash().Bytes())
-	hash := crypto.Keccak256(buf.Bytes())
-
-	var l2OutputRootHash l2.Bytes32
-	copy(l2OutputRootHash[:], hash)
-
-	return []l2.Bytes32{l2OutputRootVersion, l2OutputRootHash}, nil
-}
-
-func toBlockNumArg(number *big.Int) string {
-	if number == nil {
-		return "latest"
-	}
-	pending := big.NewInt(-1)
-	if number.Cmp(pending) == 0 {
-		return "pending"
-	}
-	return hexutil.EncodeBig(number)
+	return proof, err
 }

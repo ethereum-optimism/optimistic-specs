@@ -93,7 +93,7 @@ func New(ctx context.Context, cfg *Config, log log.Logger, appVersion string) (*
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial l2 address (%s): %w", cfg.L2NodeAddr, err)
 	}
-	server, err := newRPCServer(ctx, cfg.RPCListenAddr, cfg.RPCListenPort, l2Node, cfg.WithdrawalContractAddr, log, appVersion)
+	server, err := newRPCServer(ctx, cfg.RPCListenAddr, cfg.RPCListenPort, &l2EthClientImpl{l2Node}, cfg.WithdrawalContractAddr, log, appVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -161,9 +161,12 @@ func (c *OpNode) Start(ctx context.Context) error {
 	l1Heads := make(chan eth.L1BlockRef, 10)
 	l1HeadsFeed.Subscribe(l1Heads)
 
-	c.log.Info("Start-up complete!")
+	c.log.Info("Starting JSON-RPC server")
+	if err := c.server.Start(); err != nil {
+		return fmt.Errorf("unable to start RPC server: %w", err)
+	}
 
-	c.server.Start()
+	c.log.Info("Start-up complete!")
 
 	go func() {
 		for {
