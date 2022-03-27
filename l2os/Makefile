@@ -7,7 +7,8 @@ LDFLAGSSTRING +=-X main.GitDate=$(GITDATE)
 LDFLAGSSTRING +=-X main.Version=$(VERSION)
 LDFLAGS := -ldflags "$(LDFLAGSSTRING)"
 
-MOCK_L2_OUTPUT_ORACLE_SOL := ../packages/contracts/contracts/L1/MockL2OutputOracle.sol
+CONTRACTS_PATH := ../packages/contracts
+L2_OUTPUT_ORACLE_SOL := ../packages/contracts/contracts/L1/L2OutputOracle.sol
 
 l2os:
 	env GO111MODULE=on go build -v $(LDFLAGS) ./cmd/l2os
@@ -21,25 +22,26 @@ test:
 lint:
 	golangci-lint run -E asciicheck,goimports,misspell ./...
 
-bindings: bindings-mock-l2-output-oracle
+bindings: bindings-l2-output-oracle
 
-bindings-mock-l2-output-oracle:
+bindings-l2-output-oracle:
 	$(eval temp := $(shell mktemp -d))
 	solc \
-		--abi $(MOCK_L2_OUTPUT_ORACLE_SOL) \
-		--bin $(MOCK_L2_OUTPUT_ORACLE_SOL) \
+        --allow-paths $(CONTRACTS_PATH) \
+		--abi $(L2_OUTPUT_ORACLE_SOL) \
+		--bin $(L2_OUTPUT_ORACLE_SOL) \
 		-o $(temp)
 	abigen \
-		--abi $(temp)/MockL2OutputOracle.abi \
-		--bin $(temp)/MockL2OutputOracle.bin \
+		--abi $(temp)/L2OutputOracle.abi \
+		--bin $(temp)/L2OutputOracle.bin \
 		--pkg l2oo \
-		--type MockL2OutputOracle \
-		--out ./bindings/l2oo/mock_l2_output_oracle.go
+		--type L2OutputOracle \
+		--out ./bindings/l2oo/l2_output_oracle.go
 
 
 .PHONY: \
 	bindings \
-	bindings-mock-l2-output-oracle \
+	bindings-l2-output-oracle \
 	clean \
 	l2os \
 	test \
