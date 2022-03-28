@@ -120,6 +120,7 @@ type L1Info interface {
 	// MixDigest field, reused for randomness after The Merge (Bellatrix hardfork)
 	MixDigest() common.Hash
 	ReceiptHash() common.Hash
+	ParentHash() common.Hash
 }
 
 // L1InfoDeposit creats a L1 Info deposit transaction based on the L1 block

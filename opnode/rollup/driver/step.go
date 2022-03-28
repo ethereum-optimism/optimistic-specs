@@ -123,6 +123,9 @@ func (d *outputImpl) insertEpoch(ctx context.Context, l2Head eth.L2BlockRef, l2S
 	if err != nil {
 		return l2Head, l2SafeHead, false, fmt.Errorf("failed to fetch L1 block info of %s: %w", l1Input[0], err)
 	}
+	if l2SafeHead.L1Origin.Hash != l1Info.ParentHash() {
+		return l2Head, l2SafeHead, false, fmt.Errorf("l1Info %v does not extend L1 Origin (%v) of L2 Safe Head (%v)", l1Info.Hash(), l2SafeHead.L1Origin, l2SafeHead)
+	}
 	l1InfoTx, err := derive.L1InfoDepositBytes(l1Info)
 	if err != nil {
 		return l2Head, l2SafeHead, false, fmt.Errorf("failed to create l1InfoTx: %w", err)

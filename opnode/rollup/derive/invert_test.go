@@ -20,6 +20,7 @@ type l1MockInfo struct {
 	baseFee     *big.Int
 	mixDigest   [32]byte
 	receiptRoot common.Hash
+	parentHash  common.Hash
 }
 
 func (l *l1MockInfo) NumberU64() uint64 {
@@ -44,6 +45,10 @@ func (l *l1MockInfo) MixDigest() common.Hash {
 
 func (l *l1MockInfo) ReceiptHash() common.Hash {
 	return l.receiptRoot
+}
+
+func (l *l1MockInfo) ParentHash() common.Hash {
+	return l.parentHash
 }
 
 func randomHash(rng *rand.Rand) (out common.Hash) {
