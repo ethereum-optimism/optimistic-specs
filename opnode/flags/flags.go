@@ -49,12 +49,6 @@ var (
 		Required: true,
 		EnvVar:   prefixEnvVar("RPC_PORT"),
 	}
-	WithdrawalContractAddr = cli.StringFlag{
-		Name:     "rpc.withdrawalcontractaddress",
-		Usage:    "Address of the Withdrawal contract. Used to serve RPC",
-		Required: true,
-		EnvVar:   prefixEnvVar("WITHDRAWAL_CONTRACT_ADDR"),
-	}
 
 	/* Optional Flags */
 
@@ -69,6 +63,12 @@ var (
 		Name:   "batchsubmitter.key",
 		Usage:  "key for batch submitting",
 		EnvVar: prefixEnvVar("BATCHSUBMITTER_KEY"),
+	}
+
+	WithdrawalContractAddr = cli.StringFlag{
+		Name:   "rpc.withdrawalcontractaddress",
+		Usage:  "Address of the Withdrawal contract. By default, this is set to the withdrawal contract predeploy",
+		EnvVar: prefixEnvVar("WITHDRAWAL_CONTRACT_ADDR"),
 	}
 
 	LogLevelFlag = cli.StringFlag{
@@ -97,12 +97,12 @@ var requiredFlags = []cli.Flag{
 	L2NodeAddr,
 	RPCListenAddr,
 	RPCListenPort,
-	WithdrawalContractAddr,
 }
 
 var optionalFlags = []cli.Flag{
 	SequencingEnabledFlag,
 	BatchSubmitterKeyFlag,
+	WithdrawalContractAddr,
 	LogLevelFlag,
 	LogFormatFlag,
 	LogColorFlag,

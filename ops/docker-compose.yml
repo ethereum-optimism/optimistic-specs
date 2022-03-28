@@ -56,5 +56,3 @@ services:
       - "0.0.0.0"
       - "--rpc.port"
       - "8545"
-      - "--rpc.withdrawalcontractaddress"
-      - $WITHDRAWAL_CONTRACT_ADDRESS
