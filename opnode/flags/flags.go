@@ -31,8 +31,8 @@ var (
 		Required: true,
 		EnvVar:   prefixEnvVar("ROLLUP_CONFIG"),
 	}
-	L2NodeAddr = cli.StringFlag{
-		Name:     "eth.l2",
+	L2EthNodeAddr = cli.StringFlag{
+		Name:     "l2.eth",
 		Usage:    "Address of L2 User JSON-RPC endpoint to use (eth namespace required)",
 		Required: true,
 		EnvVar:   prefixEnvVar("L2_ETH_RPC"),
@@ -94,7 +94,7 @@ var requiredFlags = []cli.Flag{
 	L1NodeAddr,
 	L2EngineAddrs,
 	RollupConfig,
-	L2NodeAddr,
+	L2EthNodeAddr,
 	RPCListenAddr,
 	RPCListenPort,
 }

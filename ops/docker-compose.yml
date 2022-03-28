@@ -50,7 +50,7 @@ services:
       - "/config/rollup.json"
       - "--batchsubmitter.key"
       - "/config/bss-key.txt"
-      - "--eth.l2"
+      - "--l2.eth"
       - "http://l2:8545"
       - "--rpc.addr"
       - "0.0.0.0"
