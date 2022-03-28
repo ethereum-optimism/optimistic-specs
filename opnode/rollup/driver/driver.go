@@ -52,8 +52,12 @@ type L2Chain interface {
 }
 
 type outputInterface interface {
-	step(ctx context.Context, l2Head eth.L2BlockRef, l2Finalized eth.BlockID, unsafeL2Head eth.BlockID, l1Input []eth.BlockID) (eth.L2BlockRef, error)
-	newBlock(ctx context.Context, l2Finalized eth.BlockID, l2Parent eth.L2BlockRef, l2Safe eth.BlockID, l1Origin eth.BlockID) (eth.L2BlockRef, *derive.BatchData, error)
+	// insertEpoch creates and inserts one epoch on top of the safe head. It prefers blocks it creates to what is recorded in the unsafe chain.
+	// It returns the new L2 head and L2 Safe head and if there was a reorg. This function must return if there was a reorg otherwise the L2 chain must be traversed.
+	insertEpoch(ctx context.Context, l2Head eth.L2BlockRef, l2SafeHead eth.L2BlockRef, l2Finalized eth.BlockID, l1Input []eth.BlockID) (eth.L2BlockRef, eth.L2BlockRef, bool, error)
+
+	// createNewBlock builds a new block based on the L2 Head, L1 Origin, and the current mempool.
+	createNewBlock(ctx context.Context, l2Head eth.L2BlockRef, l2SafeHead eth.BlockID, l2Finalized eth.BlockID, l1Origin eth.BlockID) (eth.L2BlockRef, *derive.BatchData, error)
 }
 
 func NewDriver(cfg rollup.Config, l2 *l2.Source, l1 *l1.Source, log log.Logger, submitter BatchSubmitter, sequencer bool) *Driver {
