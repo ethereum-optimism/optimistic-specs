@@ -212,7 +212,7 @@ func (s *state) loop() {
 				continue
 			}
 			// 2. Ask output to create new block
-			newUnsafeL2Head, batch, err := s.output.newBlock(context.Background(), s.l2Finalized, s.l2Head, s.l2SafeHead.ID(), nextOrigin.ID())
+			newUnsafeL2Head, batch, err := s.output.createNewBlock(context.Background(), s.l2Head, s.l2SafeHead.ID(), s.l2Finalized, nextOrigin.ID())
 			if err != nil {
 				s.log.Error("Could not extend chain as sequencer", "err", err, "l2UnsafeHead", s.l2Head, "l1Origin", nextOrigin)
 				continue
@@ -285,14 +285,17 @@ func (s *state) loop() {
 			if window, ok := s.sequencingWindow(); ok {
 				s.log.Trace("Have enough cached blocks to run step.", "window", window)
 				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				newL2Head, err := s.output.step(ctx, s.l2SafeHead, s.l2Finalized, s.l2Head.ID(), window)
+				newL2Head, newL2SafeHead, reorg, err := s.output.insertEpoch(ctx, s.l2Head, s.l2SafeHead, s.l2Finalized, window)
 				cancel()
 				if err != nil {
 					s.log.Error("Error in running the output step.", "err", err, "l2SafeHead", s.l2SafeHead, "l2Finalized", s.l2Finalized, "window", window)
 					continue
 				}
+				if reorg {
+					s.log.Warn("Reorged L2 when inserting an epoch")
+				}
 				s.l2Head = newL2Head
-				s.l2SafeHead = newL2Head
+				s.l2SafeHead = newL2SafeHead
 				s.l1WindowBuf = s.l1WindowBuf[1:]
 				// TODO: l2Finalized
 			} else {
