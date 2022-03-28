@@ -50,22 +50,48 @@ func NewState(log log.Logger, config rollup.Config, l1 L1Chain, l2 L2Chain, outp
 	}
 }
 
+// Start starts up the state loop. The context is only for initilization.
+// The loop will have been started iff err is not nil.
 func (s *state) Start(ctx context.Context, l1Heads <-chan eth.L1BlockRef) error {
 	l1Head, err := s.l1.L1HeadBlockRef(ctx)
 	if err != nil {
 		return err
 	}
-	l2Head, err := s.l2.L2BlockRefByNumber(ctx, nil)
-	if err != nil {
-		return err
+
+	// Check that we are past the genesis
+	if l1Head.Number > s.Config.Genesis.L1.Number {
+		l2Head, err := s.l2.L2BlockRefByNumber(ctx, nil)
+		if err != nil {
+			return err
+		}
+		// Ensure that we are on the correct chain. Note that we cannot rely on rely on the UnsafeHead being more than
+		// a sequence window behind the L1 Head and must walk back 1 sequence window as we do not track the end L1 block
+		// hash of the sequence window when we derive an L2 block.
+		unsafeHead, safeHead, err := sync.FindL2Heads(ctx, l2Head, s.Config.SeqWindowSize, s.l1, s.l2, &s.Config.Genesis)
+		if err != nil {
+			return err
+		}
+		s.l2Head = unsafeHead
+		s.l2SafeHead = safeHead
+
+	} else {
+		// Not yet reached genesis block
+		// TODO: Test this codepath. That requires setting up L1, letting it run, and then creating the L2 genesis from there.
+		// Note: This will not work for setting the the genesis normally, but if the L1 node is not yet synced we could get this case.
+		l2genesis := eth.L2BlockRef{
+			Hash:   s.Config.Genesis.L2.Hash,
+			Number: s.Config.Genesis.L2.Number,
+			Time:   s.Config.Genesis.L2Time,
+			L1Origin: eth.BlockID{
+				Hash:   s.Config.Genesis.L1.Hash,
+				Number: s.Config.Genesis.L1.Number,
+			},
+		}
+		s.l2Head = l2genesis
+		s.l2SafeHead = l2genesis
 	}
 
-	// TODO:
-	// 1. Pull safehead from sync-start algorithm
-	// 2. Check if heads are below genesis & if so, bump to genesis.
 	s.l1Head = l1Head
-	s.l2Head = l2Head
-	s.l2SafeHead = l2Head
 	s.l1Heads = l1Heads
 
 	go s.loop()
