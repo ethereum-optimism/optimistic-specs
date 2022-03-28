@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"context"
+	"fmt"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
 	"github.com/ethereum/go-ethereum"
@@ -16,7 +17,7 @@ import (
 
 type l2EthClient interface {
 	GetBlockHeader(ctx context.Context, blockTag string) (*types.Header, error)
-	GetProof(ctx context.Context, address common.Address, blockTag string) (*common.Hash, error)
+	GetProof(ctx context.Context, address common.Address, blockTag string) (*common.Hash, []string, error)
 }
 
 type nodeAPI struct {
@@ -45,17 +46,22 @@ func (n *nodeAPI) OutputAtBlock(ctx context.Context, number rpc.BlockNumber) ([]
 		return nil, ethereum.NotFound
 	}
 
-	storageHash, err := n.client.GetProof(ctx, n.withdrawalContractAddr, toBlockNumArg(number))
+	accountRoot, proof, err := n.client.GetProof(ctx, n.withdrawalContractAddr, toBlockNumArg(number))
 	if err != nil {
 		n.log.Error("failed to get contract proof", "err", err)
 		return nil, err
 	}
-	if storageHash == nil {
+	if accountRoot == nil {
 		return nil, ethereum.NotFound
 	}
 
 	var l2OutputRootVersion l2.Bytes32 // it's zero for now
-	hash := computeL2OutputRoot(l2OutputRootVersion, head.Hash(), head.Root, *storageHash)
+	if !verifyAccountProof(head.Root, n.withdrawalContractAddr, *accountRoot, proof) {
+		n.log.Error("invalid withdrawal root detected in block", "root", head.Root, "blocknum", number)
+		return nil, fmt.Errorf("invalid withdrawal root hash")
+	}
+
+	hash := computeL2OutputRoot(l2OutputRootVersion, head.Hash(), head.Root, *accountRoot)
 	var l2OutputRootHash l2.Bytes32
 	copy(l2OutputRootHash[:], hash)
 
@@ -72,11 +78,16 @@ func toBlockNumArg(number rpc.BlockNumber) string {
 	return hexutil.EncodeUint64(uint64(number.Int64()))
 }
 
-func computeL2OutputRoot(l2OutputRootVersion l2.Bytes32, blockHash common.Hash, blockRoot common.Hash, storageProof common.Hash) []byte {
+func computeL2OutputRoot(l2OutputRootVersion l2.Bytes32, blockHash common.Hash, blockRoot common.Hash, storageRoot common.Hash) []byte {
 	var buf bytes.Buffer
 	buf.Write(l2OutputRootVersion[:])
 	buf.Write(blockRoot.Bytes())
-	buf.Write(storageProof[:])
+	buf.Write(storageRoot[:])
 	buf.Write(blockHash.Bytes())
 	return crypto.Keccak256(buf.Bytes())
+}
+
+func verifyAccountProof(root common.Hash, account common.Address, accountRoot common.Hash, proof []string) bool {
+	// TODO: implement
+	return true
 }

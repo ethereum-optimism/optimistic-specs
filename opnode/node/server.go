@@ -89,18 +89,21 @@ func (c *l2EthClientImpl) GetBlockHeader(ctx context.Context, blockTag string) (
 	return head, err
 }
 
-func (c *l2EthClientImpl) GetProof(ctx context.Context, address common.Address, blockTag string) (*common.Hash, error) {
+func (c *l2EthClientImpl) GetProof(ctx context.Context, address common.Address, blockTag string) (*common.Hash, []string, error) {
 	type getProof struct {
-		Address     common.Address `json:"address"`
-		StorageHash common.Hash    `json:"storage_hash"`
+		Address      common.Address `json:"address"`
+		StorageHash  common.Hash    `json:"storage_hash"`
+		AccountProof []string       `json:"accountProof"`
 	}
 
-	var proof *common.Hash
+	var root *common.Hash
+	var proof []string
 	var getProofResponse *getProof
 	err := c.l2RPCClient.CallContext(ctx, &getProofResponse, "eth_getProof", address, nil, blockTag)
 	if getProofResponse != nil {
-		proof = new(common.Hash)
-		*proof = getProofResponse.StorageHash
+		root = new(common.Hash)
+		*root = getProofResponse.StorageHash
+		proof = getProofResponse.AccountProof
 	}
-	return proof, err
+	return root, proof, err
 }
