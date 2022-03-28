@@ -69,7 +69,7 @@ func isCanonical(ctx context.Context, l1 L1Chain, block eth.BlockID) (bool, erro
 // FindL2Heads walks back from the supplied L2 blocks and finds the unsafe and safe L2 heads.
 // Unsafe Head: The first L2 block who's L1 Origin is canonical (determined via block by number).
 // Safe Head: Walk back 1 sequence window of epochs from the Unsafe Head.
-func FindL2Heads(ctx context.Context, start eth.L2BlockRef, seqWindowSize int,
+func FindL2Heads(ctx context.Context, start eth.L2BlockRef, seqWindowSize uint64,
 	l1 L1Chain, l2 L2Chain, genesis *rollup.Genesis) (unsafeHead eth.L2BlockRef, safeHead eth.L2BlockRef, err error) {
 	reorgDepth := 0
 	var prevL1OriginHash common.Hash
@@ -100,7 +100,7 @@ func FindL2Heads(ctx context.Context, start eth.L2BlockRef, seqWindowSize int,
 			return eth.L2BlockRef{}, eth.L2BlockRef{}, TooDeepReorgErr
 		}
 	}
-	depth := 1 // SeqWindowSize is a length, but we are counting elements in the window.
+	depth := uint64(1) // SeqWindowSize is a length, but we are counting elements in the window.
 	prevL1OriginHash = unsafeHead.L1Origin.Hash
 	// Walk L2 chain. May walk to L2 genesis
 	for n := unsafeHead; ; {

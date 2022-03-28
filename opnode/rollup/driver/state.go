@@ -213,7 +213,7 @@ func (s *state) loop() {
 			} else {
 				// Not strictly always a reorg, but that is the most likely case
 				s.log.Warn("L1 Head signal indicates an L1 re-org", "old_l1_head", s.l1Head, "new_l1_head_parent", newL1Head.ParentHash, "new_l1_head", newL1Head)
-				unsafeL2Head, safeL2Head, err := sync.FindL2Heads(ctx, s.l2Head, int(s.Config.SeqWindowSize), s.l1, s.l2, &s.Config.Genesis)
+				unsafeL2Head, safeL2Head, err := sync.FindL2Heads(ctx, s.l2Head, s.Config.SeqWindowSize, s.l1, s.l2, &s.Config.Genesis)
 				if err != nil {
 					s.log.Error("Could not get new unsafe L2 head when trying to handle a re-org", "err", err)
 					continue
