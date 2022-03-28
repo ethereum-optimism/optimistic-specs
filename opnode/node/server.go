@@ -92,7 +92,7 @@ func (c *l2EthClientImpl) GetBlockHeader(ctx context.Context, blockTag string) (
 func (c *l2EthClientImpl) GetProof(ctx context.Context, address common.Address, blockTag string) (*common.Hash, []string, error) {
 	type getProof struct {
 		Address      common.Address `json:"address"`
-		StorageHash  common.Hash    `json:"storage_hash"`
+		StorageHash  common.Hash    `json:"storageHash"`
 		AccountProof []string       `json:"accountProof"`
 	}
 

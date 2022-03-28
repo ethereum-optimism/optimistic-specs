@@ -1,7 +1,6 @@
 package node
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 
@@ -10,7 +9,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/rpc"
 )
@@ -56,12 +54,14 @@ func (n *nodeAPI) OutputAtBlock(ctx context.Context, number rpc.BlockNumber) ([]
 	}
 
 	var l2OutputRootVersion l2.Bytes32 // it's zero for now
-	if !verifyAccountProof(head.Root, n.withdrawalContractAddr, *accountRoot, proof) {
-		n.log.Error("invalid withdrawal root detected in block", "root", head.Root, "blocknum", number)
+
+	// TODO: Figure out why this doesn't work work
+	if err := VerifyAccountProof(head.Root, *accountRoot, proof); err != nil {
+		n.log.Error("invalid withdrawal root detected in block", "stateRoot", head.Root, "blocknum", number, "msg", err)
 		return nil, fmt.Errorf("invalid withdrawal root hash")
 	}
 
-	hash := computeL2OutputRoot(l2OutputRootVersion, head.Hash(), head.Root, *accountRoot)
+	hash := ComputeL2OutputRoot(l2OutputRootVersion, head.Hash(), head.Root, *accountRoot)
 	var l2OutputRootHash l2.Bytes32
 	copy(l2OutputRootHash[:], hash)
 
@@ -76,18 +76,4 @@ func toBlockNumArg(number rpc.BlockNumber) string {
 		return "pending"
 	}
 	return hexutil.EncodeUint64(uint64(number.Int64()))
-}
-
-func computeL2OutputRoot(l2OutputRootVersion l2.Bytes32, blockHash common.Hash, blockRoot common.Hash, storageRoot common.Hash) []byte {
-	var buf bytes.Buffer
-	buf.Write(l2OutputRootVersion[:])
-	buf.Write(blockRoot.Bytes())
-	buf.Write(storageRoot[:])
-	buf.Write(blockHash.Bytes())
-	return crypto.Keccak256(buf.Bytes())
-}
-
-func verifyAccountProof(root common.Hash, account common.Address, accountRoot common.Hash, proof []string) bool {
-	// TODO: implement
-	return true
 }
