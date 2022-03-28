@@ -124,6 +124,7 @@ type L1Info interface {
 	BaseFee() *big.Int
 	ID() eth.BlockID
 	BlockRef() eth.L1BlockRef
+	ReceiptHash() common.Hash
 }
 
 // L1InfoDeposit creats a L1 Info deposit transaction based on the L1 block
