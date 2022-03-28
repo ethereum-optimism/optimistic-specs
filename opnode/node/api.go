@@ -15,7 +15,8 @@ import (
 
 type l2EthClient interface {
 	GetBlockHeader(ctx context.Context, blockTag string) (*types.Header, error)
-	GetProof(ctx context.Context, address common.Address, blockTag string) (*common.Hash, []string, error)
+	// GetProof returns a proof of the account, it may return a nil result without error if the address was not found.
+	GetProof(ctx context.Context, address common.Address, blockTag string) (*AccountResult, error)
 }
 
 type nodeAPI struct {
@@ -44,28 +45,24 @@ func (n *nodeAPI) OutputAtBlock(ctx context.Context, number rpc.BlockNumber) ([]
 		return nil, ethereum.NotFound
 	}
 
-	accountRoot, proof, err := n.client.GetProof(ctx, n.withdrawalContractAddr, toBlockNumArg(number))
+	proof, err := n.client.GetProof(ctx, n.withdrawalContractAddr, toBlockNumArg(number))
 	if err != nil {
 		n.log.Error("failed to get contract proof", "err", err)
 		return nil, err
 	}
-	if accountRoot == nil {
+	if proof == nil {
 		return nil, ethereum.NotFound
 	}
-
-	var l2OutputRootVersion l2.Bytes32 // it's zero for now
-
-	// TODO: Figure out why this doesn't work work
-	if err := VerifyAccountProof(head.Root, *accountRoot, proof); err != nil {
+	// make sure that the proof (including storage hash) that we retrieved is correct by verifying it against the state-root
+	if err := proof.Verify(head.Root); err != nil {
 		n.log.Error("invalid withdrawal root detected in block", "stateRoot", head.Root, "blocknum", number, "msg", err)
 		return nil, fmt.Errorf("invalid withdrawal root hash")
 	}
 
-	hash := ComputeL2OutputRoot(l2OutputRootVersion, head.Hash(), head.Root, *accountRoot)
-	var l2OutputRootHash l2.Bytes32
-	copy(l2OutputRootHash[:], hash)
+	var l2OutputRootVersion l2.Bytes32 // it's zero for now
+	l2OutputRoot := ComputeL2OutputRoot(l2OutputRootVersion, head.Hash(), head.Root, proof.StorageHash)
 
-	return []l2.Bytes32{l2OutputRootVersion, l2OutputRootHash}, nil
+	return []l2.Bytes32{l2OutputRootVersion, l2OutputRoot}, nil
 }
 
 func toBlockNumArg(number rpc.BlockNumber) string {

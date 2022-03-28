@@ -2,10 +2,14 @@ package node
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/ethereum/go-ethereum"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -22,15 +26,17 @@ type rpcServer struct {
 	httpServer *http.Server
 	appVersion string
 	listenAddr net.Addr
+	log        log.Logger
 }
 
 func newRPCServer(ctx context.Context, addr string, port int, l2Client l2EthClient, withdrawalContractAddress common.Address, log log.Logger, appVersion string) (*rpcServer, error) {
-	api := newNodeAPI(l2Client, withdrawalContractAddress, log)
+	api := newNodeAPI(l2Client, withdrawalContractAddress, log.New("rpc", "node"))
 	endpoint := fmt.Sprintf("%s:%d", addr, port)
 	r := &rpcServer{
 		endpoint:   endpoint,
 		api:        api,
 		appVersion: appVersion,
+		log:        log,
 	}
 	return r, nil
 }
@@ -61,7 +67,11 @@ func (s *rpcServer) Start() error {
 	s.listenAddr = listener.Addr()
 
 	s.httpServer = &http.Server{Handler: mux}
-	go s.httpServer.Serve(listener)
+	go func() {
+		if err := s.httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) { // todo improve error handling
+			s.log.Error("http server failed", "err", err)
+		}
+	}()
 	return nil
 }
 
@@ -86,24 +96,25 @@ type l2EthClientImpl struct {
 func (c *l2EthClientImpl) GetBlockHeader(ctx context.Context, blockTag string) (*types.Header, error) {
 	var head *types.Header
 	err := c.l2RPCClient.CallContext(ctx, &head, "eth_getBlockByNumber", blockTag, false)
+
+	data, err2 := json.MarshalIndent(head, "", "  ")
+	if err != nil {
+		panic(err2)
+	}
+	fmt.Println(string(data))
 	return head, err
 }
 
-func (c *l2EthClientImpl) GetProof(ctx context.Context, address common.Address, blockTag string) (*common.Hash, []string, error) {
-	type getProof struct {
-		Address      common.Address `json:"address"`
-		StorageHash  common.Hash    `json:"storageHash"`
-		AccountProof []string       `json:"accountProof"`
+func (c *l2EthClientImpl) GetProof(ctx context.Context, address common.Address, blockTag string) (*AccountResult, error) {
+	var getProofResponse *AccountResult
+	err := c.l2RPCClient.CallContext(ctx, &getProofResponse, "eth_getProof", address, []common.Hash{}, blockTag)
+	if err == nil && getProofResponse == nil {
+		err = ethereum.NotFound
 	}
-
-	var root *common.Hash
-	var proof []string
-	var getProofResponse *getProof
-	err := c.l2RPCClient.CallContext(ctx, &getProofResponse, "eth_getProof", address, nil, blockTag)
-	if getProofResponse != nil {
-		root = new(common.Hash)
-		*root = getProofResponse.StorageHash
-		proof = getProofResponse.AccountProof
+	data, err2 := json.MarshalIndent(getProofResponse, "", "  ")
+	if err2 != nil {
+		panic(err2)
 	}
-	return root, proof, err
+	fmt.Println(string(data))
+	return getProofResponse, err
 }
