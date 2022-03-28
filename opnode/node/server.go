@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -96,12 +95,6 @@ type l2EthClientImpl struct {
 func (c *l2EthClientImpl) GetBlockHeader(ctx context.Context, blockTag string) (*types.Header, error) {
 	var head *types.Header
 	err := c.l2RPCClient.CallContext(ctx, &head, "eth_getBlockByNumber", blockTag, false)
-
-	data, err2 := json.MarshalIndent(head, "", "  ")
-	if err != nil {
-		panic(err2)
-	}
-	fmt.Println(string(data))
 	return head, err
 }
 
@@ -111,10 +104,5 @@ func (c *l2EthClientImpl) GetProof(ctx context.Context, address common.Address, 
 	if err == nil && getProofResponse == nil {
 		err = ethereum.NotFound
 	}
-	data, err2 := json.MarshalIndent(getProofResponse, "", "  ")
-	if err2 != nil {
-		panic(err2)
-	}
-	fmt.Println(string(data))
 	return getProofResponse, err
 }
