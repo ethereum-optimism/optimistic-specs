@@ -15,8 +15,8 @@ import (
 func TestOutputAtBlock(t *testing.T) {
 	log := testlog.Logger(t, log.LvlError)
 	l2Client := &mockL2Client{
-		head:  &types.Header{},
-		proof: new(common.Hash),
+		head: &types.Header{},
+		root: new(common.Hash),
 	}
 	var addr common.Address
 	server, err := newRPCServer(context.Background(), "localhost", 0, l2Client, addr, log, "0.0")
@@ -37,13 +37,14 @@ func TestOutputAtBlock(t *testing.T) {
 
 type mockL2Client struct {
 	head  *types.Header
-	proof *common.Hash
+	root  *common.Hash
+	proof []string
 }
 
 func (c *mockL2Client) GetBlockHeader(ctx context.Context, blockTag string) (*types.Header, error) {
 	return c.head, nil
 }
 
-func (c *mockL2Client) GetProof(ctx context.Context, address common.Address, blockTag string) (*common.Hash, error) {
-	return c.proof, nil
+func (c *mockL2Client) GetProof(ctx context.Context, address common.Address, blockTag string) (*common.Hash, []string, error) {
+	return c.root, c.proof, nil
 }
