@@ -232,10 +232,10 @@ func TestSystemE2E(t *testing.T) {
 	require.Nil(t, err)
 	opts.Nonce = big.NewInt(int64(nonce))
 
-	submissionFrequency := big.NewInt(10) // 10 seconds
-	l2BlockTime := big.NewInt(2)          // 2 seconds
-	l2ooAddr, tx, l2OutputOracle, err := l2oo.DeployMockL2OutputOracle(
-		opts, l1Client, submissionFrequency, l2BlockTime, [32]byte{}, big.NewInt(0),
+	submissionInterval := big.NewInt(10) // 10 seconds
+	l2BlockTime := big.NewInt(2)         // 2 seconds
+	l2ooAddr, tx, l2OutputOracle, err := l2oo.DeployL2OutputOracle(
+		opts, l1Client, submissionInterval, l2BlockTime, [32]byte{}, big.NewInt(0), l2OutputAddr,
 	)
 	require.Nil(t, err)
 
@@ -356,7 +356,7 @@ loop:
 		// timestamp set in the contract constructor.
 		if l2ooTimestamp.Cmp(initialSroTimestamp) > 0 {
 			// Retrieve the l2 output committed at this updated timestamp.
-			committedL2Output, err := l2OutputOracle.L2Outputs(&bind.CallOpts{}, l2ooTimestamp)
+			committedL2Output, err := l2OutputOracle.GetL2Output(&bind.CallOpts{}, l2ooTimestamp)
 			require.Nil(t, err)
 
 			// Compute the committed L2 output's L2 block number.
