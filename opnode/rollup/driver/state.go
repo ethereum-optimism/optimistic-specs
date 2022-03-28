@@ -154,6 +154,105 @@ func (s *state) findNextL1Origin(ctx context.Context) (eth.L1BlockRef, error) {
 	return curr, nil
 }
 
+func (s *state) handleNewL1Block(ctx context.Context, newL1Head eth.L1BlockRef) error {
+	if s.l1Head.Hash == newL1Head.Hash {
+		log.Trace("Received L1 head signal that is the same as the current head", "l1_head", newL1Head)
+	} else if s.l1Head.Hash == newL1Head.ParentHash {
+		s.log.Trace("Linear extension")
+		s.l1Head = newL1Head
+		if s.l1WindowEnd().Hash == newL1Head.ParentHash {
+			s.l1Window = append(s.l1Window, newL1Head.ID())
+		}
+	} else {
+		// Not strictly always a reorg, but that is the most likely case
+		s.log.Warn("L1 Head signal indicates an L1 re-org", "old_l1_head", s.l1Head, "new_l1_head_parent", newL1Head.ParentHash, "new_l1_head", newL1Head)
+		unsafeL2Head, safeL2Head, err := sync.FindL2Heads(ctx, s.l2Head, s.Config.SeqWindowSize, s.l1, s.l2, &s.Config.Genesis)
+		if err != nil {
+			s.log.Error("Could not get new unsafe L2 head when trying to handle a re-org", "err", err)
+			return err
+		}
+		// TODO: Fork choice update
+		s.l1Head = newL1Head
+		s.l1Window = nil
+		s.l2Head = unsafeL2Head // Note that verify only nodes can get an unsafe head because of a reorg. May want to remove that.
+		s.l2SafeHead = safeL2Head
+		s.log.Trace("State update", "l1Head", s.l1Head, "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead)
+	}
+	return nil
+}
+
+func (s *state) createNewL2Block(ctx context.Context) (eth.L1BlockRef, error) {
+	nextOrigin, err := s.findNextL1Origin(context.Background())
+	if err != nil {
+		s.log.Error("Error finding next L1 Origin", "err", err)
+		return eth.L1BlockRef{}, err
+	}
+	if nextOrigin.Time <= s.Config.BlockTime+s.l2Head.Time {
+		s.log.Trace("Skipping block production", "l2Head", s.l2Head)
+		return eth.L1BlockRef{}, nil
+	}
+	// Don't produce blocks until past the L1 genesis
+	if nextOrigin.Number <= s.Config.Genesis.L1.Number {
+		s.log.Trace("Skipping block production b/c origin behind genesis")
+		return eth.L1BlockRef{}, nil
+	}
+	// 2. Ask output to create new block
+	newUnsafeL2Head, batch, err := s.output.createNewBlock(context.Background(), s.l2Head, s.l2SafeHead.ID(), s.l2Finalized, nextOrigin.ID())
+	if err != nil {
+		s.log.Error("Could not extend chain as sequencer", "err", err, "l2UnsafeHead", s.l2Head, "l1Origin", nextOrigin)
+		return eth.L1BlockRef{}, err
+	}
+	// 3. Update unsafe l2 head
+	s.l2Head = newUnsafeL2Head
+	s.log.Trace("Created new l2 block", "l2UnsafeHead", s.l2Head)
+	// 4. Ask for batch submission
+	go func() {
+		_, err := s.bss.Submit(&s.Config, []*derive.BatchData{batch}) // TODO: submit multiple batches
+		if err != nil {
+			s.log.Error("Error submitting batch", "err", err)
+		}
+	}()
+	return nextOrigin, nil
+}
+
+func (s *state) handleEpoch(ctx context.Context) error {
+	if s.sequencer {
+		s.log.Trace("Skipping extension based on L1 chain as sequencer")
+		return nil
+	}
+	s.log.Trace("Got step request")
+	// Extend cached window if we do not have enough saved blocks
+	if len(s.l1Window) < int(s.Config.SeqWindowSize) {
+		err := s.extendL1Window(context.Background())
+		if err != nil {
+			s.log.Error("Could not extend the cached L1 window", "err", err, "l1Head", s.l1Head, "window_end", s.l1WindowEnd())
+			return err
+		}
+	}
+
+	// Get next window (& ensure that it exists)
+	if window, ok := s.sequencingWindow(); ok {
+		s.log.Trace("Have enough cached blocks to run step.", "window", window)
+		ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		newL2Head, newL2SafeHead, reorg, err := s.output.insertEpoch(ctx, s.l2Head, s.l2SafeHead, s.l2Finalized, window)
+		cancel()
+		if err != nil {
+			s.log.Error("Error in running the output step.", "err", err, "l2SafeHead", s.l2SafeHead, "l2Finalized", s.l2Finalized, "window", window)
+			return err
+		}
+		if reorg {
+			s.log.Warn("Reorged L2 when inserting an epoch")
+		}
+		s.l2Head = newL2Head
+		s.l2SafeHead = newL2SafeHead
+		s.l1Window = s.l1Window[1:]
+		// TODO: l2Finalized
+	} else {
+		s.log.Trace("Not enough cached blocks to run step", "cached_window_len", len(s.l1Window))
+	}
+	return nil
+}
+
 func (s *state) loop() {
 	s.log.Info("State loop started")
 	ctx := context.Background()
@@ -191,106 +290,35 @@ func (s *state) loop() {
 			s.log.Trace("L2 Creation Ticker")
 			createBlock()
 		case <-l2BlockCreationReq:
-			nextOrigin, err := s.findNextL1Origin(context.Background())
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			nextOrigin, err := s.createNewL2Block(ctx)
+			cancel()
 			if err != nil {
-				s.log.Error("Error finding next L1 Origin")
-				continue
+				s.log.Error("Error creating new L2 block", "err", err)
 			}
-			if nextOrigin.Time <= s.Config.BlockTime+s.l2Head.Time {
-				s.log.Trace("Skipping block production", "l2Head", s.l2Head)
-				continue
-			}
-			// Don't produce blocks until past the L1 genesis
-			if nextOrigin.Number <= s.Config.Genesis.L1.Number {
-				s.log.Trace("Skipping block production b/c origin behind genesis")
-				continue
-			}
-			// 2. Ask output to create new block
-			newUnsafeL2Head, batch, err := s.output.createNewBlock(context.Background(), s.l2Head, s.l2SafeHead.ID(), s.l2Finalized, nextOrigin.ID())
-			if err != nil {
-				s.log.Error("Could not extend chain as sequencer", "err", err, "l2UnsafeHead", s.l2Head, "l1Origin", nextOrigin)
-				continue
-			}
-			// 3. Update unsafe l2 head
-			s.l2Head = newUnsafeL2Head
-			s.log.Trace("Created new l2 block", "l2UnsafeHead", s.l2Head)
-			// 4. Ask for batch submission
-			go func() {
-				_, err := s.bss.Submit(&s.Config, []*derive.BatchData{batch}) // TODO: submit multiple batches
-				if err != nil {
-					s.log.Error("Error submitting batch", "err", err)
-				}
-			}()
 			if nextOrigin.Time > s.l2Head.Time+s.Config.BlockTime {
 				s.log.Trace("Asking for a second L2 block asap", "l2Head", s.l2Head)
 				createBlock()
 			}
 
 		case newL1Head := <-s.l1Heads:
-			s.log.Trace("Received new L1 Head", "new_head", newL1Head, "old_head", s.l1Head)
-			if s.l1Head.Hash == newL1Head.Hash {
-				log.Trace("Received L1 head signal that is the same as the current head", "l1_head", newL1Head)
-			} else if s.l1Head.Hash == newL1Head.ParentHash {
-				s.log.Trace("Linear extension")
-				s.l1Head = newL1Head
-				if s.l1WindowEnd().Hash == newL1Head.ParentHash {
-					s.l1Window = append(s.l1Window, newL1Head.ID())
-				}
-			} else {
-				// Not strictly always a reorg, but that is the most likely case
-				s.log.Warn("L1 Head signal indicates an L1 re-org", "old_l1_head", s.l1Head, "new_l1_head_parent", newL1Head.ParentHash, "new_l1_head", newL1Head)
-				unsafeL2Head, safeL2Head, err := sync.FindL2Heads(ctx, s.l2Head, s.Config.SeqWindowSize, s.l1, s.l2, &s.Config.Genesis)
-				if err != nil {
-					s.log.Error("Could not get new unsafe L2 head when trying to handle a re-org", "err", err)
-					continue
-				}
-				// TODO: Fork choice update
-				s.l1Head = newL1Head
-				s.l1Window = nil
-				s.l2Head = unsafeL2Head // Note that verify only nodes can get an unsafe head because of a reorg. May want to remove that.
-				s.l2SafeHead = safeL2Head
-				s.log.Trace("State update", "l1Head", s.l1Head, "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead)
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := s.handleNewL1Block(ctx, newL1Head)
+			cancel()
+			if err != nil {
+				s.log.Error("Error in handling new L1 Head", "err", err)
 			}
-
 			// Run step if we are able to
 			if s.l1Head.Number-s.l2Head.L1Origin.Number >= s.Config.SeqWindowSize {
 				s.log.Trace("Requesting next step", "l1Head", s.l1Head, "l2Head", s.l2Head, "l1Origin", s.l2Head.L1Origin)
 				requestStep()
 			}
 		case <-stepRequest:
-			if s.sequencer {
-				s.log.Trace("Skipping extension based on L1 chain as sequencer")
-				continue
-			}
-			s.log.Trace("Got step request")
-			// Extend cached window if we do not have enough saved blocks
-			if len(s.l1Window) < int(s.Config.SeqWindowSize) {
-				err := s.extendL1Window(context.Background())
-				if err != nil {
-					s.log.Error("Could not extend the cached L1 window", "err", err, "l1Head", s.l1Head, "window_end", s.l1WindowEnd())
-					continue
-				}
-			}
-
-			// Get next window (& ensure that it exists)
-			if window, ok := s.sequencingWindow(); ok {
-				s.log.Trace("Have enough cached blocks to run step.", "window", window)
-				ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-				newL2Head, newL2SafeHead, reorg, err := s.output.insertEpoch(ctx, s.l2Head, s.l2SafeHead, s.l2Finalized, window)
-				cancel()
-				if err != nil {
-					s.log.Error("Error in running the output step.", "err", err, "l2SafeHead", s.l2SafeHead, "l2Finalized", s.l2Finalized, "window", window)
-					continue
-				}
-				if reorg {
-					s.log.Warn("Reorged L2 when inserting an epoch")
-				}
-				s.l2Head = newL2Head
-				s.l2SafeHead = newL2SafeHead
-				s.l1Window = s.l1Window[1:]
-				// TODO: l2Finalized
-			} else {
-				s.log.Trace("Not enough cached blocks to run step", "cached_window_len", len(s.l1Window))
+			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			err := s.handleEpoch(ctx)
+			cancel()
+			if err != nil {
+				s.log.Error("Error in handling epoch", "err", err)
 			}
 
 			// Immediately run next step if we have enough blocks.
@@ -298,7 +326,6 @@ func (s *state) loop() {
 				s.log.Trace("Requesting next step", "l1Head", s.l1Head, "l2Head", s.l2Head, "l1Origin", s.l2Head.L1Origin)
 				requestStep()
 			}
-
 		}
 	}
 
