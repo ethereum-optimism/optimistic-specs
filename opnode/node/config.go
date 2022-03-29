@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
-	"github.com/ethereum/go-ethereum/common"
 )
 
 type Config struct {
@@ -22,9 +21,12 @@ type Config struct {
 	// SubmitterPrivKey, temporary config var while the batch-submitter is part of the rollup node
 	SubmitterPrivKey *ecdsa.PrivateKey
 
-	RPCListenAddr          string
-	RPCListenPort          int
-	WithdrawalContractAddr common.Address
+	RPC RPCConfig
+}
+
+type RPCConfig struct {
+	ListenAddr string
+	ListenPort int
 }
 
 // Check verifies that the given configuration makes sense

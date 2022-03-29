@@ -65,12 +65,6 @@ var (
 		EnvVar: prefixEnvVar("BATCHSUBMITTER_KEY"),
 	}
 
-	WithdrawalContractAddr = cli.StringFlag{
-		Name:   "rpc.withdrawalcontractaddress",
-		Usage:  "Address of the Withdrawal contract. By default, this is set to the withdrawal contract predeploy",
-		EnvVar: prefixEnvVar("WITHDRAWAL_CONTRACT_ADDR"),
-	}
-
 	LogLevelFlag = cli.StringFlag{
 		Name:   "log.level",
 		Usage:  "The lowest log level that will be output",
@@ -102,7 +96,6 @@ var requiredFlags = []cli.Flag{
 var optionalFlags = []cli.Flag{
 	SequencingEnabledFlag,
 	BatchSubmitterKeyFlag,
-	WithdrawalContractAddr,
 	LogLevelFlag,
 	LogFormatFlag,
 	LogColorFlag,

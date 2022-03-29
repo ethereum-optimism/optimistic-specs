@@ -172,9 +172,14 @@ func TestSystemE2E(t *testing.T) {
 			SeqWindowSize:        2,
 			L1ChainID:            big.NewInt(900),
 			// TODO pick defaults
-			FeeRecipientAddress: common.Address{0xff, 0x01},
-			BatchInboxAddress:   common.Address{0xff, 0x02},
-			BatchSenderAddress:  submitterAddress,
+			FeeRecipientAddress:       common.Address{0xff, 0x01},
+			BatchInboxAddress:         common.Address{0xff, 0x02},
+			BatchSenderAddress:        submitterAddress,
+			WithdrawalContractAddress: common.Address{0xff, 0x03}, // TODO: pre-deploy withdrawal contract
+		},
+		RPC: rollupNode.RPCConfig{
+			ListenAddr: "localhost",
+			ListenPort: cfg.l2Sequencer.nodeConfig.HTTPPort,
 		},
 	}
 	node, err := rollupNode.New(context.Background(), nodeCfg, testlog.Logger(t, log.LvlError), "")
@@ -188,7 +193,7 @@ func TestSystemE2E(t *testing.T) {
 	sequenceCfg := &rollupNode.Config{
 		L1NodeAddr:    endpoint(cfg.l1.nodeConfig),
 		L2EngineAddrs: []string{endpoint(cfg.l2Sequencer.nodeConfig)},
-		L2NodeAddr:    endpoint(cfg.l2Verifier.nodeConfig),
+		L2NodeAddr:    endpoint(cfg.l2Sequencer.nodeConfig),
 		Rollup: rollup.Config{
 			Genesis: rollup.Genesis{
 				L1:     l1GenesisID,
@@ -200,12 +205,17 @@ func TestSystemE2E(t *testing.T) {
 			SeqWindowSize:        2,
 			L1ChainID:            big.NewInt(900),
 			// TODO pick defaults
-			FeeRecipientAddress: common.Address{0xff, 0x01},
-			BatchInboxAddress:   common.Address{0xff, 0x02},
-			BatchSenderAddress:  submitterAddress,
+			FeeRecipientAddress:       common.Address{0xff, 0x01},
+			BatchInboxAddress:         common.Address{0xff, 0x02},
+			BatchSenderAddress:        submitterAddress,
+			WithdrawalContractAddress: common.Address{0xff, 0x03}, // TODO: pre-deploy withdrawal contract
 		},
 		Sequencer:        true,
 		SubmitterPrivKey: bssPrivKey,
+		RPC: rollupNode.RPCConfig{
+			ListenAddr: "localhost",
+			ListenPort: cfg.l2Sequencer.nodeConfig.HTTPPort,
+		},
 	}
 	sequencer, err := rollupNode.New(context.Background(), sequenceCfg, testlog.Logger(t, log.LvlError), "")
 	require.Nil(t, err)

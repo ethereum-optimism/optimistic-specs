@@ -44,6 +44,8 @@ type Config struct {
 	BatchInboxAddress common.Address `json:"batch_inbox_address"`
 	// Acceptable batch-sender address
 	BatchSenderAddress common.Address `json:"batch_sender_address"`
+	// L2 address that stores withdrawal messages, enshrined as part of the output root with withdrawal_storage_hash
+	WithdrawalContractAddress common.Address `json:"withdrawal_contract_address"`
 }
 
 // Check verifies that the given configuration makes sense
