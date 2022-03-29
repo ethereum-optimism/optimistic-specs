@@ -3,7 +3,7 @@ opnode:
 .PHONY: opnode
 
 contracts:
-	cd packages/contracts && yarn build
+	cd ./packages/contracts && yarn build
 .PHONY: contracts
 
 clean:
