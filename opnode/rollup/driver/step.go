@@ -151,7 +151,7 @@ func (d *outputImpl) insertEpoch(ctx context.Context, l2Head eth.L2BlockRef, l2S
 	minL2Time := l2Info.Time() + d.Config.BlockTime
 	maxL2Time := l1Info.Time()
 	batches = derive.FilterBatches(&d.Config, epoch, minL2Time, maxL2Time, batches)
-	batches = derive.SortedAndPreparedBatches(batches, uint64(epoch), d.Config.BlockTime, minL2Time, maxL2Time)
+	batches = derive.FillMissingBatches(batches, uint64(epoch), d.Config.BlockTime, minL2Time, maxL2Time)
 
 	// Note: SafeBlockHash currently needs to be set b/c of Geth
 	fc := l2.ForkchoiceState{
