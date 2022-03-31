@@ -213,10 +213,6 @@ func (s *state) createNewL2Block(ctx context.Context) (eth.L1BlockRef, error) {
 // handleEpoch attempts to insert a full L2 epoch on top of the L2 Safe Head.
 // It ensures that a full sequencing window is available and updates the state as needed.
 func (s *state) handleEpoch(ctx context.Context) (bool, error) {
-	if s.sequencer {
-		s.log.Trace("Skipping epoch insertion as sequencer")
-		return false, nil
-	}
 	s.log.Trace("Handling epoch", "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead)
 	// Extend cached window if we do not have enough saved blocks
 	if len(s.l1Window) < int(s.Config.SeqWindowSize) {
@@ -241,6 +237,7 @@ func (s *state) handleEpoch(ctx context.Context) (bool, error) {
 	cancel()
 	if err != nil {
 		s.log.Error("Error in running the output step.", "err", err, "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead)
+		return false, err
 	}
 
 	// State update
@@ -310,7 +307,7 @@ func (s *state) loop() {
 				s.log.Error("Error in handling new L1 Head", "err", err)
 			}
 			// Run step if we are able to
-			if s.l1Head.Number-s.l2Head.L1Origin.Number >= s.Config.SeqWindowSize {
+			if s.l1Head.Number-s.l2SafeHead.L1Origin.Number >= s.Config.SeqWindowSize {
 				s.log.Trace("Requesting next step", "l1Head", s.l1Head, "l2Head", s.l2Head, "l1Origin", s.l2Head.L1Origin)
 				requestStep()
 			}
@@ -323,8 +320,9 @@ func (s *state) loop() {
 			}
 			if reorg {
 				s.log.Warn("Got reorg")
-				// TODO
-				// If sequncer, ask for a new block
+				if s.sequencer {
+					createBlock()
+				}
 			}
 
 			// Immediately run next step if we have enough blocks.

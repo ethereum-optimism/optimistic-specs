@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
@@ -11,6 +12,7 @@ import (
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup/derive"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/log"
@@ -82,7 +84,7 @@ func (d *outputImpl) createNewBlock(ctx context.Context, l2Head eth.L2BlockRef, 
 		FinalizedBlockHash: l2Finalized.Hash,
 	}
 
-	payload, err := d.addBlock(ctx, fc, attrs, false, true)
+	payload, err := d.insertHeadBlock(ctx, fc, attrs, false)
 	if err != nil {
 		return l2Head, nil, fmt.Errorf("failed to extend L2 chain: %v", err)
 	}
@@ -153,15 +155,17 @@ func (d *outputImpl) insertEpoch(ctx context.Context, l2Head eth.L2BlockRef, l2S
 	batches = derive.FilterBatches(&d.Config, epoch, minL2Time, maxL2Time, batches)
 	batches = derive.FillMissingBatches(batches, uint64(epoch), d.Config.BlockTime, minL2Time, maxL2Time)
 
-	// Note: SafeBlockHash currently needs to be set b/c of Geth
 	fc := l2.ForkchoiceState{
-		HeadBlockHash:      l2SafeHead.Hash,
+		HeadBlockHash:      l2Head.Hash,
 		SafeBlockHash:      l2SafeHead.Hash,
 		FinalizedBlockHash: l2Finalized.Hash,
 	}
-	updateUnsafeHead := l2Head.Hash == l2SafeHead.Hash // If unsafe head is the same as the safe head, keep it up to date
 	// Execute each L2 block in the epoch
-	last := l2SafeHead
+	lastHead := l2Head
+	lastSafeHead := l2SafeHead
+	didReorg := false
+	var payload derive.Block
+	var reorg bool
 	for i, batch := range batches {
 		var txns []l2.Data
 		txns = append(txns, l1InfoTx)
@@ -177,24 +181,99 @@ func (d *outputImpl) insertEpoch(ctx context.Context, l2Head eth.L2BlockRef, l2S
 			NoTxPool:              false,
 		}
 
-		payload, err := d.addBlock(ctx, fc, attrs, true, updateUnsafeHead)
-		if err != nil {
-			return last, last, false, fmt.Errorf("failed to extend L2 chain at block %d/%d of epoch %d: %w", i, len(batches), epoch, err)
+		// We are either verifying blocks (with a potential for a reorg) or inserting a safe head to the chain
+		if lastHead.Hash != lastSafeHead.Hash {
+			payload, reorg, err = d.verifySafeBlock(ctx, fc, attrs, lastSafeHead.ID())
+
+		} else {
+			payload, err = d.insertHeadBlock(ctx, fc, attrs, true)
 		}
+		if err != nil {
+			return lastHead, lastSafeHead, didReorg, fmt.Errorf("failed to extend L2 chain at block %d/%d of epoch %d: %w", i, len(batches), epoch, err)
+		}
+
 		newLast, err := derive.BlockReferences(payload, &d.Config.Genesis)
 		if err != nil {
-			return last, last, false, fmt.Errorf("failed to derive block references: %w", err)
+			return lastHead, lastSafeHead, didReorg, fmt.Errorf("failed to derive block references: %w", err)
 		}
-		last = newLast
-		// TODO(Joshua): Update this to handle verifiers + sequencers
-		fc.HeadBlockHash = last.Hash
-		fc.SafeBlockHash = last.Hash
+		if reorg {
+			didReorg = true
+		}
+		// If reorg or the L2 Head is not ahead of the safe head, bump the head block.
+		if reorg || lastHead.Hash == lastSafeHead.Hash {
+			lastHead = newLast
+		}
+		lastSafeHead = newLast
+
+		fc.HeadBlockHash = lastHead.Hash
+		fc.SafeBlockHash = lastSafeHead.Hash
 	}
 
-	return last, last, false, nil
+	return lastHead, lastSafeHead, didReorg, nil
 }
 
-func (d *outputImpl) addBlock(ctx context.Context, fc l2.ForkchoiceState, attrs *l2.PayloadAttributes, updateSafe, updateUnsafe bool) (*l2.ExecutionPayload, error) {
+// attributesMatchBlock checks if the L2 attributes pre-inputs match the output
+// nil if it is a match. If err is not nil, the error contains the reason for the mismatch
+func attributesMatchBlock(attrs *l2.PayloadAttributes, parentHash common.Hash, block *types.Block) error {
+	if parentHash != block.ParentHash() {
+		return errors.New("parent hash field does not match")
+	}
+	if uint64(attrs.Timestamp) != block.Time() {
+		return errors.New("timestamp field does not match")
+	}
+	if attrs.Random != l2.Bytes32(block.MixDigest()) {
+		return errors.New("random field does not match")
+	}
+	if len(attrs.Transactions) != len(block.Transactions()) {
+		return errors.New("transaction count does not match")
+	}
+	btxs := block.Transactions()
+	for i := range attrs.Transactions {
+		var tx types.Transaction
+		err := tx.UnmarshalBinary(attrs.Transactions[i])
+		if err != nil {
+			return fmt.Errorf("failed to decode transaction in attributes: %w", err)
+		}
+
+		if tx.Hash() != btxs[i].Hash() {
+			return errors.New("transaction does not match")
+		}
+	}
+	return nil
+}
+
+// verifySafeBlock reconciles the supplied payload attributes against the actual L2 block.
+// If they do not match, it inserts the new block and sets the head and safe head to the new block in the FC.
+func (d *outputImpl) verifySafeBlock(ctx context.Context, fc l2.ForkchoiceState, attrs *l2.PayloadAttributes, parent eth.BlockID) (derive.Block, bool, error) {
+	block, err := d.l2.BlockByNumber(ctx, new(big.Int).SetUint64(parent.Number+1))
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to get L2 block: %w", err)
+	}
+	err = attributesMatchBlock(attrs, parent.Hash, block)
+	if err != nil {
+		// Have reorg
+		d.log.Warn("Detected L2 reorg when verifying L2 safe head", "parent", parent, "prev_block", block.Hash(), "mismatch", err)
+		fc.HeadBlockHash = parent.Hash
+		fc.SafeBlockHash = parent.Hash
+		payload, err := d.insertHeadBlock(ctx, fc, attrs, true)
+		return payload, true, err
+	}
+	// If match, just bump the safe head
+	d.log.Debug("Verified L2 block", "number", block.Number(), "hash", block.Hash())
+	fc.SafeBlockHash = block.Hash()
+	_, err = d.l2.ForkchoiceUpdate(ctx, &fc, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to execute ForkchoiceUpdated: %w", err)
+	}
+	return block, false, nil
+
+}
+
+// insertHeadBlock creates, executes, and inserts the specified block as the head block.
+// It first uses the given FC to start the block creation process and then after the payload is executed,
+// sets the FC to the same safe and finalized hashes, but updates the head hash to the new block.
+// If updateSafe is true, the head block is considered to be the safe head as well as the head.
+func (d *outputImpl) insertHeadBlock(ctx context.Context, fc l2.ForkchoiceState, attrs *l2.PayloadAttributes, updateSafe bool) (*l2.ExecutionPayload, error) {
 	fcRes, err := d.l2.ForkchoiceUpdate(ctx, &fc, attrs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new block via forkchoice: %w", err)
@@ -211,12 +290,11 @@ func (d *outputImpl) addBlock(ctx context.Context, fc l2.ForkchoiceState, attrs 
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert execution payload: %w", err)
 	}
+	fc.HeadBlockHash = payload.BlockHash
 	if updateSafe {
 		fc.SafeBlockHash = payload.BlockHash
 	}
-	if updateUnsafe {
-		fc.HeadBlockHash = payload.BlockHash
-	}
+	d.log.Debug("Inserted L2 head block", "number", uint64(payload.BlockNumber), "hash", payload.BlockHash, "update_safe", updateSafe)
 	_, err = d.l2.ForkchoiceUpdate(ctx, &fc, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to make the new L2 block canonical via forkchoice: %w", err)
