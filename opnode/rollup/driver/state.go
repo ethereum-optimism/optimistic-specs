@@ -216,10 +216,6 @@ func (s *state) createNewL2Block(ctx context.Context) (eth.L1BlockRef, error) {
 // handleEpoch attempts to insert a full L2 epoch on top of the L2 Safe Head.
 // It ensures that a full sequencing window is available and updates the state as needed.
 func (s *state) handleEpoch(ctx context.Context) (bool, error) {
-	if s.sequencer {
-		s.log.Trace("Skipping epoch insertion as sequencer")
-		return false, nil
-	}
 	s.log.Trace("Handling epoch", "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead)
 	// Extend cached window if we do not have enough saved blocks
 	if len(s.l1WindowBuf) < int(s.Config.SeqWindowSize) {
@@ -244,6 +240,7 @@ func (s *state) handleEpoch(ctx context.Context) (bool, error) {
 	cancel()
 	if err != nil {
 		s.log.Error("Error in running the output step.", "err", err, "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead)
+		return false, err
 	}
 
 	// State update

@@ -33,6 +33,7 @@ type Engine interface {
 	ForkchoiceUpdate(ctx context.Context, state *l2.ForkchoiceState, attr *l2.PayloadAttributes) (*l2.ForkchoiceUpdatedResult, error)
 	ExecutePayload(ctx context.Context, payload *l2.ExecutionPayload) error
 	BlockByHash(context.Context, common.Hash) (*types.Block, error)
+	BlockByNumber(context.Context, *big.Int) (*types.Block, error)
 }
 
 type L1Chain interface {
