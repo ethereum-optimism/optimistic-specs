@@ -26,7 +26,7 @@ type outputImpl struct {
 }
 
 func (d *outputImpl) createNewBlock(ctx context.Context, l2Head eth.L2BlockRef, l2SafeHead eth.BlockID, l2Finalized eth.BlockID, l1Origin eth.BlockID) (eth.L2BlockRef, *derive.BatchData, error) {
-	d.log.Info("creating new block", "l2Parent", l2Head)
+	d.log.Debug("creating new block", "l2Parent", l2Head)
 	fetchCtx, cancel := context.WithTimeout(ctx, time.Second*20)
 	defer cancel()
 	l2Info, err := d.l2.BlockByHash(fetchCtx, l2Head.Hash)
@@ -63,7 +63,7 @@ func (d *outputImpl) createNewBlock(ctx context.Context, l2Head eth.L2BlockRef, 
 	var txns []l2.Data
 	txns = append(txns, l1InfoTx)
 	deposits, err := derive.DeriveDeposits(l2Head.Number+1, receipts)
-	d.log.Info("Derived deposits", "deposits", deposits, "l2Parent", l2Head, "l1Origin", l1Origin)
+	d.log.Debug("Derived deposits", "deposits", deposits, "l2Parent", l2Head, "l1Origin", l1Origin)
 	if err != nil {
 		return l2Head, nil, fmt.Errorf("failed to derive deposits: %v", err)
 	}
@@ -251,15 +251,16 @@ func (d *outputImpl) verifySafeBlock(ctx context.Context, fc l2.ForkchoiceState,
 	}
 	err = attributesMatchBlock(attrs, parent.Hash, block)
 	if err != nil {
+		reason := err
 		// Have reorg
-		d.log.Warn("Detected L2 reorg when verifying L2 safe head", "parent", parent, "prev_block", block.Hash(), "mismatch", err)
 		fc.HeadBlockHash = parent.Hash
 		fc.SafeBlockHash = parent.Hash
 		payload, err := d.insertHeadBlock(ctx, fc, attrs, true)
+		d.log.Warn("Detected L2 reorg when verifying L2 safe head", "parent", parent, "prev_block", block.Hash(), "new_block", payload.BlockHash, "mismatch", reason)
 		return payload, true, err
 	}
 	// If match, just bump the safe head
-	d.log.Debug("Verified L2 block", "number", block.Number(), "hash", block.Hash())
+	d.log.Info("Verified L2 block", "number", block.Number(), "hash", block.Hash())
 	fc.SafeBlockHash = block.Hash()
 	_, err = d.l2.ForkchoiceUpdate(ctx, &fc, nil)
 	if err != nil {

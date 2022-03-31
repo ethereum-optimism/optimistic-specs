@@ -167,7 +167,7 @@ func TestSystemE2E(t *testing.T) {
 			},
 			BlockTime:            1,
 			MaxSequencerTimeDiff: 10,
-			SeqWindowSize:        2,
+			SeqWindowSize:        4,
 			L1ChainID:            big.NewInt(900),
 			// TODO pick defaults
 			FeeRecipientAddress: common.Address{0xff, 0x01},
@@ -175,7 +175,7 @@ func TestSystemE2E(t *testing.T) {
 			BatchSenderAddress:  submitterAddress,
 		},
 	}
-	node, err := rollupNode.New(context.Background(), nodeCfg, testlog.Logger(t, log.LvlError), "")
+	node, err := rollupNode.New(context.Background(), nodeCfg, testlog.Logger(t, log.LvlWarn), "")
 	require.Nil(t, err)
 
 	err = node.Start(context.Background())
@@ -195,7 +195,7 @@ func TestSystemE2E(t *testing.T) {
 			},
 			BlockTime:            1,
 			MaxSequencerTimeDiff: 10,
-			SeqWindowSize:        2,
+			SeqWindowSize:        4,
 			L1ChainID:            big.NewInt(900),
 			// TODO pick defaults
 			FeeRecipientAddress: common.Address{0xff, 0x01},
@@ -205,12 +205,14 @@ func TestSystemE2E(t *testing.T) {
 		Sequencer:        true,
 		SubmitterPrivKey: bssPrivKey,
 	}
-	sequencer, err := rollupNode.New(context.Background(), sequenceCfg, testlog.Logger(t, log.LvlError), "")
+	sequencer, err := rollupNode.New(context.Background(), sequenceCfg, testlog.Logger(t, log.LvlInfo), "")
 	require.Nil(t, err)
 
 	err = sequencer.Start(context.Background())
 	require.Nil(t, err)
 	defer sequencer.Stop()
+
+	<-time.After(6 * time.Second)
 
 	// Send Transaction & wait for success
 	contractAddr := common.HexToAddress(cfg.depositContractAddress)
@@ -268,7 +270,7 @@ func TestSystemE2E(t *testing.T) {
 	}
 
 	// Wait (or timeout) for that block to show up on L2
-	timeoutCh := time.After(6 * time.Second)
+	timeoutCh := time.After(600 * time.Second)
 loop1:
 	for {
 		// Confirm balance
@@ -301,7 +303,7 @@ loop1:
 	var l2IncludedBlock *big.Int
 
 	// Wait for tx to show up in chain (on sequencer)
-	timeoutCh = time.After(6 * time.Second)
+	timeoutCh = time.After(600 * time.Second)
 loop2:
 	for {
 		select {

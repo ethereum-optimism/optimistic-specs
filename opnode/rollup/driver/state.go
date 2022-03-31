@@ -199,7 +199,7 @@ func (s *state) createNewL2Block(ctx context.Context) (eth.L1BlockRef, error) {
 	}
 	// State update
 	s.l2Head = newUnsafeL2Head
-	s.log.Info("Sequenced new l2 block", "l2Head", s.l2Head, "l1Origin", s.l2Head.L1Origin)
+	s.log.Info("Sequenced new l2 block", "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead, "l1Origin", s.l2Head.L1Origin)
 	//Submit batch
 	go func() {
 		_, err := s.bss.Submit(&s.Config, []*derive.BatchData{batch}) // TODO: submit multiple batches
