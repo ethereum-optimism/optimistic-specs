@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup/derive"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup/sync"
@@ -135,8 +136,18 @@ func (s *state) handleNewL1Block(ctx context.Context, newL1Head eth.L1BlockRef) 
 		s.log.Error("Could not get new unsafe L2 head when trying to handle a re-org", "err", err)
 		return err
 	}
+	// Update forkchoice
+	fc := l2.ForkchoiceState{
+		HeadBlockHash:      unsafeL2Head.Hash,
+		SafeBlockHash:      safeL2Head.Hash,
+		FinalizedBlockHash: s.l2Finalized.Hash,
+	}
+	_, err = s.l2.ForkchoiceUpdate(ctx, &fc, nil)
+	if err != nil {
+		s.log.Error("Could not set new forkchoice when trying to handle a re-org", "err", err)
+		return err
+	}
 	// State Update
-	// TODO: Fork choice update
 	s.l1Head = newL1Head
 	s.l1WindowBuf = nil
 	s.l2Head = unsafeL2Head

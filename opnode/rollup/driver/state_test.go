@@ -114,7 +114,6 @@ func reorg__L2(t *testing.T, expectedWindow []testID, s *state, src *fakeChainSo
 	for i := range expectedWindow {
 		assert.Equal(t, expectedWindow[i].ID(), args.l1Window[i], "Window elements must match")
 	}
-	src.reorgL2()
 
 	outputReturn <- outputReturnArgs{l2Head: src.setL2Head(int(args.l2Head.Number) + 1), err: nil}
 }
