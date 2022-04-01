@@ -39,6 +39,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
@@ -46,6 +47,7 @@ import (
 )
 
 type L1Chain interface {
+	L1HeadBlockRef(ctx context.Context) (eth.L1BlockRef, error)
 	L1BlockRefByNumber(ctx context.Context, number uint64) (eth.L1BlockRef, error)
 }
 
@@ -58,10 +60,14 @@ var TooDeepReorgErr = errors.New("reorg is too deep")
 
 const MaxReorgDepth = 500
 
+// isCanonical returns true if the supplied block ID is canonical in the L1 chain.
+// It will suppress ethereum.NotFound errors
 func isCanonical(ctx context.Context, l1 L1Chain, block eth.BlockID) (bool, error) {
 	canonical, err := l1.L1BlockRefByNumber(ctx, block.Number)
-	if err != nil {
+	if err != nil && !errors.Is(err, ethereum.NotFound) {
 		return false, err
+	} else if err != nil {
+		return false, nil
 	}
 	return canonical.Hash == block.Hash, nil
 }
@@ -73,6 +79,15 @@ func FindL2Heads(ctx context.Context, start eth.L2BlockRef, seqWindowSize int,
 	l1 L1Chain, l2 L2Chain, genesis *rollup.Genesis) (unsafeHead eth.L2BlockRef, safeHead eth.L2BlockRef, err error) {
 	reorgDepth := 0
 	var prevL1OriginHash common.Hash
+	// First check if the L1 Origin of the start block is ahead of the current L1 head
+	// If so, we assume that this should be the next unsafe head for the sequencing window
+	// We still need to walk back the safe head because we don't know where the reorg started.
+	l1Head, err := l1.L1HeadBlockRef(ctx)
+	if err != nil {
+		return eth.L2BlockRef{}, eth.L2BlockRef{}, err
+	}
+	l2Ahead := start.L1Origin.Number > l1Head.Number
+
 	// Walk L2 chain from start until L1Origin matches l1Base. Bail out early of when at genesis.
 	for n := start; ; {
 		// Check if l1Origin is canonical when we get to a new epoch
@@ -111,12 +126,22 @@ func FindL2Heads(ctx context.Context, start eth.L2BlockRef, seqWindowSize int,
 		}
 		// Walked sufficiently far
 		if depth == seqWindowSize {
-			return unsafeHead, n, nil
+			if l2Ahead {
+				return start, n, nil
+			} else {
+				return unsafeHead, n, nil
+			}
+
 		}
 		// Genesis is always safe.
 		if n.Hash == genesis.L2.Hash || n.Number == genesis.L2.Number {
 			safeHead = eth.L2BlockRef{Hash: genesis.L2.Hash, Number: genesis.L2.Number, Time: genesis.L2Time, L1Origin: genesis.L1}
-			return unsafeHead, safeHead, nil
+			if l2Ahead {
+				return start, safeHead, nil
+			} else {
+				return unsafeHead, safeHead, nil
+			}
+
 		}
 		// Pull L2 parent for next iteration
 		n, err = l2.L2BlockRefByHash(ctx, n.ParentHash)

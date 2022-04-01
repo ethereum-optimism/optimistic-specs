@@ -16,21 +16,8 @@ type fakeChainSource struct {
 	L2 map[common.Hash]eth.L2BlockRef
 }
 
-func (m *fakeChainSource) L1Range(ctx context.Context, base eth.BlockID) ([]eth.BlockID, error) {
-	var out []eth.BlockID
-	found := false
-	for _, b := range m.L1 {
-		if found {
-			out = append(out, b.ID())
-		}
-		if b.ID() == base {
-			found = true
-		}
-	}
-	if found {
-		return out, nil
-	}
-	return nil, ethereum.NotFound
+func (m *fakeChainSource) L1HeadBlockRef(ctx context.Context) (eth.L1BlockRef, error) {
+	return m.L1[len(m.L1)-1], nil
 }
 
 func (m *fakeChainSource) L1BlockRefByNumber(ctx context.Context, number uint64) (eth.L1BlockRef, error) {
@@ -190,6 +177,19 @@ func TestFindSyncStart(t *testing.T) {
 			GenesisL2:     'A',
 			UnsafeL2Head:  'D',
 			SeqWindowSize: 3,
+			SafeL2Head:    'B',
+			ExpectedErr:   nil,
+		},
+		{
+			Name:          "L2 Chain ahead after reorg",
+			GenesisL1Num:  0,
+			L1:            "abxyz",
+			L2:            "ABXYZ",
+			NewL1:         "abx",
+			GenesisL1:     'a',
+			GenesisL2:     'A',
+			UnsafeL2Head:  'Z',
+			SeqWindowSize: 2,
 			SafeL2Head:    'B',
 			ExpectedErr:   nil,
 		},
