@@ -385,24 +385,27 @@ descendant of an ancestor of the previous head. In that case, the rollup driver 
 ancestor, and can re-derive the L2 chain from that L1 block and onward.
 
 The rollup node maintains two heads of the L2 Chain: the unsafe head (often called head) and the safe head.
-Each L2 block has an L1 Origin block that it references in the L1 Info deposit transaction.
-The unsafe head is the L2 block with the highest number who's L1 Origin block is canonical in the new L1 chain.
-The safe head is the L2 block that was derived from a sequencing window that did not change with the reorg.
+Each L2 block has an L1 Attributes block that it references in the L1 Info deposit transaction.
+The unsafe head is the head of the L2 chain. It's L1 Attributes should be canonical or potentially extending the
+canonical chain (if the rollup node has not yet seen the L1 block that it is based upon).
+The safe head is the the last L2 block of the last epoch whose sequencing window is complete
+(i.e. the epoch with number `L1Head.number` - `SEQUENCING_WINDOW_SIZE`).
 
 Determining the unsafe head in the case of an L1 reorg is easy. Start with the current L2 Head and walk the L1 chain
-until the L1 Origin of an L2 block is canonical.
+until the L1 Attributes of an L2 block is canonical or not found (and ahead of the current L1 head).
 
-To determine the safe head, the straightforward approach is to walk back from the unsafe head until the L1 Origin number
-is a full sequencing window behind the L1 Origin number of the unsafe head.
+To determine the safe head, the straightforward approach is to walk back from the unsafe head until the L1 Attributes
+number is a full sequencing window behind the L1 Attributes number of the unsafe head.
 
-The purpose of this is to ensure that if the sequencing window for a L2 block has changed since it was derived, that
-the L2 block is re-derived. The start of the sequencing window for a L2 block is committed to in the L1 Origin; however
-the end of the window is based on a block number (note that it cannot be done any other way). As such we must find the
-highest L1 block that is common to both L1 chains (the reorg base) and the safe head is the L2 block who's sequencing
-window ends at the reorg base. Any L2 block after that will have a different sequencing window.
+The purpose of this is to ensure that if the sequencing window for a L2 block has changed since it was derived,
+that L2 block is re-derived.
 
-Walking the L2 chain until we find a canonical L1 block as the L1 origin is a straightforward way to determining the
-reorg base and it also serves as an implicit commitment to the end of the sequencing window for any L2 block.
+The first L1 block of the sequencing window is the L1 attributes for that L2 block. The end of the sequencing
+window is the canonical L1 block whose number is `SEQUENCING_WINDOW` larger than the start. The end of the
+window must be selected by number otherwise the sequencer would not be able to create batches. The problem
+with selecting the end of the window by number is that when an L1 reorg occurs, the blocks (and thus batches)
+in the window could change. We must find the find the first L2 block whose complete sequencing window is
+unchanged in the reorg.
 
 When walking back on the L2 chain, care should be taken to not walk past the rollup genesis.
 
