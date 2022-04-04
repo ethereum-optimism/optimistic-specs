@@ -151,7 +151,10 @@ func (s *state) handleNewL1Block(ctx context.Context, newL1Head eth.L1BlockRef) 
 	s.l1Head = newL1Head
 	s.l1WindowBuf = nil
 	s.l2Head = unsafeL2Head
-	s.l2SafeHead = safeL2Head
+	// Don't advance l2SafeHead past it's current value
+	if s.l2SafeHead.Number >= safeL2Head.Number {
+		s.l2SafeHead = safeL2Head
+	}
 
 	return nil
 }
