@@ -11,9 +11,9 @@
 // Each optimism block retains a reference to an L1 block and to its parent L2 block.
 // The L2 chain node must satisfy the following validity rules
 //     1. l2block.height == l2parent.block.height + 1
-//     2. l2block.l1parent.height >= l2block.l2parent.l1parent.height
-//     3. l2block.l1parent is in the canonical chain on L1
-//     4. l1_rollup_genesis is reachable from l2block.l1parent
+//     2. l2block.l1Origin.height >= l2block.l2parent.l1Origin.height
+//     3. l2block.l1Origin is in the canonical chain on L1
+//     4. l1_rollup_genesis is reachable from l2block.l1Origin
 //
 //
 // During normal operation, both the L1 and L2 canonical chains can change, due to a reorg
@@ -23,15 +23,17 @@
 //     - L2 reorg
 //     - L2 extension
 //
-// When one of these changes occurs, the rollup node needs to determine what the new L2 Head should be.
+// When one of these changes occurs, the rollup node needs to determine what the new L2 Heads should be.
 // In a simple extension case, the L2 head remains the same, but in the case of a re-org on L1, it needs
-// to find the first L2 block where the l1parent is in the L1 canonical chain.
-// In the case of a re-org, it is also helpful to obtain the L1 blocks after the L1 base to re-start the
-// chain derivation process.
+// to find the unsafe and safe blocks.
 //
-// FindUnsafeL2Head finds the first L2 block that has an L1 block that is canonical (supply the reorg base as l1base)
-// FindSafeL2Head finds the first L2 block that can be fully derived from a sequencing window that has not changed with the reorg.
-
+// Unsafe Block: The highest L2 block. If the L1 Attributes is ahead of the L1 head, it is assumed to be valid,
+// if not, it walks back until it finds the first L2 block whose L1 Origin is canonical in the L1 chain.
+// Safe Block: The highest L2 block whose sequence window has not changed during a reorg.
+//
+// The safe block can be found by walking back one sequence window from the "latest" L2 block. The latest L2
+// block is the first L2 block whose L1 Origin is canonical in L1. If the unsafe block is ahead of the L1
+// chain, the latest block and unsafe block are not the same.
 package sync
 
 import (
@@ -72,11 +74,12 @@ func isCanonical(ctx context.Context, l1 L1Chain, block eth.BlockID) (bool, erro
 	return canonical.Hash == block.Hash, nil
 }
 
-// FindL2Heads walks back from the supplied L2 blocks and finds the unsafe and safe L2 heads.
-// Unsafe Head: The first L2 block who's L1 Origin is canonical (determined via block by number).
-// Safe Head: Walk back 1 sequence window of epochs from the Unsafe Head.
+// FindL2Heads walks back from the supplied L2 blocks and finds the unsafe and safe L2 blocks.
+// Unsafe Block: The highest L2 block. If the L1 Attributes is ahead of the L1 head, it is assumed to be valid,
+// if not, it walks back until it finds the first L2 block whose L1 Origin is canonical in the L1 chain.
+// Safe Block: The highest L2 block whose sequence window has not changed during a reorg.
 func FindL2Heads(ctx context.Context, start eth.L2BlockRef, seqWindowSize int,
-	l1 L1Chain, l2 L2Chain, genesis *rollup.Genesis) (unsafeHead eth.L2BlockRef, safeHead eth.L2BlockRef, err error) {
+	l1 L1Chain, l2 L2Chain, genesis *rollup.Genesis) (unsafe eth.L2BlockRef, safe eth.L2BlockRef, err error) {
 	reorgDepth := 0
 	var prevL1OriginHash common.Hash
 	// First check if the L1 Origin of the start block is ahead of the current L1 head
@@ -87,15 +90,16 @@ func FindL2Heads(ctx context.Context, start eth.L2BlockRef, seqWindowSize int,
 		return eth.L2BlockRef{}, eth.L2BlockRef{}, err
 	}
 	l2Ahead := start.L1Origin.Number > l1Head.Number
+	var latest eth.L2BlockRef
 
-	// Walk L2 chain from start until L1Origin matches l1Base. Bail out early of when at genesis.
+	// Walk L2 chain until we find the "latest" L2 block. This the first L2 block whose L1 Origin is canonical.
 	for n := start; ; {
 		// Check if l1Origin is canonical when we get to a new epoch
 		if prevL1OriginHash != n.L1Origin.Hash {
 			if ok, err := isCanonical(ctx, l1, n.L1Origin); err != nil {
 				return eth.L2BlockRef{}, eth.L2BlockRef{}, err
 			} else if ok {
-				unsafeHead = n
+				latest = n
 				break
 			}
 			prevL1OriginHash = n.L1Origin.Hash
@@ -116,9 +120,9 @@ func FindL2Heads(ctx context.Context, start eth.L2BlockRef, seqWindowSize int,
 		}
 	}
 	depth := 1 // SeqWindowSize is a length, but we are counting elements in the window.
-	prevL1OriginHash = unsafeHead.L1Origin.Hash
-	// Walk L2 chain. May walk to L2 genesis
-	for n := unsafeHead; ; {
+	prevL1OriginHash = latest.L1Origin.Hash
+	// Walk from the latest block back 1 Sequence Window of L1 Origins to determine the safe L2 block.
+	for n := latest; ; {
 		// Advance depth if new origin
 		if n.L1Origin.Hash != prevL1OriginHash {
 			depth++
@@ -129,17 +133,17 @@ func FindL2Heads(ctx context.Context, start eth.L2BlockRef, seqWindowSize int,
 			if l2Ahead {
 				return start, n, nil
 			} else {
-				return unsafeHead, n, nil
+				return latest, n, nil
 			}
 
 		}
 		// Genesis is always safe.
 		if n.Hash == genesis.L2.Hash || n.Number == genesis.L2.Number {
-			safeHead = eth.L2BlockRef{Hash: genesis.L2.Hash, Number: genesis.L2.Number, Time: genesis.L2Time, L1Origin: genesis.L1}
+			safe = eth.L2BlockRef{Hash: genesis.L2.Hash, Number: genesis.L2.Number, Time: genesis.L2Time, L1Origin: genesis.L1}
 			if l2Ahead {
-				return start, safeHead, nil
+				return start, safe, nil
 			} else {
-				return unsafeHead, safeHead, nil
+				return latest, safe, nil
 			}
 
 		}
