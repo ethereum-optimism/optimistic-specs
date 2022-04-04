@@ -151,8 +151,9 @@ func initializeGenesis(cfg *systemConfig) {
 		Difficulty: common.Big1,
 		GasLimit:   5000000,
 		Nonce:      4660,
-		Timestamp:  genesisTimestamp - 1,
-		BaseFee:    big.NewInt(7),
+		// Set the L2 timestamps to be before the L1 timestamps. This is to match the current implementation of timestamps.
+		Timestamp: genesisTimestamp - 1,
+		BaseFee:   big.NewInt(7),
 	}
 
 	cfg.l1.ethConfig.Genesis = l1Genesis

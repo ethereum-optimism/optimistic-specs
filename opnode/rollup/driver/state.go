@@ -113,8 +113,7 @@ func (s *state) findNextL1Origin(ctx context.Context) (eth.L1BlockRef, error) {
 	if s.l2Head.L1Origin.Hash == s.l1Head.Hash {
 		return s.l1Head, nil
 	}
-	// TODO: Switch to by hash here.
-	curr, err := s.l1.L1BlockRefByNumber(ctx, s.l2Head.L1Origin.Number)
+	curr, err := s.l1.L1BlockRefByHash(ctx, s.l2Head.L1Origin.Hash)
 	if err != nil {
 		return eth.L1BlockRef{}, err
 	}
@@ -148,6 +147,7 @@ func (s *state) loop() {
 	createBlock := func() {
 		select {
 		case l2BlockCreationReq <- struct{}{}:
+		// Don't deadlock if the channel is already full
 		default:
 		}
 	}
@@ -155,6 +155,7 @@ func (s *state) loop() {
 	requestStep := func() {
 		select {
 		case stepRequest <- struct{}{}:
+		// Don't deadlock if the channel is already full
 		default:
 		}
 	}
@@ -264,10 +265,6 @@ func (s *state) loop() {
 					s.log.Error("Error in running the output step.", "err", err, "l2SafeHead", s.l2SafeHead, "l2Finalized", s.l2Finalized, "window", window)
 					continue
 				}
-				// Use mode for this.
-				// if s.l2Head == s.l2SafeHead {
-				// 	s.l2Head = newL2Head
-				// }
 				s.l2Head = newL2Head
 				s.l2SafeHead = newL2Head
 				s.l1WindowBuf = s.l1WindowBuf[1:]

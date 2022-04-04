@@ -13,7 +13,7 @@
 //     1. l2block.height == l2parent.block.height + 1
 //     2. l2block.l1Origin.height >= l2block.l2parent.l1Origin.height
 //     3. l2block.l1Origin is in the canonical chain on L1
-//     4. l1_rollup_genesis is reachable from l2block.l1Origin
+//     4. l1_rollup_genesis is an ancestor of l2block.l1Origin
 //
 //
 // During normal operation, both the L1 and L2 canonical chains can change, due to a reorg

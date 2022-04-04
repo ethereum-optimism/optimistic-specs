@@ -391,14 +391,11 @@ canonical chain (if the rollup node has not yet seen the L1 block that it is bas
 The safe head is the the last L2 block of the last epoch whose sequencing window is complete
 (i.e. the epoch with number `L1Head.number` - `SEQUENCING_WINDOW_SIZE`).
 
-To find the unsafe block, start with the current L2 Head and walk the L1 chain
-until the L1 Attributes of an L2 block is canonical or not found (and ahead of the current L1 head).
-
-To find the "latest block", start with the unsafe block and walk back until the L1 Attributes of the L2 block
-is canonical in the L1 chain.
-
-To determine the safe head, walk back from the latest block until the L1 Attributes
-number is a full sequencing window behind the L1 Attributes number of the latest block.
+Steps during a reorg
+1. Set "unsafe head" to equal the l2 head we retrieved, just as default
+2. Set "latest block" to equal the l2 head we retrieved, also just as default
+3. Walk back L2, and stop until block.l1Origin is found AND canonical, and update "latest block" to this block. And don't override "unsafe head" if it's not found, but do override it when block.l1Origin does not match the canonical L1 block at that height.
+4. Walk back L2 from the "latest block" until a full sequencing window of L1 blocks has been passed. This is the "safe block".
 
 The purpose of this is to ensure that if the sequencing window for a L2 block has changed since it was derived,
 that L2 block is re-derived.
