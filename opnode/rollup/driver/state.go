@@ -246,7 +246,7 @@ func (s *state) handleEpoch(ctx context.Context) (bool, error) {
 	}
 
 	// Insert the epoch
-	window := s.l1WindowBuf[:int(s.Config.SeqWindowSize)]
+	window := s.l1WindowBuf[:s.Config.SeqWindowSize]
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	newL2Head, newL2SafeHead, reorg, err := s.output.insertEpoch(ctx, s.l2Head, s.l2SafeHead, s.l2Finalized, window)
 	cancel()
