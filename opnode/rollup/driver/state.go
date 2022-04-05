@@ -230,6 +230,7 @@ func (s *state) handleEpoch(ctx context.Context) (bool, error) {
 	s.log.Trace("Handling epoch", "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead)
 	// Extend cached window if we do not have enough saved blocks
 	if len(s.l1WindowBuf) < int(s.Config.SeqWindowSize) {
+		// attempt to buffer up to 2x the size of a sequence window of L1 blocks, to speed up later handleEpoch calls
 		nexts, err := s.l1.L1Range(ctx, s.l1WindowBufEnd(), 2*s.Config.SeqWindowSize)
 		if err != nil {
 			s.log.Error("Could not extend the cached L1 window", "err", err, "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead, "l1Head", s.l1Head, "window_end", s.l1WindowBufEnd())
