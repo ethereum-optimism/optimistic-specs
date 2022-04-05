@@ -212,27 +212,27 @@ func (d *outputImpl) insertEpoch(ctx context.Context, l2Head eth.L2BlockRef, l2S
 // nil if it is a match. If err is not nil, the error contains the reason for the mismatch
 func attributesMatchBlock(attrs *l2.PayloadAttributes, parentHash common.Hash, block *types.Block) error {
 	if parentHash != block.ParentHash() {
-		return errors.New("parent hash field does not match")
+		return fmt.Errorf("parent hash field does not match. expected: %v. got: %v", parentHash, block.ParentHash())
 	}
 	if uint64(attrs.Timestamp) != block.Time() {
-		return errors.New("timestamp field does not match")
+		return fmt.Errorf("timestamp field does not match. expected: %v. got: %v", uint64(attrs.Timestamp), block.Time())
 	}
 	if attrs.Random != l2.Bytes32(block.MixDigest()) {
-		return errors.New("random field does not match")
+		return fmt.Errorf("random field does not match. expected: %v. got: %v", attrs.Random, l2.Bytes32(block.MixDigest()))
 	}
 	if len(attrs.Transactions) != len(block.Transactions()) {
-		return errors.New("transaction count does not match")
+		return fmt.Errorf("transaction count does not match. expected: %v. got: %v", len(attrs.Transactions), len(block.Transactions()))
 	}
 	btxs := block.Transactions()
 	for i := range attrs.Transactions {
 		var tx types.Transaction
 		err := tx.UnmarshalBinary(attrs.Transactions[i])
 		if err != nil {
-			return fmt.Errorf("failed to decode transaction in attributes: %w", err)
+			return fmt.Errorf("failed to decode transaction %d in attributes: %w", i, err)
 		}
 
 		if tx.Hash() != btxs[i].Hash() {
-			return errors.New("transaction does not match")
+			return fmt.Errorf("transaction %d does not match. expected: %v. got: %v", i, tx.Hash(), btxs[i].Hash())
 		}
 	}
 	return nil
