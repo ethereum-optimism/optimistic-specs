@@ -217,6 +217,8 @@ func (s *state) createNewL2Block(ctx context.Context) (eth.L1BlockRef, error) {
 	//Submit batch
 	go func() {
 		_, err := s.bss.Submit(&s.Config, []*derive.BatchData{batch}) // TODO: submit multiple batches
+		// Note: This can cause problems as the log can run after the batch submitter / driver is shut down.
+		// This is tracked in issue #308
 		if err != nil {
 			s.log.Error("Error submitting batch", "err", err)
 		}
