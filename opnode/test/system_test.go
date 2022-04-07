@@ -38,6 +38,58 @@ const (
 	bssHDPath          = "m/44'/60'/0'/0/4"
 )
 
+func defaultSystemConfig(t *testing.T) SystemConfig {
+	return SystemConfig{
+		Mnemonic: "squirrel green gallery layer logic title habit chase clog actress language enrich body plate fun pledge gap abuse mansion define either blast alien witness",
+		Premine: map[string]int{
+			cliqueSignerHDPath: 10000000,
+			transactorHDPath:   10000000,
+			l2OutputHDPath:     10000000,
+			bssHDPath:          10000000,
+		},
+		BatchSubmitterHDPath:       bssHDPath,
+		CliqueSignerDerivationPath: cliqueSignerHDPath,
+		DepositContractAddress:     common.HexToAddress("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001"),
+		L1InfoPredeployAddress:     common.HexToAddress("0x4242424242424242424242424242424242424242"),
+		L1WsAddr:                   "127.0.0.1",
+		L1WsPort:                   9090,
+		L1ChainID:                  big.NewInt(900),
+		L2ChainID:                  big.NewInt(901),
+		Nodes: map[string]rollupNode.Config{
+			"verifier": {
+				L1NodeAddr:    "ws://127.0.0.1:9090",
+				L2EngineAddrs: []string{"ws://127.0.0.1:9091"},
+				L2NodeAddr:    "ws://127.0.0.1:9091",
+				L1TrustRPC:    false,
+			},
+			"sequencer": {
+				L1NodeAddr:    "ws://127.0.0.1:9090",
+				L2EngineAddrs: []string{"ws://127.0.0.1:9092"},
+				L2NodeAddr:    "ws://127.0.0.1:9092",
+				L1TrustRPC:    false,
+				Sequencer:     true,
+				// Submitter PrivKey is set in system start for rollup nodes where sequencer = true
+				RPCListenAddr: "127.0.0.1",
+				RPCListenPort: 9093,
+			},
+		},
+		Loggers: map[string]log.Logger{
+			"verifier":  testlog.Logger(t, log.LvlError),
+			"sequencer": testlog.Logger(t, log.LvlError),
+		},
+		RollupConfig: rollup.Config{
+			BlockTime:         1,
+			MaxSequencerDrift: 10,
+			SeqWindowSize:     2,
+			L1ChainID:         big.NewInt(900),
+			// TODO pick defaults
+			FeeRecipientAddress: common.Address{0xff, 0x01},
+			BatchInboxAddress:   common.Address{0xff, 0x02},
+			// Batch Sender address is filled out in system start
+		},
+	}
+}
+
 func waitForTransaction(hash common.Hash, client *ethclient.Client, timeout time.Duration) (*types.Receipt, error) {
 	timeoutCh := time.After(timeout)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
@@ -88,48 +140,7 @@ func waitForBlock(number *big.Int, client *ethclient.Client, timeout time.Durati
 func TestL2OutputSubmitter(t *testing.T) {
 	log.Root().SetHandler(log.DiscardHandler()) // Comment this out to see geth l1/l2 logs
 
-	cfg := SystemConfig{
-		Mnemonic: "squirrel green gallery layer logic title habit chase clog actress language enrich body plate fun pledge gap abuse mansion define either blast alien witness",
-		Premine: map[string]int{
-			cliqueSignerHDPath: 10000000,
-			transactorHDPath:   10000000,
-			l2OutputHDPath:     10000000,
-			bssHDPath:          10000000,
-		},
-		BatchSubmitterHDPath:       bssHDPath,
-		CliqueSignerDerivationPath: cliqueSignerHDPath,
-		DepositContractAddress:     common.HexToAddress("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001"),
-		L1InfoPredeployAddress:     common.HexToAddress("0x4242424242424242424242424242424242424242"),
-		L1WsAddr:                   "127.0.0.1",
-		L1WsPort:                   9090,
-		L1ChainID:                  big.NewInt(900),
-		L2ChainID:                  big.NewInt(901),
-		Nodes: map[string]rollupNode.Config{
-			"sequencer": {
-				L1NodeAddr:    "ws://127.0.0.1:9090",
-				L2EngineAddrs: []string{"ws://127.0.0.1:9092"},
-				L2NodeAddr:    "ws://127.0.0.1:9092",
-				L1TrustRPC:    false,
-				Sequencer:     true,
-				// Submitter PrivKey is set in system start for rollup nodes where sequencer = true
-				RPCListenAddr: "127.0.0.1",
-				RPCListenPort: 9093,
-			},
-		},
-		Loggers: map[string]log.Logger{
-			"sequencer": testlog.Logger(t, log.LvlError),
-		},
-		RollupConfig: rollup.Config{
-			BlockTime:         1,
-			MaxSequencerDrift: 10,
-			SeqWindowSize:     2,
-			L1ChainID:         big.NewInt(900),
-			// TODO pick defaults
-			FeeRecipientAddress: common.Address{0xff, 0x01},
-			BatchInboxAddress:   common.Address{0xff, 0x02},
-			// Batch Sender address is filled out in system start
-		},
-	}
+	cfg := defaultSystemConfig(t)
 
 	sys, err := cfg.start()
 	require.Nil(t, err, "Error starting up system")
@@ -240,55 +251,7 @@ func TestL2OutputSubmitter(t *testing.T) {
 func TestSystemE2E(t *testing.T) {
 	log.Root().SetHandler(log.DiscardHandler()) // Comment this out to see geth l1/l2 logs
 
-	cfg := SystemConfig{
-		Mnemonic: "squirrel green gallery layer logic title habit chase clog actress language enrich body plate fun pledge gap abuse mansion define either blast alien witness",
-		Premine: map[string]int{
-			cliqueSignerHDPath: 10000000,
-			transactorHDPath:   10000000,
-			l2OutputHDPath:     10000000,
-			bssHDPath:          10000000,
-		},
-		BatchSubmitterHDPath:       bssHDPath,
-		CliqueSignerDerivationPath: cliqueSignerHDPath,
-		DepositContractAddress:     common.HexToAddress("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001"),
-		L1InfoPredeployAddress:     common.HexToAddress("0x4242424242424242424242424242424242424242"),
-		L1WsAddr:                   "127.0.0.1",
-		L1WsPort:                   9090,
-		L1ChainID:                  big.NewInt(900),
-		L2ChainID:                  big.NewInt(901),
-		Nodes: map[string]rollupNode.Config{
-			"verifier": {
-				L1NodeAddr:    "ws://127.0.0.1:9090",
-				L2EngineAddrs: []string{"ws://127.0.0.1:9091"},
-				L2NodeAddr:    "ws://127.0.0.1:9091",
-				L1TrustRPC:    false,
-			},
-			"sequencer": {
-				L1NodeAddr:    "ws://127.0.0.1:9090",
-				L2EngineAddrs: []string{"ws://127.0.0.1:9092"},
-				L2NodeAddr:    "ws://127.0.0.1:9092",
-				L1TrustRPC:    false,
-				Sequencer:     true,
-				// Submitter PrivKey is set in system start for rollup nodes where sequencer = true
-				RPCListenAddr: "127.0.0.1",
-				RPCListenPort: 9093,
-			},
-		},
-		Loggers: map[string]log.Logger{
-			"verifier":  testlog.Logger(t, log.LvlError),
-			"sequencer": testlog.Logger(t, log.LvlError),
-		},
-		RollupConfig: rollup.Config{
-			BlockTime:         1,
-			MaxSequencerDrift: 10,
-			SeqWindowSize:     2,
-			L1ChainID:         big.NewInt(900),
-			// TODO pick defaults
-			FeeRecipientAddress: common.Address{0xff, 0x01},
-			BatchInboxAddress:   common.Address{0xff, 0x02},
-			// Batch Sender address is filled out in system start
-		},
-	}
+	cfg := defaultSystemConfig(t)
 
 	sys, err := cfg.start()
 	require.Nil(t, err, "Error starting up system")
@@ -382,55 +345,11 @@ func TestSystemE2E(t *testing.T) {
 func TestMissingBatchE2E(t *testing.T) {
 	log.Root().SetHandler(log.DiscardHandler()) // Comment this out to see geth l1/l2 logs
 
-	cfg := SystemConfig{
-		Mnemonic: "squirrel green gallery layer logic title habit chase clog actress language enrich body plate fun pledge gap abuse mansion define either blast alien witness",
-		Premine: map[string]int{
-			cliqueSignerHDPath: 10000000,
-			transactorHDPath:   10000000,
-			l2OutputHDPath:     10000000,
-			bssHDPath:          0, // Specifically set batch submitter balance to stop batches from being included
-		},
-		BatchSubmitterHDPath:       bssHDPath,
-		CliqueSignerDerivationPath: cliqueSignerHDPath,
-		DepositContractAddress:     common.HexToAddress("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001"),
-		L1InfoPredeployAddress:     common.HexToAddress("0x4242424242424242424242424242424242424242"),
-		L1WsAddr:                   "127.0.0.1",
-		L1WsPort:                   9090,
-		L1ChainID:                  big.NewInt(900),
-		L2ChainID:                  big.NewInt(901),
-		Nodes: map[string]rollupNode.Config{
-			"verifier": {
-				L1NodeAddr:    "ws://127.0.0.1:9090",
-				L2EngineAddrs: []string{"ws://127.0.0.1:9091"},
-				L2NodeAddr:    "ws://127.0.0.1:9091",
-				L1TrustRPC:    false,
-			},
-			"sequencer": {
-				L1NodeAddr:    "ws://127.0.0.1:9090",
-				L2EngineAddrs: []string{"ws://127.0.0.1:9092"},
-				L2NodeAddr:    "ws://127.0.0.1:9092",
-				L1TrustRPC:    false,
-				Sequencer:     true,
-				// Submitter PrivKey is set in system start for rollup nodes where sequencer = true
-				RPCListenAddr: "127.0.0.1",
-				RPCListenPort: 9093,
-			},
-		},
-		Loggers: map[string]log.Logger{
-			"verifier":  testlog.Logger(t, log.LvlError),
-			"sequencer": testlog.Logger(t, log.LvlCrit), // Suppress batch submission errors
-		},
-		RollupConfig: rollup.Config{
-			BlockTime:         1,
-			MaxSequencerDrift: 10,
-			SeqWindowSize:     2,
-			L1ChainID:         big.NewInt(900),
-			// TODO pick defaults
-			FeeRecipientAddress: common.Address{0xff, 0x01},
-			BatchInboxAddress:   common.Address{0xff, 0x02},
-			// Batch Sender address is filled out in system start
-		},
-	}
+	cfg := defaultSystemConfig(t)
+	// Specifically set batch submitter balance to stop batches from being included
+	cfg.Premine[bssHDPath] = 0
+	// Don't pollute log with expected "Error submitting batch" logs
+	cfg.Loggers["sequencer"] = testlog.Logger(t, log.LvlCrit)
 
 	sys, err := cfg.start()
 	require.Nil(t, err, "Error starting up system")
