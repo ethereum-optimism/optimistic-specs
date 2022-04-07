@@ -2,6 +2,7 @@
 package l2
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 
@@ -106,6 +107,8 @@ type ExecutionPayload struct {
 	// Array of transaction objects, each object is a byte list (DATA) representing
 	// TransactionType || TransactionPayload or LegacyTransaction as defined in EIP-2718
 	TransactionsField []Data `json:"transactions"`
+
+	unmarshaledTxs types.Transactions
 }
 
 func (payload *ExecutionPayload) ID() eth.BlockID {
@@ -137,15 +140,54 @@ func (payload *ExecutionPayload) ParentHash() common.Hash {
 }
 
 func (payload *ExecutionPayload) Transactions() types.Transactions {
-	res := make([]*types.Transaction, len(payload.TransactionsField))
-	for i, t := range payload.TransactionsField {
-		res[i] = new(types.Transaction)
-		err := res[i].UnmarshalBinary(t)
-		if err != nil {
-			panic(err)
+	return payload.unmarshaledTxs
+}
+
+func (payload *ExecutionPayload) UnmarshalJSON(b []byte) error {
+	tmp := struct {
+		ParentHashField   common.Hash     `json:"parentHash"`
+		FeeRecipient      common.Address  `json:"feeRecipient"`
+		StateRoot         Bytes32         `json:"stateRoot"`
+		ReceiptsRoot      Bytes32         `json:"receiptsRoot"`
+		LogsBloom         Bytes256        `json:"logsBloom"`
+		PrevRandao        Bytes32         `json:"prevRandao"`
+		BlockNumber       Uint64Quantity  `json:"blockNumber"`
+		GasLimit          Uint64Quantity  `json:"gasLimit"`
+		GasUsed           Uint64Quantity  `json:"gasUsed"`
+		Timestamp         Uint64Quantity  `json:"timestamp"`
+		ExtraData         BytesMax32      `json:"extraData"`
+		BaseFeePerGas     Uint256Quantity `json:"baseFeePerGas"`
+		BlockHash         common.Hash     `json:"blockHash"`
+		TransactionsField []Data          `json:"transactions"`
+	}{}
+	if err := json.Unmarshal(b, &tmp); err != nil {
+		return err
+	}
+
+	unmarshaledTxs := make(types.Transactions, len(tmp.TransactionsField))
+	for i, t := range tmp.TransactionsField {
+		unmarshaledTxs[i] = new(types.Transaction)
+		if err := unmarshaledTxs[i].UnmarshalBinary(t); err != nil {
+			return fmt.Errorf("error unmarshaling execution payload transaction %d: %v", i, err)
 		}
 	}
-	return res
+
+	payload.ParentHashField = tmp.ParentHashField
+	payload.FeeRecipient = tmp.FeeRecipient
+	payload.StateRoot = tmp.StateRoot
+	payload.ReceiptsRoot = tmp.ReceiptsRoot
+	payload.LogsBloom = tmp.LogsBloom
+	payload.PrevRandao = tmp.PrevRandao
+	payload.BlockNumber = tmp.BlockNumber
+	payload.GasLimit = tmp.GasLimit
+	payload.GasUsed = tmp.GasUsed
+	payload.Timestamp = tmp.Timestamp
+	payload.ExtraData = tmp.ExtraData
+	payload.BaseFeePerGas = tmp.BaseFeePerGas
+	payload.BlockHash = tmp.BlockHash
+	payload.TransactionsField = tmp.TransactionsField
+	payload.unmarshaledTxs = unmarshaledTxs
+	return nil
 }
 
 type PayloadAttributes struct {
