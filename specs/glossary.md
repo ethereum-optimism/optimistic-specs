@@ -19,6 +19,8 @@
   - [Sequencing window](#sequencing-window)
   - [Sequencing epoch](#sequencing-epoch)
   - [Sequencer batch](#sequencer-batch)
+  - [Sequencer inbox](#sequencer-inbox)
+  - [Sequencer bundle](#sequencer-bundle)
 - [Deposits](#deposits)
   - [Deposited Transaction](#deposited-transaction)
   - [L1 Attributes Deposited Transaction](#l1-attributes-deposited-transaction)
@@ -175,6 +177,20 @@ equal to the L1 block number of the first block in the window.
 
 A sequencer batch is list of L2 transactions tagged with an [`epoch`](#sequencing-epoch) and L2 block `timestamp`.
 Each L2 block can have one batch of transactions, an input for the block derivation.
+
+## Sequencer inbox
+
+[sequencer-inbox]: glossary.md#sequencer-inbox
+
+The sequencer inbox is an address on L1 with no code and no state. Sequencer batches are added when a sequencer submits
+them to this address as calldata.
+
+## Sequencer bundle
+
+[sequencer-bundle]: glossary.md#sequencer-bundle
+
+A sequencer bundle is a list of sequencer transactions which are submitted together in a single call to the sequencer
+inbox.
 
 ------------------------------------------------------------------------------------------------------------------------
 
@@ -373,7 +389,7 @@ L2 derivation inputs include:
 This term refers to an object that can be derived from [L2 chain derivation inputs][deriv-inputs] found on L1, which are
 then passed to the [execution engine][execution-engine] to construct L2 blocks.
 
-The payload attributes object essentially essentially encodes a [a block without output properties][block].
+The payload attributes object essentially encodes a [block without output properties][block].
 
 Payload attributes are originally specified in the [Ethereum Engine API specification][engine-api], which we expand in
 the [Execution Engine Specification](exec-engine.md).

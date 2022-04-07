@@ -32,10 +32,10 @@ with the authorization and validation conditions on L2.
   - [L1 Attributes Depositor Account](#l1-attributes-depositor-account)
   - [L1 Attributes Predeployed Contract](#l1-attributes-predeployed-contract)
     - [L1 Attributes Predeployed Contract: Reference Implementation](#l1-attributes-predeployed-contract-reference-implementation)
-- [User-Deposited Transactions](#user-deposited-transactions)
+- [Deposited Transactions](#deposited-transactions)
   - [Deposit Contract](#deposit-contract)
     - [Address Aliasing](#address-aliasing)
-    - [Deposit Feed Contract: Reference Implementation](#deposit-feed-contract-reference-implementation)
+    - [Interface](#interface)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
@@ -196,7 +196,7 @@ After running `yarn build` in the `packages/contracts` directory, the bytecode t
 file will be located in the `deployedBytecode` field of the build artifacts file at
 `/packages/contracts/artifacts/contracts/L2/L1Block.sol/L1Block.json`.
 
-## User-Deposited Transactions
+## Deposited Transactions
 
 [user-deposited]: #user-deposited-transactions
 
@@ -241,7 +241,7 @@ contract on L1 has the same address as a contract on L2 but doesn't have the sam
 for EOAs because they're guaranteed to have the same "code" (i.e. no code at all). This also makes
 it possible for users to interact with contracts on L2 even when the Sequencer is down.
 
-#### Deposit Feed Contract: Reference Implementation
+#### Interface
 
 A reference implementation of the Deposit Feed contract can be found in [DepositFeed.sol].
 

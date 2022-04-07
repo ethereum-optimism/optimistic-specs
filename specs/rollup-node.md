@@ -12,6 +12,7 @@
 [g-receipts]: glossary.md#receipt
 [g-deposit-contract]: glossary.md#deposit-contract
 [g-deposits]: glossary.md#deposits
+[deposit-tx-type]: glossary.md#deposited-transaction-type
 [g-deposited]: glossary.md#deposited-transaction
 [g-l1-attr-deposit]: glossary.md#l1-attributes-deposited-transaction
 [g-user-deposited]: glossary.md#user-deposited-transaction
@@ -22,6 +23,7 @@
 [g-sequencing-window]: glossary.md#sequencing-window
 [g-sequencing]: glossary.md#sequencing
 [g-sequencer-batch]: glossary.md#sequencer-batch
+[g-sequencer-bundle]: glossary.md#sequencer-bundle
 
 The [rollup node][g-rollup-node] is the component responsible for [deriving the L2 chain][g-derivation] from L1 blocks
 (and their associated [receipts][g-receipts]). This process happens in three steps:
@@ -47,6 +49,7 @@ currently only concerned with the specification of the rollup driver.
 - [L2 Chain Derivation](#l2-chain-derivation)
   - [From L1 Sequencing Window to L2 Payload Attributes](#from-l1-sequencing-window-to-l2-payload-attributes)
     - [Reading L1 inputs](#reading-l1-inputs)
+      - [Bundle and Batch versioning](#bundle-and-batch-versioning)
     - [Encoding the L1 Attributes Deposited Transaction](#encoding-the-l1-attributes-deposited-transaction)
     - [Encoding User-Deposited Transactions](#encoding-user-deposited-transactions)
     - [Deriving all Payload Attributes of a sequencing window](#deriving-all-payload-attributes-of-a-sequencing-window)
@@ -92,40 +95,51 @@ Note that the sequencing windows overlap.
 
 The rollup reads the following data from the [sequencing window][g-sequencing-window]:
 
-- Of the *first* block in the window only:
-  - L1 block attributes:
-    - block number
-    - timestamp
-    - basefee
-    - *random* (the output of the [`RANDOM` opcode][random])
-  - L1 log entries emitted for [user deposits][g-deposits], derived transactions are augmented with
+From the *first* block in the window only:
+
+- L1 block attributes:
+  - block number
+  - timestamp
+  - basefee
+  - *random* (the output of the [`RANDOM` opcode][random])
+
+- L1 log entries emitted for [user deposits][g-deposits]. Derived transactions are also augmented with the
     `blockHeight` and `transactionIndex` of the transaction in L2.
-- Of each block in the window:
-  - Sequencer batches, derived from the transactions:
-    - The transaction receiver is the sequencer inbox address
-    - The transaction must be signed by a recognized sequencer account
-    - The calldata may contain a bundle of batches. *(calldata will be substituted with blob data in the future.)*
-    - Batches not matching filter criteria are ignored:
-      - `batch.epoch == sequencing_window.epoch`, i.e. for this sequencing window
-      - `(batch.timestamp - genesis_l2_timestamp) % block_time == 0`, i.e. timestamp is aligned
-      - `min_l2_timestamp <= batch.timestamp < max_l2_timestamp`, i.e. timestamp is within range
-        - `min_l2_timestamp = prev_l2_timestamp + l2_block_time`
-          - `prev_l2_timestamp` is the timestamp of the previous L2 block: the last block of the previous epoch,
-              or the L2 genesis block timestamp if there is no previous epoch.
-          - `l2_block_time` is a configurable parameter of the time between L2 blocks
-        - `max_l2_timestamp = max(l1_timestamp + max_sequencer_drift, min_l2_timestamp + l2_block_time)`
-          - `l1_timestamp` is the timestamp of the L1 block associated with the L2 block's epoch
-          - `max_sequencer_drift` is the most a sequencer is allowed to get ahead of L1
-      - The batch is the first batch with `batch.timestamp` in this sequencing window,
-        i.e. one batch per L2 block number.
-      - The batch only contains sequenced transactions, i.e. it must NOT contain any Deposit-type transactions.
+
+From *each* block in the window:
+
+- Sequencer batches, derived from transactions that meet the following criteria:
+  - The transaction receiver (ie. `to`) is the [sequencer inbox] address.
+  - The transaction is signed (ie. `from`) by a recognized sequencer account.
+  - The calldata may contain a bundle of batches. *(calldata will be substituted with blob data in the future.)*
+
+- Batches must also meet the following filter conditions, or else will be ignored:
+  - `batch.epoch == sequencing_window.epoch`, i.e. for this sequencing window.
+  - `(batch.timestamp - genesis_l2_timestamp) % l2_block_time == 0`, i.e. the timestamp is a multiple of the L2 block
+    time.
+  - `min_l2_timestamp <= batch.timestamp < max_l2_timestamp`, i.e. the timestamp is within range. The parameters
+    are defined as follows:
+    - `min_l2_timestamp = prev_l2_timestamp + l2_block_time`, where:
+      - `prev_l2_timestamp` is the timestamp of the previous L2 block: the last block of the previous epoch,
+          or the L2 genesis block timestamp if there is no previous epoch.
+      - `l2_block_time` is a configurable parameter of the time between L2 blocks.
+    - `max_l2_timestamp = max(l1_timestamp + max_sequencer_drift, min_l2_timestamp + l2_block_time)`.
+      - `l1_timestamp` is the timestamp of the L1 block associated with the L2 block's epoch.
+      - `max_sequencer_drift` is the most a sequencer is allowed to get ahead of L1.
+  - The batch is the first batch with `batch.timestamp` in this sequencing window, i.e. only one batch per L2 block will
+    be considered, and subsequent batches for the same L2 block will be ignored.
+  - The batch only contains sequenced transactions, i.e. it must NOT contain any
+    [Deposited-type transactions][deposit-tx-type].
 
 Note that after the above filtering `min_l2_timestamp >= l1_timestamp` always holds,
 i.e. a L2 block timestamp is always equal or ahead of the timestamp of the corresponding L1 origin block.
 
 [random]: https://eips.ethereum.org/EIPS/eip-4399
 
-A bundle of batches is versioned by prefixing with a bundle version byte: `bundle = bundle_version ++ bundle_data`.
+#### Bundle and Batch versioning
+
+A [bundle][g-sequencer-bundle] of batches is versioned by prefixing with a bundle version
+byte: `bundle = bundle_version ++ bundle_data`.
 
 Bundle versions:
 
@@ -148,10 +162,10 @@ Batch contents:
 [EIP-2718]: https://eips.ethereum.org/EIPS/eip-2718
 
 The L1 attributes are read from the L1 block header, while deposits are read from the block's [receipts][g-receipts].
-Refer to the [**deposit contract specification**][deposit-contract-spec] for details on how deposits are encoded as log
+Refer to the [deposit contract specification][user-deposited] for details on how deposits are encoded as log
 entries. The deposited and sequenced transactions are combined when the Payload Attributes are constructed.
 
-[deposit-contract-spec]: deposits.md#deposit-contract
+[user-deposited]: deposits.md#user-deposited-transactions
 
 ### Encoding the L1 Attributes Deposited Transaction
 
@@ -165,7 +179,7 @@ To encode the L1 attributes deposited transaction, refer to the following sectio
 
 ### Encoding User-Deposited Transactions
 
-A [user-deposited-transactions][g-deposited] is an L2 transaction derived from a [user deposit][g-deposits] submitted on
+A [deposited transaction][g-deposited] is an L2 transaction derived from a [user deposit][g-deposits] submitted on
 L1 to the [deposit contract][g-deposit-contract]. Refer to the [deposit contract specification][deposit-contract-spec]
 for more details.
 
@@ -178,6 +192,9 @@ To encode user-deposited transactions, refer to the following sections of the de
 - [User-Deposited Transactions](deposits.md#user-deposited-transactions)
 
 ### Deriving all Payload Attributes of a sequencing window
+
+[Payload attributes][g-payload-attr] are the inputs used by the [execution engine][g-exec-engine] to compute
+state transitions.
 
 A sequencing window is derived into a variable number of L2 blocks, defined by a range of timestamps:
 
