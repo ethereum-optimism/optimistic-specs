@@ -58,6 +58,33 @@ func waitForTransaction(hash common.Hash, client *ethclient.Client, timeout time
 	}
 }
 
+func waitForBlock(number *big.Int, client *ethclient.Client, timeout time.Duration) (*types.Block, error) {
+	timeoutCh := time.After(timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	headChan := make(chan *types.Header, 100)
+	headSub, err := client.SubscribeNewHead(ctx, headChan)
+	if err != nil {
+		return nil, err
+	}
+	defer headSub.Unsubscribe()
+
+	for {
+		select {
+		case head := <-headChan:
+			if head.Number.Cmp(number) >= 0 {
+				return client.BlockByNumber(ctx, number)
+			}
+		case err := <-headSub.Err():
+			return nil, fmt.Errorf("Error in head subscription: %w", err)
+		case <-timeoutCh:
+			return nil, errors.New("timeout")
+		}
+	}
+
+}
+
 func TestL2OutputSubmitter(t *testing.T) {
 	log.Root().SetHandler(log.DiscardHandler()) // Comment this out to see geth l1/l2 logs
 
@@ -349,5 +376,108 @@ func TestSystemE2E(t *testing.T) {
 	seqBlock, err := l2Seq.BlockByNumber(context.Background(), receipt.BlockNumber)
 	require.Nil(t, err)
 	require.Equal(t, verifBlock.Hash(), seqBlock.Hash(), "Verifier and sequencer blocks not the same after including a batch tx")
+
+}
+
+func TestMissingBatchE2E(t *testing.T) {
+	log.Root().SetHandler(log.DiscardHandler()) // Comment this out to see geth l1/l2 logs
+
+	cfg := SystemConfig{
+		Mnemonic: "squirrel green gallery layer logic title habit chase clog actress language enrich body plate fun pledge gap abuse mansion define either blast alien witness",
+		Premine: map[string]int{
+			cliqueSignerHDPath: 10000000,
+			transactorHDPath:   10000000,
+			l2OutputHDPath:     10000000,
+			bssHDPath:          0, // Specifically set batch submitter balance to stop batches from being included
+		},
+		BatchSubmitterHDPath:       bssHDPath,
+		CliqueSignerDerivationPath: cliqueSignerHDPath,
+		DepositContractAddress:     common.HexToAddress("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001"),
+		L1InfoPredeployAddress:     common.HexToAddress("0x4242424242424242424242424242424242424242"),
+		L1WsAddr:                   "127.0.0.1",
+		L1WsPort:                   9090,
+		L1ChainID:                  big.NewInt(900),
+		L2ChainID:                  big.NewInt(901),
+		Nodes: map[string]rollupNode.Config{
+			"verifier": {
+				L1NodeAddr:    "ws://127.0.0.1:9090",
+				L2EngineAddrs: []string{"ws://127.0.0.1:9091"},
+				L2NodeAddr:    "ws://127.0.0.1:9091",
+				L1TrustRPC:    false,
+			},
+			"sequencer": {
+				L1NodeAddr:    "ws://127.0.0.1:9090",
+				L2EngineAddrs: []string{"ws://127.0.0.1:9092"},
+				L2NodeAddr:    "ws://127.0.0.1:9092",
+				L1TrustRPC:    false,
+				Sequencer:     true,
+				// Submitter PrivKey is set in system start for rollup nodes where sequencer = true
+				RPCListenAddr: "127.0.0.1",
+				RPCListenPort: 9093,
+			},
+		},
+		Loggers: map[string]log.Logger{
+			"verifier":  testlog.Logger(t, log.LvlError),
+			"sequencer": testlog.Logger(t, log.LvlCrit), // Suppress batch submission errors
+		},
+		RollupConfig: rollup.Config{
+			BlockTime:         1,
+			MaxSequencerDrift: 10,
+			SeqWindowSize:     2,
+			L1ChainID:         big.NewInt(900),
+			// TODO pick defaults
+			FeeRecipientAddress: common.Address{0xff, 0x01},
+			BatchInboxAddress:   common.Address{0xff, 0x02},
+			// Batch Sender address is filled out in system start
+		},
+	}
+
+	sys, err := cfg.start()
+	require.Nil(t, err, "Error starting up system")
+	defer sys.Close()
+
+	l2Seq := sys.Clients["sequencer"]
+	l2Verif := sys.Clients["verifier"]
+
+	// Transactor Account
+	ethPrivKey, err := sys.wallet.PrivateKey(accounts.Account{
+		URL: accounts.URL{
+			Path: transactorHDPath,
+		},
+	})
+	require.Nil(t, err)
+
+	// Submit TX to L2 sequencer node
+	toAddr := common.Address{0xff, 0xff}
+	tx := types.MustSignNewTx(ethPrivKey, types.LatestSignerForChainID(cfg.L2ChainID), &types.DynamicFeeTx{
+		ChainID:   cfg.L2ChainID,
+		Nonce:     0,
+		To:        &toAddr,
+		Value:     big.NewInt(1_000_000_000),
+		GasTipCap: big.NewInt(10),
+		GasFeeCap: big.NewInt(200),
+		Gas:       21000,
+	})
+	err = l2Seq.SendTransaction(context.Background(), tx)
+	require.Nil(t, err, "Sending L2 tx to sequencer")
+
+	// Let it show up on the unsafe chain
+	receipt, err := waitForTransaction(tx.Hash(), l2Seq, 6*time.Second)
+	require.Nil(t, err, "Waiting for L2 tx on sequencer")
+
+	// Wait until the block it was first included in shows up in the safe chain on the verifier
+	_, err = waitForBlock(receipt.BlockNumber, l2Verif, 4*time.Second)
+	require.Nil(t, err, "Waiting for block on verifier")
+
+	// Assert that the transaction is not found on the verifier
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_, err = l2Verif.TransactionReceipt(ctx, tx.Hash())
+	require.Equal(t, ethereum.NotFound, err, "Found transaction in verifier when it should not have been included")
+
+	// Assert that the reconciliation process did an L2 reorg on the sequencer to remove the invalid block
+	block, err := l2Seq.BlockByNumber(ctx, receipt.BlockNumber)
+	require.Nil(t, err, "Get block from sequencer")
+	require.NotEqual(t, block.Hash(), receipt.BlockHash, "L2 Sequencer did not reorg out transaction on it's safe chain")
 
 }
