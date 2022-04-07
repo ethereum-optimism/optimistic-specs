@@ -13,6 +13,7 @@ import (
 	"github.com/ethereum-optimism/optimistic-specs/l2os/rollupclient"
 	"github.com/ethereum-optimism/optimistic-specs/l2os/txmgr"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/contracts/deposit"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/contracts/multidepositor"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/internal/testlog"
 	rollupNode "github.com/ethereum-optimism/optimistic-specs/opnode/node"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
@@ -127,6 +128,38 @@ func waitForBlock(number *big.Int, client *ethclient.Client, timeout time.Durati
 		case head := <-headChan:
 			if head.Number.Cmp(number) >= 0 {
 				return client.BlockByNumber(ctx, number)
+			}
+		case err := <-headSub.Err():
+			return nil, fmt.Errorf("Error in head subscription: %w", err)
+		case <-timeoutCh:
+			return nil, errors.New("timeout")
+		}
+	}
+
+}
+
+func waitForBlockWithTransactions(minTxCount int, client *ethclient.Client, timeout time.Duration) (*types.Block, error) {
+	timeoutCh := time.After(timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	// Setup for L2 Confirmation
+	headChan := make(chan *types.Header, 100)
+	headSub, err := client.SubscribeNewHead(ctx, headChan)
+	if err != nil {
+		return nil, err
+	}
+	defer headSub.Unsubscribe()
+
+	for {
+		select {
+		case head := <-headChan:
+			block, err := client.BlockByHash(ctx, head.Hash())
+			if err != nil {
+				return nil, err
+			}
+			if len(block.Transactions()) >= minTxCount {
+				return block, nil
 			}
 		case err := <-headSub.Err():
 			return nil, fmt.Errorf("Error in head subscription: %w", err)
@@ -402,4 +435,53 @@ func TestMissingBatchE2E(t *testing.T) {
 	block, err := l2Seq.BlockByNumber(ctx, receipt.BlockNumber)
 	require.Nil(t, err, "Get block from sequencer")
 	require.NotEqual(t, block.Hash(), receipt.BlockHash, "L2 Sequencer did not reorg out transaction on it's safe chain")
+}
+
+func TestMultiDepositor(t *testing.T) {
+	log.Root().SetHandler(log.DiscardHandler()) // Comment this out to see geth l1/l2 logs
+
+	cfg := defaultSystemConfig(t)
+	cfg.Loggers["sequencer"] = testlog.Logger(t, log.LvlInfo)
+	cfg.Loggers["verifier"] = testlog.Logger(t, log.LvlInfo)
+
+	sys, err := cfg.start()
+	require.Nil(t, err, "Error starting up system")
+	defer sys.Close()
+
+	l1Client := sys.Clients["l1"]
+	l2Seq := sys.Clients["sequencer"]
+	l2Verif := sys.Clients["verifier"]
+
+	// Deploy MultiDepositor Contract
+	deployerPrivKey, err := sys.wallet.PrivateKey(accounts.Account{
+		URL: accounts.URL{
+			Path: l2OutputHDPath,
+		},
+	})
+	require.Nil(t, err)
+
+	opts, err := bind.NewKeyedTransactorWithChainID(deployerPrivKey, cfg.L1ChainID)
+	require.Nil(t, err)
+
+	_, tx, depositor, err := multidepositor.DeployMultidepositor(opts, l1Client)
+	require.Nil(t, err, "Deploying multidepositor contract")
+
+	_, err = waitForTransaction(tx.Hash(), l1Client, 100*time.Millisecond, 4*time.Second)
+	require.Nil(t, err, "Deploying multidepositor to L1")
+
+	opts.Value = big.NewInt(3_000_000_000)
+	tx, err = depositor.Deposit(opts)
+	require.Nil(t, err, "Multi deposit TX")
+	// fmt.Println(tx.Hash())
+
+	_, err = waitForTransaction(tx.Hash(), l1Client, 100*time.Millisecond, 6*time.Second)
+	require.Nil(t, err, "Wait for Tx on L1 Client")
+
+	block, err := waitForBlockWithTransactions(2, l2Seq, 4*time.Second)
+	require.Nil(t, err, "Wait for block with deposits on L2 Sequencer")
+
+	verifBlock, err := waitForBlock(block.Number(), l2Verif, 6*time.Second)
+	require.Nil(t, err, "Wait for block on verifier")
+	require.Equal(t, block.Hash(), verifBlock.Hash(), "Sequencer does not match verifier after including multi deposit")
+
 }

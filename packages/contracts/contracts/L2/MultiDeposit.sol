@@ -15,13 +15,14 @@ pragma solidity 0.8.10;
 
      function deposit() external payable {
          for (uint i = 0; i < 3; i++) {
-             df.depositTransaction(
+             df.depositTransaction{ value: 1000000000 }(
                  0x7770000000000000000000000000000000000000,
                  1000,
                  3000000,
                  false,
                  ""
              );
+
          }
      }
  }
