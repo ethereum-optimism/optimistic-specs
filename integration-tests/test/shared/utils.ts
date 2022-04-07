@@ -83,7 +83,7 @@ export const defaultTransactionFactory = () => {
     gasLimit: 8_000_000,
     gasPrice: BigNumber.from(0),
     data: '0x',
-    value: 0,
+    value: BigNumber.from(0),
   }
 }
 
