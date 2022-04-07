@@ -20,7 +20,7 @@ var _ L2Chain = (*testutils.FakeChainSource)(nil)
 // - The actual L1 chain is the New L1 chain
 // - Both heads are at the tip of their respective chains
 func (c *syncStartTestCase) generateFakeL2(t *testing.T) (*testutils.FakeChainSource, eth.L2BlockRef, rollup.Genesis) {
-	log := testlog.Logger(t, log.LvlTrace)
+	log := testlog.Logger(t, log.LvlError)
 	chain := testutils.NewFakeChainSource([]string{c.L1, c.NewL1}, []string{c.L2}, int(c.GenesisL1Num), log)
 	chain.SetL2Head(len(c.L2) - 1)
 	genesis := testutils.FakeGenesis(c.GenesisL1, c.GenesisL2, int(c.GenesisL1Num))
