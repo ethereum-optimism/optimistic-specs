@@ -28,7 +28,7 @@ task('deposit', 'Deposits funds onto L2.')
   .setAction(async (args) => {
     const { l1ProviderUrl, to, amountEth, depositContractAddr, privateKey } =
       args
-    const depositFeedArtifact = require('../artifacts/contracts/L1/DepositFeed.sol/DepositFeed.json')
+    const depositFeedArtifact = require('../artifacts/contracts/L1/OptimismPortal.sol/OptimismPortal.json')
 
     const l1Provider = new providers.JsonRpcProvider(l1ProviderUrl)
 
