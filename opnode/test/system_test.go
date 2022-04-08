@@ -34,6 +34,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func waitForTransaction(hash common.Hash, client *ethclient.Client, timeout time.Duration) (*types.Receipt, error) {
+	timeoutCh := time.After(timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	for {
+		receipt, err := client.TransactionReceipt(ctx, hash)
+		if receipt != nil && err == nil {
+			return receipt, nil
+		} else if err != nil && !errors.Is(err, ethereum.NotFound) {
+			return nil, err
+		}
+
+		select {
+		case <-timeoutCh:
+			return nil, errors.New("timeout")
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
 func getGenesisInfo(client *ethclient.Client) (id eth.BlockID, timestamp uint64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -283,12 +303,6 @@ func TestSystemE2E(t *testing.T) {
 	contractAddr := common.HexToAddress(cfg.depositContractAddress)
 	fromAddr := common.HexToAddress("0x30ec912c5b1d14aa6d1cb9aa7a6682415c4f7eb0")
 
-	// start balance
-	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-	startBalance, err := l2Client.BalanceAt(ctx, fromAddr, nil)
-	require.Nil(t, err)
-
 	// Contract
 	depositContract, err := deposit.NewDeposit(contractAddr, l1Client)
 	require.Nil(t, err)
@@ -298,17 +312,10 @@ func TestSystemE2E(t *testing.T) {
 	opts, err = bind.NewKeyStoreTransactorWithChainID(ks, ks.Accounts()[0], big.NewInt(int64(cfg.l1.ethConfig.NetworkId)))
 	require.Nil(t, err)
 
-	// Setup for L1 Confirmation
-	watchChan := make(chan *deposit.DepositTransactionDeposited)
-	watcher, err := depositContract.WatchTransactionDeposited(&bind.WatchOpts{}, watchChan, []common.Address{fromAddr}, []common.Address{fromAddr})
-	require.Nil(t, err, "with watcher")
-	defer watcher.Unsubscribe()
-
-	// Setup for L2 Confirmation
-	headChan := make(chan *types.Header, 100)
-	l2HeadSub, err := l2Client.SubscribeNewHead(context.Background(), headChan)
-	require.Nil(t, err, "with l2 head sub")
-	defer l2HeadSub.Unsubscribe()
+	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	startBalance, err := l2Client.BalanceAt(ctx, fromAddr, nil)
+	require.Nil(t, err, "Could not get start balance")
 
 	// Finally send TX
 	mintAmount := big.NewInt(1_000_000_000_000)
@@ -316,54 +323,15 @@ func TestSystemE2E(t *testing.T) {
 	l1DepTx, err := depositContract.DepositTransaction(opts, fromAddr, common.Big0, big.NewInt(1_000_000), false, nil)
 	require.Nil(t, err, "with deposit tx")
 
-	// Wait for tx to be mined on L1 (or timeout)
-	select {
-	case <-watchChan:
-		// continue
-	case err := <-watcher.Err():
-		t.Fatalf("Failed on watcher channel: %v", err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("Timeout waiting for L1 tx to succeed")
+	receipt, err := waitForTransaction(l1DepTx.Hash(), l1Client, 6*time.Second)
+	require.Nil(t, err, "Waiting for tx")
 
-	}
-
-	// Get the L1 Block of the tx
-	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	receipt, err := l1Client.TransactionReceipt(ctx, tx.Hash())
-	require.Nil(t, err, "Could not get transaction receipt")
-	// TODO: Include fix for this.
-	waitNumber := new(big.Int).Add(receipt.BlockNumber, common.Big2) // sequence window effect
-	waitNumber = new(big.Int).Mul(waitNumber, common.Big2)
-
-	// Wait (or timeout) for that block to show up on L2
-	timeoutCh := time.After(6 * time.Second)
-loop:
-	for {
-		select {
-		case head := <-headChan:
-			if head.Number.Cmp(waitNumber) >= 0 {
-				break loop
-			}
-		case err := <-l2HeadSub.Err():
-			t.Fatalf("Error in l2 head subscription: %v", err)
-		case <-timeoutCh:
-			t.Fatal("Timeout waiting for l2 head")
-		}
-	}
-
-	// Based on the L1 event log, compute the deposit-tx hash, and receive the receipt from the derived L2 deposit tx.
-	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	l1DepReceipt, err := l1Client.TransactionReceipt(ctx, l1DepTx.Hash())
-	require.Nil(t, err, "Could not get L1 deposit receipt")
-	reconstructedDep, err := derive.UnmarshalLogEvent(l1DepReceipt.Logs[0])
+	reconstructedDep, err := derive.UnmarshalLogEvent(receipt.Logs[0])
 	require.NoError(t, err)
 	l2DepTx := types.NewTx(reconstructedDep)
-	depHash := l2DepTx.Hash()
-	depositReceipt, err := l2Client.TransactionReceipt(context.Background(), depHash)
+	receipt, err = waitForTransaction(l2DepTx.Hash(), l2Client, 6*time.Second)
 	require.NoError(t, err)
-	require.Equal(t, depositReceipt.Status, types.ReceiptStatusSuccessful)
+	require.Equal(t, receipt.Status, types.ReceiptStatusSuccessful)
 
 	// Confirm balance
 	ctx, cancel = context.WithTimeout(context.Background(), 1*time.Second)
@@ -376,7 +344,7 @@ loop:
 	require.Equal(t, diff, mintAmount, "Did not get expected balance change")
 
 	// Wait for batch submitter to update L2 output oracle.
-	timeoutCh = time.After(15 * time.Second)
+	timeoutCh := time.After(15 * time.Second)
 	for {
 		l2ooTimestamp, err := l2OutputOracle.LatestBlockTimestamp(&bind.CallOpts{})
 		require.Nil(t, err)
@@ -428,32 +396,14 @@ loop:
 		Gas:       21000,
 	})
 	err = l2SequencerClient.SendTransaction(context.Background(), tx)
+	require.Nil(t, err, "Sending L2 tx to sequencer")
+
+	receipt, err = waitForTransaction(tx.Hash(), l2Client, 6*time.Second)
+	require.Nil(t, err, "Waiting for L2 tx on verifier")
+
+	verifBlock, err := l2Client.BlockByNumber(context.Background(), receipt.BlockNumber)
 	require.Nil(t, err)
-
-	var l2IncludedBlock *big.Int
-
-	// Wait for tx to show up in chain (on sequencer)
-	timeoutCh = time.After(6 * time.Second)
-lastLoop:
-	for {
-		select {
-		case <-timeoutCh:
-			t.Fatal("Timeout waiting for l2 transaction")
-		case <-time.After(200 * time.Millisecond):
-		}
-
-		receipt, err := l2Client.TransactionReceipt(context.Background(), tx.Hash())
-		if receipt != nil && err == nil {
-			l2IncludedBlock = receipt.BlockNumber
-			break lastLoop
-		} else if err != nil && !errors.Is(err, ethereum.NotFound) {
-			require.Nil(t, err)
-		}
-	}
-
-	verifBlock, err := l2Client.BlockByNumber(context.Background(), l2IncludedBlock)
-	require.Nil(t, err)
-	seqBlock, err := l2SequencerClient.BlockByNumber(context.Background(), l2IncludedBlock)
+	seqBlock, err := l2SequencerClient.BlockByNumber(context.Background(), receipt.BlockNumber)
 	require.Nil(t, err)
 	require.Equal(t, verifBlock.Hash(), seqBlock.Hash(), "Verifier and sequencer blocks not the same after including a batch tx")
 
