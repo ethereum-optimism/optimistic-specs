@@ -1,7 +1,7 @@
 import { task, types } from 'hardhat/config'
 import { Contract, providers, utils, Wallet } from 'ethers'
 import dotenv from 'dotenv'
-import { DepositTx } from '../helpers/index'
+import { DepositTx, SourceHashDomain } from '../helpers/index'
 
 dotenv.config()
 
@@ -71,9 +71,7 @@ task('deposit', 'Deposits funds onto L2.')
 
     const amountWei = utils.parseEther(amountEth)
     const value = amountWei.add(utils.parseEther('0.01'))
-    console.log(
-      `Depositing ${amountEth} ETH to ${to} with ${value.toString()} value...`
-    )
+    console.log(`Depositing ${amountEth} ETH to ${to}`)
     // Below adds 0.01 ETH to account for gas.
     const tx = await depositFeed.depositTransaction(
       to,
@@ -91,30 +89,26 @@ task('deposit', 'Deposits funds onto L2.')
       throw new Error('Transaction not deposited')
     }
 
-    let found = false
-    l2Provider.on('block', async (number) => {
-      const block = await l2Provider.getBlock(number)
-      for (const [i, hash] of block.transactions.entries()) {
-        const l2tx = new DepositTx({
-          blockHeight: number,
-          transactionIndex: i,
-          from: event.args.from,
-          to: event.args.isCreation ? null : event.args.to,
-          mint: event.args.mint,
-          value: event.args.value,
-          gas: event.args.gasLimit,
-          data: event.args.data,
-        })
-
-        if (l2tx.hash() === hash) {
-          console.log(`Got L2 TX hash ${hash}`)
-          found = true
-        }
-      }
+    const l2tx = new DepositTx({
+      from: event.args.from,
+      to: event.args.isCreation ? null : event.args.to,
+      mint: event.args.mint,
+      value: event.args.value,
+      gas: event.args.gasLimit,
+      data: event.args.data,
+      domain: SourceHashDomain.UserDeposit,
+      l1BlockHash: receipt.blockHash,
+      logIndex: event.logIndex,
     })
+    const hash = l2tx.hash()
+    console.log(`Waiting for L2 TX hash ${hash}`)
 
-    // eslint-disable-next-line
-    while (!found) {
+    while (true) {
+      const tx = await l2Provider.send('eth_getTransactionByHash', [hash])
+      if (tx) {
+        console.log('Deposit success')
+        break
+      }
       await sleep(500)
     }
   })
