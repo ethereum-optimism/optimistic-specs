@@ -1,47 +1,43 @@
 // The sync package is responsible for reconciling L1 and L2.
 //
+// The ethereum chain is a DAG of blocks with the root block being the genesis block. At any given
+// time, the head (or tip) of the chain can change if an offshoot of the chain has a higher number.
+// This is known as a re-organization of the canonical chain. Each block points to a parent block
+// and the node is responsible for deciding which block is the head and thus the mapping from block
+// number to canonical block.
 //
-// The ethereum chain is a DAG of blocks with the root block being the genesis block.
-// At any given time, the head (or tip) of the chain can change if an offshoot of the chain
-// has a higher number. This is known as a re-organization of the canonical chain.
-// Each block points to a parent block and the node is responsible for deciding which block is the head
-// and thus the mapping from block number to canonical block.
-//
-// The optimism chain has similar properties, but also retains references to the ethereum chain.
-// Each optimism block retains a reference to an L1 block and to its parent L2 block.
-// The L2 chain node must satisfy the following validity rules
-//     1. l2block.height == l2parent.block.height + 1
-//     2. l2block.l1Origin.height >= l2block.l2parent.l1Origin.height
+// The Optimism chain has similar properties, but also retains references to the ethereum chain.
+// Each Optimism block retains a reference to an L1 block (its "L1 origin", i.e. L1 block associated
+// with the epoch that the L2 block belongs to) and to its parent L2 block. The L2 chain node must
+// satisfy the following validity rules:
+//     1. l2block.number == l2block.l2parent.block.number + 1
+//     2. l2block.l1Origin.number >= l2block.l2parent.l1Origin.number
 //     3. l2block.l1Origin is in the canonical chain on L1
 //     4. l1_rollup_genesis is an ancestor of l2block.l1Origin
 //
+// During normal operation, both the L1 and L2 canonical chains can change, due to a re-organisation
+// or due to an extension (new L1 or L2 block).
 //
-// During normal operation, both the L1 and L2 canonical chains can change, due to a reorg
-// or an extension (new block).
-//     - L1 reorg
-//     - L1 extension
-//     - L2 reorg
-//     - L2 extension
+// When one of these changes occurs, the rollup node needs to determine what the new L2 head blocks
+// should be. We track two L2 head blocks:
+//     - The *unsafe L2 block*: This is the highest L2 block whose L1 origin is a plausible (1)
+//       extension of the canonical L1 chain (as known to the opnode).
+//     - The *safe L2 block*: This is the highest L2 block whose epoch's sequencing window is
+//       complete within the canonical L1 chain (as known to the opnode).
 //
-// When one of these changes occurs, the rollup node needs to determine what the new L2 Heads should be.
-// In a simple extension case, the L2 head remains the same, but in the case of a re-org on L1, it needs
-// to find the unsafe and safe blocks.
+// (1) Plausible meaning that the blockhash of the L2 block's L1 origin (as reported in the L1
+//     Attributes deposit within the L2 block) is not canonical at another height in the L1 chain.
 //
-// Unsafe Block: The highest L2 block. If the L1 Attributes is ahead of the L1 head, it is assumed to be valid,
-// if not, it walks back until it finds the first L2 block whose L1 Origin is canonical in the L1 chain.
-// Safe Block: The highest L2 block whose sequence window has not changed during a reorg.
-//
-// The safe block can be found by walking back one sequence window from the "latest" L2 block. The latest L2
-// block is the first L2 block whose L1 Origin is canonical in L1. If the unsafe block is ahead of the L1
-// chain, the latest block and unsafe block are not the same.
+// In particular, in the case of L1 extension, the L2 unsafe head will generally remain the same,
+// but in the case of an L1 re-org, we need to search for the new safe and unsafe L2 block.
 package sync
 
 import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/ethereum/go-ethereum"
+
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
