@@ -59,7 +59,7 @@ var TooDeepReorgErr = errors.New("reorg is too deep")
 const MaxReorgDepth = 500
 
 // isCanonical returns true if the supplied block ID is canonical in the L1 chain.
-// It will suppress ethereum.NotFound errors
+// If the L1 block is not found by number (ethereum.NotFound), the error will be nil.
 func isCanonical(ctx context.Context, l1 L1Chain, block eth.BlockID) (bool, error) {
 	canonical, err := l1.L1BlockRefByNumber(ctx, block.Number)
 	if err != nil && !errors.Is(err, ethereum.NotFound) {
@@ -70,84 +70,123 @@ func isCanonical(ctx context.Context, l1 L1Chain, block eth.BlockID) (bool, erro
 	return canonical.Hash == block.Hash, nil
 }
 
-// FindL2Heads walks back from the supplied L2 blocks and finds the unsafe and safe L2 blocks.
-// Unsafe Block: The highest L2 block. If the L1 Attributes is ahead of the L1 head, it is assumed to be valid,
-// if not, it walks back until it finds the first L2 block whose L1 Origin is canonical in the L1 chain.
-// Safe Block: The highest L2 block whose sequence window has not changed during a reorg.
+// FindL2Heads walks back from `start` (the previous unsafe L2 block) and finds the unsafe and safe
+// L2 blocks.
+//
+//     - The *unsafe L2 block*: This is the highest L2 block whose L1 origin is a plausible (1)
+//       extension of the canonical L1 chain (as known to the opnode).
+//     - The *safe L2 block*: This is the highest L2 block whose epoch's sequencing window is
+//       complete within the canonical L1 chain (as known to the opnode).
+//
+// (1) Plausible meaning that the blockhash of the L2 block's L1 origin (as reported in the L1
+//     Attributes deposit within the L2 block) is not canonical at another height in the L1 chain.
 func FindL2Heads(ctx context.Context, start eth.L2BlockRef, seqWindowSize uint64,
 	l1 L1Chain, l2 L2Chain, genesis *rollup.Genesis) (unsafe eth.L2BlockRef, safe eth.L2BlockRef, err error) {
-	reorgDepth := 0
-	var prevL1OriginHash common.Hash
-	// First check if the L1 Origin of the start block is ahead of the current L1 head
-	// If so, we assume that this should be the next unsafe head for the sequencing window
+
+	// First check if the L1 origin of the start block is ahead of the current L1 head.
+	// If so, we assume that this should be the next unsafe head for the sequencing window.
 	// We still need to walk back the safe head because we don't know where the reorg started.
 	l1Head, err := l1.L1HeadBlockRef(ctx)
 	if err != nil {
 		return eth.L2BlockRef{}, eth.L2BlockRef{}, err
 	}
 	l2Ahead := start.L1Origin.Number > l1Head.Number
+
+	// The loop that follows walks the L2 chain until we find the "latest" L2 block.
+	// This the first L2 block whose L1 origin is canonical.
 	var latest eth.L2BlockRef
 
-	// Walk L2 chain until we find the "latest" L2 block. This the first L2 block whose L1 Origin is canonical.
-	for n := start; ; {
-		// Check if l1Origin is canonical when we get to a new epoch
+	// L1 origin hash during for the L2 block during the previous iteration, 0 for first iteration.
+	// When this changes as we walk the L2 chain backwards, it means we're seeing a different
+	// (earlier) epoch.
+	var prevL1OriginHash common.Hash
+
+	// Current L2 block.
+	n := start
+
+	// Number of blocks between n and start.
+	reorgDepth := 0
+
+	for {
+		// Check if l1Origin is canonical when we get to a new epoch.
 		if prevL1OriginHash != n.L1Origin.Hash {
 			if ok, err := isCanonical(ctx, l1, n.L1Origin); err != nil {
 				return eth.L2BlockRef{}, eth.L2BlockRef{}, err
 			} else if ok {
+				// L1 block is canonical, "latest" L2 block found.
 				latest = n
+				prevL1OriginHash = n.L1Origin.Hash
 				break
+			} else {
+				// L1 block not canonical (either we don't know an L1 block at this height, or
+				// have another block hash for it), keep looking.
+				prevL1OriginHash = n.L1Origin.Hash
 			}
-			prevL1OriginHash = n.L1Origin.Hash
 		}
-		// Don't walk past genesis. If we were at the L2 genesis, but could not find the L1 genesis
-		// pointed to from it, we are on the wrong L1 chain.
+
+		// Don't walk past genesis. If we were at the L2 genesis, but could not find its L1 origin,
+		// the L2 chain is building on the wrong L1 branch.
 		if n.Hash == genesis.L2.Hash || n.Number == genesis.L2.Number {
 			return eth.L2BlockRef{}, eth.L2BlockRef{}, WrongChainErr
 		}
+
 		// Pull L2 parent for next iteration
 		n, err = l2.L2BlockRefByHash(ctx, n.ParentHash)
 		if err != nil {
-			return eth.L2BlockRef{}, eth.L2BlockRef{}, fmt.Errorf("failed to fetch L2 block by hash %v: %w", n.ParentHash, err)
+			return eth.L2BlockRef{}, eth.L2BlockRef{},
+				fmt.Errorf("failed to fetch L2 block by hash %v: %w", n.ParentHash, err)
 		}
+
 		reorgDepth++
 		if reorgDepth >= MaxReorgDepth {
+			// If the reorg depth is too large, something is fishy.
+			// This can legitimately happen if L1 goes down for a while. But in that case,
+			// restarting the L2 node with a bigger configured MaxReorgDepth is an acceptable
+			// stopgap solution.
+			// Currently this can also happen if the L2 node is down for a while, but in the future
+			// state sync should prevent this issue.
 			return eth.L2BlockRef{}, eth.L2BlockRef{}, TooDeepReorgErr
 		}
 	}
-	depth := uint64(1) // SeqWindowSize is a length, but we are counting elements in the window.
-	prevL1OriginHash = latest.L1Origin.Hash
-	// Walk from the latest block back 1 Sequence Window of L1 Origins to determine the safe L2 block.
-	for n := latest; ; {
-		// Advance depth if new origin
+
+	// Walk from the L1 origin of the "latest" block back to the L1 block that starts the sequencing
+	// window ending at that block. Instead of iterating on L1 blocks, we actually iterate on L2
+	// blocks, because we want to find the safe head, i.e. the highest L2 block whose L1 origin
+	// is the start of the sequencing window.
+
+	// Depth counter: we need to walk back `seqWindowSize` L1 blocks in order to find the start
+	// of the sequencing window.
+	depth := uint64(1)
+
+	// Before entering the loop: n == latest && prevL1OriginHash == n.L1Origin.Hash
+	for {
+		// Advance depth if we change to a different (earlier) epoch.
 		if n.L1Origin.Hash != prevL1OriginHash {
 			depth++
 			prevL1OriginHash = n.L1Origin.Hash
 		}
-		// Walked sufficiently far
+
+		// Found an L2 block whose L1 origin is the start of the sequencing window.
 		if depth == seqWindowSize {
 			if l2Ahead {
 				return start, n, nil
 			} else {
 				return latest, n, nil
 			}
-
 		}
+
 		// Genesis is always safe.
 		if n.Hash == genesis.L2.Hash || n.Number == genesis.L2.Number {
-			safe = eth.L2BlockRef{Hash: genesis.L2.Hash, Number: genesis.L2.Number, Time: genesis.L2Time, L1Origin: genesis.L1}
-			if l2Ahead {
-				return start, safe, nil
-			} else {
-				return latest, safe, nil
-			}
-
+			safe = eth.L2BlockRef{Hash: genesis.L2.Hash, Number: genesis.L2.Number,
+				Time: genesis.L2Time, L1Origin: genesis.L1}
+			return start, safe, nil
 		}
-		// Pull L2 parent for next iteration
+
+		// Pull L2 parent for next iteration.
 		n, err = l2.L2BlockRefByHash(ctx, n.ParentHash)
 		if err != nil {
-			return eth.L2BlockRef{}, eth.L2BlockRef{}, fmt.Errorf("failed to fetch L2 block by hash %v: %w", n.ParentHash, err)
+			return eth.L2BlockRef{}, eth.L2BlockRef{},
+				fmt.Errorf("failed to fetch L2 block by hash %v: %w", n.ParentHash, err)
 		}
 	}
-
 }
