@@ -49,8 +49,8 @@ func defaultSystemConfig(t *testing.T) SystemConfig {
 		},
 		BatchSubmitterHDPath:       bssHDPath,
 		CliqueSignerDerivationPath: cliqueSignerHDPath,
-		DepositContractAddress:     common.HexToAddress("0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001"),
-		L1InfoPredeployAddress:     common.HexToAddress("0x4242424242424242424242424242424242424242"),
+		DepositContractAddress:     derive.DepositContractAddr,
+		L1InfoPredeployAddress:     derive.L1InfoPredeployAddr,
 		L1WsAddr:                   "127.0.0.1",
 		L1WsPort:                   9090,
 		L1ChainID:                  big.NewInt(900),
@@ -398,5 +398,4 @@ func TestMissingBatchE2E(t *testing.T) {
 	block, err := l2Seq.BlockByNumber(ctx, receipt.BlockNumber)
 	require.Nil(t, err, "Get block from sequencer")
 	require.NotEqual(t, block.Hash(), receipt.BlockHash, "L2 Sequencer did not reorg out transaction on it's safe chain")
-
 }
