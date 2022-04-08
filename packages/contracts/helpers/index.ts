@@ -10,6 +10,7 @@ import {
 } from '@ethersproject/bytes'
 import { keccak256 } from '@ethersproject/keccak256'
 import { Zero } from '@ethersproject/constants'
+import { ContractReceipt, Event } from '@ethersproject/contracts'
 
 function formatNumber(value: BigNumberish, name: string): Uint8Array {
   const result = stripZeros(BigNumber.from(value).toHexString())
@@ -165,5 +166,51 @@ export class DepositTx {
 
   static decode(raw: BytesLike, extra?: DepostTxExtraOpts): DepositTx {
     return new this().decode(raw, extra)
+  }
+
+  fromL1Receipt(receipt: ContractReceipt, index: number): DepositTx {
+    if (!receipt.events) throw new Error('cannot parse receipt')
+    const event = receipt.events[index]
+    if (!event) {
+      throw new Error(`event index ${index} does not exist`)
+    }
+    return this.fromL1Event(event)
+  }
+
+  static fromL1Receipt(receipt: ContractReceipt, index: number): DepositTx {
+    return new this({}).fromL1Receipt(receipt, index)
+  }
+
+  fromL1Event(event: Event): DepositTx {
+    if (event.event !== 'TransactionDeposited')
+      throw new Error(`incorrect event type: ${event.event}`)
+    if (typeof event.args === 'undefined') throw new Error('no event args')
+    if (typeof event.args.from === 'undefined')
+      throw new Error('"from" undefined')
+    this.from = event.args.from
+    if (typeof event.args.isCreation === 'undefined')
+      throw new Error('"isCreation" undefined')
+    if (typeof event.args.to === 'undefined') throw new Error('"to" undefined')
+    this.to = event.args.isCreation ? null : event.args.to
+    if (typeof event.args.mint === 'undefined')
+      throw new Error('"mint" undefined')
+    this.mint = event.args.mint
+    if (typeof event.args.value === 'undefined')
+      throw new Error('"value" undefined')
+    this.value = event.args.value
+    if (typeof event.args.gasLimit === 'undefined')
+      throw new Error('"gasLimit" undefined')
+    this.gas = event.args.gasLimit
+    if (typeof event.args.data === 'undefined')
+      throw new Error('"data" undefined')
+    this.data = event.args.data
+    this.domain = SourceHashDomain.UserDeposit
+    this.l1BlockHash = event.blockHash
+    this.logIndex = event.logIndex
+    return this
+  }
+
+  static fromL1Event(event: Event): DepositTx {
+    return new this({}).fromL1Event(event)
   }
 }

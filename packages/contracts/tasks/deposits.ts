@@ -1,5 +1,6 @@
 import { task, types } from 'hardhat/config'
 import { Contract, providers, utils, Wallet } from 'ethers'
+import { Event } from '@ethersproject/contracts'
 import dotenv from 'dotenv'
 import { DepositTx, SourceHashDomain } from '../helpers/index'
 
@@ -84,22 +85,12 @@ task('deposit', 'Deposits funds onto L2.')
     console.log(`Got TX hash ${tx.hash}. Waiting...`)
     const receipt = await tx.wait()
 
-    const event = receipt.events[0]
-    if (event?.event !== 'TransactionDeposited') {
-      throw new Error('Transaction not deposited')
-    }
-
-    const l2tx = new DepositTx({
-      from: event.args.from,
-      to: event.args.isCreation ? null : event.args.to,
-      mint: event.args.mint,
-      value: event.args.value,
-      gas: event.args.gasLimit,
-      data: event.args.data,
-      domain: SourceHashDomain.UserDeposit,
-      l1BlockHash: receipt.blockHash,
-      logIndex: event.logIndex,
-    })
+    // find the transaction deposited event and derive
+    // the deposit transaction from it
+    const event = receipt.events.find(
+      (e: Event) => e.event === 'TransactionDeposited'
+    )
+    const l2tx = DepositTx.fromL1Event(event)
     const hash = l2tx.hash()
     console.log(`Waiting for L2 TX hash ${hash}`)
 
