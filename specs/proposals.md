@@ -3,6 +3,7 @@
 <!-- All glossary references in this file. -->
 
 [g-rollup-node]: glossary.md#rollup-node
+[g-mpt]: glossary.md#merkle-patricia-trie
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
@@ -49,27 +50,40 @@ output, and the appropriate timestamp, to the [L2 Output Root](#l2-output-root-s
 
 ## L2 Output Commitment Construction
 
-The `output_root` is a 32 byte string defined as:
+The `output_root` is a 32 byte string, which is derived based on the a versioned scheme:
 
 ```pseudocode
-keccak256(version_byte . state_root . withdrawal_storage_root . latest_block)
+output_root = keccak256(version_byte || payload)
+```
+
+where:
+
+1. `version_byte` (`bytes32`) a simple version string which increments anytime the construction of the output root
+   is changed.
+
+2. `payload` (`bytes`) is a byte string of arbitrary length.
+
+In the initial version of the output commitment construction, the version is `bytes32(0)`, and the payload is defined
+as:
+
+```pseudocode
+payload = state_root || withdrawal_storage_root || latest_block
 ```
 
 where the concatenated variables are:
-
-1. The `version_byte` (`bytes32`) a simple version string which increments anytime the construction of the output root
-   is changed.
 
 1. The `state_root` (`bytes32`) is the Merkle-Patricia-Trie ([MPT][g-mpt]) root of all execution-layer accounts,
    also found in `latest_block.state_root`: this field is frequently used and thus elevated closer to the L2 output
    root, as opposed to retrieving it from the pre-image of the block in `latest_block`, reducing the merkle proof depth
    and thus the cost of usage.
 
-1. The `withdrawal_storage_root` (`bytes32`) elevates the Merkle-Patricia-Trie ([MPT][g-mpt]) root of L2 Withdrawal
-   contract storage. Instead of a MPT proof to the Withdrawal contract account in the account trie, one can directly
-access the MPT storage trie root, thus reducing the verification cost of withdrawals on L1.
+1. The `withdrawal_storage_root` (`bytes32`) elevates the Merkle-Patricia-Trie ([MPT][g-mpt]) root of [L2 Withdrawal
+   contract](./withdrawals.md#withdrawer-contract) storage. Instead of making an MPT proof for a withdrawal against the
+   state root (proving first the storage root of the L2 withdrawal contract against the state root, then the withdrawal
+   against that storage root), we can prove against the L2 withdrawal contract's storage root directly, thus reducing
+   the verification cost of withdrawals on L1.
 
-1. The `latest_block` (`bytes32`) is an execution-layer block of L2, represented as the
+1. The `latest_block` (`bytes32`) is an L2 block, represented as the
    [`ExecutionPayload`][executionpayload] SSZ type defined in L1. There may be multiple blocks per L2 output root, only
    the latest is presented.
 
