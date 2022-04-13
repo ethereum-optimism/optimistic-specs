@@ -62,6 +62,11 @@ contract L2OutputOracle is Ownable {
         uint256 _startingBlockTimestamp,
         address sequencer
     ) {
+        require(
+            _submissionInterval % _l2BlockTime == 0,
+            "Submission Interval must be a multiple of L2 Block Time"
+        );
+
         SUBMISSION_INTERVAL = _submissionInterval;
         L2_BLOCK_TIME = _l2BlockTime;
         l2Outputs[_startingBlockTimestamp] = _genesisL2Output; // solhint-disable not-rely-on-time

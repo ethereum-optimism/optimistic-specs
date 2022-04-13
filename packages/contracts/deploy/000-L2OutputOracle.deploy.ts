@@ -18,7 +18,7 @@ const deployFn: DeployFunction = async (hre) => {
   await deploy('L2OutputOracle', {
     from: deployer,
     args: [
-      15,
+      10,
       2,
       `0x${'00'.repeat(32)}`,
       0,
