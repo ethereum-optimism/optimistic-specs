@@ -30,11 +30,11 @@ type state struct {
 	sequencer bool
 
 	// Connections (in/out)
-	l1Heads <-chan eth.L1BlockRef
-	l1      L1Chain
-	l2      L2Chain
-	output  outputInterface
-	bss     BatchSubmitter
+	l1HeadsCh <-chan eth.L1BlockRef
+	l1        L1Chain
+	l2        L2Chain
+	output    outputInterface
+	bss       BatchSubmitter
 
 	log  log.Logger
 	done chan struct{}
@@ -57,7 +57,7 @@ func NewState(log log.Logger, config rollup.Config, l1 L1Chain, l2 L2Chain, outp
 
 // Start starts up the state loop. The context is only for initilization.
 // The loop will have been started iff err is not nil.
-func (s *state) Start(ctx context.Context, l1Heads <-chan eth.L1BlockRef) error {
+func (s *state) Start(ctx context.Context, l1HeadsCh <-chan eth.L1BlockRef) error {
 	l1Head, err := s.l1.L1HeadBlockRef(ctx)
 	if err != nil {
 		return err
@@ -72,13 +72,16 @@ func (s *state) Start(ctx context.Context, l1Heads <-chan eth.L1BlockRef) error 
 		// Ensure that we are on the correct chain. Note that we cannot rely on rely on the UnsafeHead being more than
 		// a sequence window behind the L1 Head and must walk back 1 sequence window as we do not track the end L1 block
 		// hash of the sequence window when we derive an L2 block.
+		// TODO: safeHead returned here is actually the latest L2 block that *could* be the safe
+		// head, but we don't actually know if it necessarily *is* the safe head because it
+		// might've come into this node via unsafe distribution (directly from the sequencer). We
+		// need to figure out how to guarantee that this head is actually safe.
 		unsafeHead, safeHead, err := sync.FindL2Heads(ctx, l2Head, s.Config.SeqWindowSize, s.l1, s.l2, &s.Config.Genesis)
 		if err != nil {
 			return err
 		}
 		s.l2Head = unsafeHead
 		s.l2SafeHead = safeHead
-
 	} else {
 		// Not yet reached genesis block
 		// TODO: Test this codepath. That requires setting up L1, letting it run, and then creating the L2 genesis from there.
@@ -94,7 +97,7 @@ func (s *state) Start(ctx context.Context, l1Heads <-chan eth.L1BlockRef) error 
 	}
 
 	s.l1Head = l1Head
-	s.l1Heads = l1Heads
+	s.l1HeadsCh = l1HeadsCh
 
 	s.wg.Add(1)
 	go s.loop()
@@ -136,15 +139,30 @@ func (s *state) handleNewL1Block(ctx context.Context, newL1Head eth.L1BlockRef) 
 		return nil
 	}
 
-	// New L1 block is not the same as the current head or a single step linear extension.
-	// This could either be a long L1 extension, or a reorg. Both can be handled the same way.
-	s.log.Warn("L1 Head signal indicates an L1 re-org", "old_l1_head", s.l1Head, "new_l1_head_parent", newL1Head.ParentHash, "new_l1_head", newL1Head)
-	unsafeL2Head, safeL2Head, err := sync.FindL2Heads(ctx, s.l2Head, s.Config.SeqWindowSize, s.l1, s.l2, &s.Config.Genesis)
+	// New L1 block is not the same as the current head or a single step linear extension. This
+	// means that we're either experiencing a long L1 extension or a reorg. We can handle both
+	// cases using FindL2Heads, which will reorg the chain if necessary. If we're just dealing with
+	// a long extension, we won't see any type of reorg in the L2 chain.
+	// TODO: Maybe we can explicitly handle the two cases differently?
+	s.log.Warn("L1 Head signal indicates an L1 re-org or long extension", "old_l1_head", s.l1Head, "new_l1_head_parent", newL1Head.ParentHash, "new_l1_head", newL1Head)
+	unsafeL2Head, maxSafeL2Head, err := sync.FindL2Heads(ctx, s.l2Head, s.Config.SeqWindowSize, s.l1, s.l2, &s.Config.Genesis)
 	if err != nil {
-		s.log.Error("Could not get new unsafe L2 head when trying to handle a re-org", "err", err)
+		s.log.Error("Could not get new unsafe L2 head when trying to handle a re-org or long extension", "err", err)
 		return err
 	}
-	// Update forkchoice
+
+	// maxSafeL2Head returned by FindL2Heads is the *maximum* allowable block which could
+	// potentially be the safe head. However, if we're the accepting unsafe blocks (either we are
+	// the sequencer or we're getting blocks from the sequencer) then the returned value may be
+	// ahead of the current safe head. We only want to move our safe head forward when we've
+	// verified the head from L1 (via handleEpoch) but if the returned value is *behind* our
+	// current safe head then we'll need to use that value instead.
+	safeL2Head := s.l2SafeHead
+	if s.l2SafeHead.Number >= maxSafeL2Head.Number {
+		safeL2Head = maxSafeL2Head
+	}
+
+	// Update our forkchoice state.
 	fc := l2.ForkchoiceState{
 		HeadBlockHash:      unsafeL2Head.Hash,
 		SafeBlockHash:      safeL2Head.Hash,
@@ -152,17 +170,15 @@ func (s *state) handleNewL1Block(ctx context.Context, newL1Head eth.L1BlockRef) 
 	}
 	_, err = s.l2.ForkchoiceUpdate(ctx, &fc, nil)
 	if err != nil {
-		s.log.Error("Could not set new forkchoice when trying to handle a re-org", "err", err)
+		s.log.Error("Could not set new forkchoice when trying to handle a re-org or long extension", "err", err)
 		return err
 	}
-	// State Update
+
+	// State update.
 	s.l1Head = newL1Head
 	s.l1WindowBuf = nil
 	s.l2Head = unsafeL2Head
-	// Don't advance l2SafeHead past it's current value
-	if s.l2SafeHead.Number >= safeL2Head.Number {
-		s.l2SafeHead = safeL2Head
-	}
+	s.l2SafeHead = safeL2Head
 
 	return nil
 }
@@ -258,41 +274,51 @@ func (s *state) createNewL2Block(ctx context.Context) error {
 // It ensures that a full sequencing window is available and updates the state as needed.
 func (s *state) handleEpoch(ctx context.Context) (bool, error) {
 	s.log.Trace("Handling epoch", "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead)
-	// Extend cached window if we do not have enough saved blocks
+
+	// Extend cached window if we do not have enough saved blocks.
 	if len(s.l1WindowBuf) < int(s.Config.SeqWindowSize) {
-		// attempt to buffer up to 2x the size of a sequence window of L1 blocks, to speed up later handleEpoch calls
+		// Attempt to buffer up to 2x the sequencing window. Anything up to the window size is good
+		// enough, but caching more will reduce the number of additional RPC calls down the line.
 		nexts, err := s.l1.L1Range(ctx, s.l1WindowBufEnd(), 2*s.Config.SeqWindowSize)
 		if err != nil {
 			s.log.Error("Could not extend the cached L1 window", "err", err, "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead, "l1Head", s.l1Head, "window_end", s.l1WindowBufEnd())
 			return false, err
 		}
+
+		// Add the new blocks to the window and double-check that we have sufficiently many blocks
+		// to fill the entire window. If we don't have enough blocks, we can't deterministically
+		// generate the L2 blocks for the given epoch so we'll need to wait.
 		s.l1WindowBuf = append(s.l1WindowBuf, nexts...)
-
-	}
-	// Ensure that there are enough blocks in the cached window
-	if len(s.l1WindowBuf) < int(s.Config.SeqWindowSize) {
-		s.log.Debug("Not enough cached blocks to run step", "cached_window_len", len(s.l1WindowBuf))
-		return false, nil
+		if len(s.l1WindowBuf) < int(s.Config.SeqWindowSize) {
+			s.log.Debug("Not enough cached blocks to run step", "cached_window_len", len(s.l1WindowBuf))
+			return false, nil
+		}
 	}
 
-	// Insert the epoch
+	// Actually insert the epoch. This will compute all L2 blocks for the given epoch based on the
+	// window of blocks (defined by the current L1 head block and the configured window size).
+	// These blocks are then inserted into our L2 chain.
 	window := s.l1WindowBuf[:s.Config.SeqWindowSize]
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	newL2Head, newL2SafeHead, reorg, err := s.output.insertEpoch(ctx, s.l2Head, s.l2SafeHead, s.l2Finalized, window)
 	cancel()
 	if err != nil {
-		// Cannot easily check that s.l1WindowBuf[0].ParentHash == s.l2Safehead.L1Origin.Hash in this function, so if insertEpoch
-		// may have found a problem with that, clear the buffer and try again later.
+		// Some errors produced by insertEpoch may be the result of an issue with the window buffer
+		// and can therefore be fixed by clearing and regenerating the buffer. For example, this
+		// might happen if the first block of the buffer is, for whatever reason, not the immediate
+		// child block of the last L1 origin block. We should try to prevent this from happening in
+		// the first place, but we might as well add some recovery logic if we can.
 		s.l1WindowBuf = nil
 		s.log.Error("Error in running the output step.", "err", err, "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead)
 		return false, err
 	}
 
-	// State update
+	// State update.
 	s.l2Head = newL2Head
 	s.l2SafeHead = newL2SafeHead
 	s.l1WindowBuf = s.l1WindowBuf[1:]
 	s.log.Info("Inserted a new epoch", "l2Head", s.l2Head, "l2SafeHead", s.l2SafeHead, "reorg", reorg)
+
 	// TODO: l2Finalized
 	return reorg, nil
 
@@ -369,7 +395,7 @@ func (s *state) loop() {
 				reqL2BlockCreation()
 			}
 
-		case newL1Head := <-s.l1Heads:
+		case newL1Head := <-s.l1HeadsCh:
 			ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			err := s.handleNewL1Block(ctx, newL1Head)
 			cancel()
