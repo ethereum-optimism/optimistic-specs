@@ -144,7 +144,7 @@ describe('Withdrawals', () => {
       // Set the timeout based on the diff between latest output and target output timestamp
       let latestBlockTimestamp = (await oracle.latestBlockTimestamp()).toNumber()
       let difference = targetOutputTimestamp - latestBlockTimestamp
-      this.timeout(difference * 1000 + 60000)
+      this.timeout(difference * 1000 + 120000)
 
       let output: string
       await awaitCondition(async () => {
