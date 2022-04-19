@@ -154,7 +154,7 @@ describe('Withdrawals', () => {
       // Set the timeout based on the diff between latest output and target output timestamp.
       let latestBlockTimestamp = (await oracle.latestBlockTimestamp()).toNumber()
       let difference = targetOutputTimestamp - latestBlockTimestamp
-      this.timeout(difference * 1000 + 300_000)
+      this.timeout(difference * 5000)
 
       let output: string
       await awaitCondition(async () => {
@@ -171,7 +171,7 @@ describe('Withdrawals', () => {
           })
         }
         return output != constants.HashZero
-      }, 2000, 100)
+      }, 2000, 240)
 
       // suppress compilation errors since Typescript cannot detect
       // that awaitCondition above will throw if it times out.
