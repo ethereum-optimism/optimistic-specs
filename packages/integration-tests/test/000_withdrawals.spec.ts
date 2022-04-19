@@ -175,7 +175,6 @@ describe('Withdrawals', () => {
 
       // suppress compilation errors since Typescript cannot detect
       // that awaitCondition above will throw if it times out.
-      targetOutputTimestamp = targetOutputTimestamp!
       output = output!
 
       const blocksSinceBurn = Math.floor((targetOutputTimestamp - burnBlock.timestamp) / 2)
