@@ -161,7 +161,7 @@ describe('Withdrawals', () => {
           })
         }
         return output != constants.HashZero
-      }, 2000, 150)
+      }, 2000, 240)
 
       // suppress compilation errors since Typescript cannot detect
       // that awaitCondition above will throw if it times out.
