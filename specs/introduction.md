@@ -60,7 +60,7 @@ In order to scale Ethereum without sacrificing security, we must preserve 3 crit
 liveness, availability, and validity.
 
 1. **Liveness** - Anyone must be able to extend the rollup chain by sending transactions at any time.
-    - There are two ways transactions can be sent to the rollup chain: 1) via the sequencer, and 2) directly on layer
+    - There are two ways transactions can be sent to the rollup chain: 1) via the sequencer, and 2) directly on layer 1.
 2. The sequencer provides low latency & low cost transactions, while sending transactions directly to layer 1 provides
 censorship resistance.
 3. **Availability** - Anyone must be able to download the rollup chain.
