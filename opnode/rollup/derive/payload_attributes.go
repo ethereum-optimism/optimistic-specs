@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	DepositEventABI     = "TransactionDeposited(address,address,uint256,uint256,uint256,bool,bytes)"
+	DepositEventABI     = "TransactionDeposited(address,address,uint256,uint256,uint64,bool,bytes)"
 	DepositEventABIHash = crypto.Keccak256Hash([]byte(DepositEventABI))
 	L1InfoFuncSignature = "setL1BlockValues(uint256,uint256,uint256,bytes32)"
 	L1InfoFuncBytes4    = crypto.Keccak256([]byte(L1InfoFuncSignature))[:4]
@@ -70,7 +70,7 @@ func (dep *L1InfoDepositSource) SourceHash() common.Hash {
 //    	 address indexed to,
 //       uint256 mint,
 //    	 uint256 value,
-//    	 uint256 gasLimit,
+//    	 uint64 gasLimit,
 //    	 bool isCreation,
 //    	 data data
 //     );
