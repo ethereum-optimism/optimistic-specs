@@ -4,13 +4,7 @@ pragma solidity ^0.8.9;
 // solhint-disable max-line-length
 /* Library Imports */
 import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
-import {
-    Lib_AddressResolver
-} from "@eth-optimism/contracts/libraries/resolver/Lib_AddressResolver.sol";
 import { Lib_OVMCodec } from "@eth-optimism/contracts/libraries/codec/Lib_OVMCodec.sol";
-import {
-    Lib_AddressManager
-} from "@eth-optimism/contracts/libraries/resolver/Lib_AddressManager.sol";
 import {
     Lib_SecureMerkleTrie
 } from "@eth-optimism/contracts/libraries/trie/Lib_SecureMerkleTrie.sol";
@@ -53,7 +47,6 @@ import {
  */
 contract L1CrossDomainMessenger is
     IL1CrossDomainMessenger,
-    Lib_AddressResolver,
     OwnableUpgradeable,
     PausableUpgradeable,
     ReentrancyGuardUpgradeable
@@ -69,6 +62,8 @@ contract L1CrossDomainMessenger is
     /**********************
      * Contract Variables *
      **********************/
+    ICanonicalTransactionChain ctc;
+    IStateCommitmentChain scc;
 
     mapping(bytes32 => bool) public blockedMessages;
     mapping(bytes32 => bool) public relayedMessages;
@@ -82,25 +77,26 @@ contract L1CrossDomainMessenger is
 
     /**
      * This contract is intended to be behind a delegate proxy.
-     * We pass the zero address to the address resolver just to satisfy the constructor.
      * We still need to set this value in initialize().
      */
-    constructor() Lib_AddressResolver(address(0)) {}
+    constructor() {}
 
     /********************
      * Public Functions *
      ********************/
 
     /**
-     * @param _libAddressManager Address of the Address Manager.
+     * @param _ctc Address of the CTC.
+     * @param _scc Address of the SCC.
      */
     // slither-disable-next-line external-function
-    function initialize(address _libAddressManager) public initializer {
-        require(
-            address(libAddressManager) == address(0),
-            "L1CrossDomainMessenger already intialized."
-        );
-        libAddressManager = Lib_AddressManager(_libAddressManager);
+    function initialize(ICanonicalTransactionChain _ctc, IStateCommitmentChain _scc)
+        public
+        initializer
+    {
+        require(address(ctc) == address(0), "L1CrossDomainMessenger already intialized.");
+        ctc = _ctc;
+        scc = _scc;
         xDomainMsgSender = Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER;
 
         // Initialize upgradable OZ contracts
@@ -156,9 +152,8 @@ contract L1CrossDomainMessenger is
         bytes memory _message,
         uint32 _gasLimit
     ) public {
-        address ovmCanonicalTransactionChain = resolve("CanonicalTransactionChain");
         // Use the CTC queue length as nonce
-        uint40 nonce = ICanonicalTransactionChain(ovmCanonicalTransactionChain).getQueueLength();
+        uint40 nonce = ctc.getQueueLength();
 
         bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
             _target,
@@ -168,7 +163,7 @@ contract L1CrossDomainMessenger is
         );
 
         // slither-disable-next-line reentrancy-events
-        _sendXDomainMessage(ovmCanonicalTransactionChain, xDomainCalldata, _gasLimit);
+        _sendXDomainMessage(xDomainCalldata, _gasLimit);
 
         // slither-disable-next-line reentrancy-events
         emit SentMessage(_target, msg.sender, _message, nonce, _gasLimit);
@@ -210,10 +205,7 @@ contract L1CrossDomainMessenger is
             "Provided message has been blocked."
         );
 
-        require(
-            _target != resolve("CanonicalTransactionChain"),
-            "Cannot send L2->L1 messages to L1 system contracts."
-        );
+        require(_target != address(ctc), "Cannot send L2->L1 messages to L1 system contracts.");
 
         xDomainMsgSender = _sender;
         // slither-disable-next-line reentrancy-no-eth, reentrancy-events, reentrancy-benign
@@ -267,13 +259,8 @@ contract L1CrossDomainMessenger is
         view
         returns (bool)
     {
-        IStateCommitmentChain ovmStateCommitmentChain = IStateCommitmentChain(
-            resolve("StateCommitmentChain")
-        );
-
-        return (ovmStateCommitmentChain.insideFraudProofWindow(_proof.stateRootBatchHeader) ==
-            false &&
-            ovmStateCommitmentChain.verifyStateCommitment(
+        return (scc.insideFraudProofWindow(_proof.stateRootBatchHeader) == false &&
+            scc.verifyStateCommitment(
                 _proof.stateRoot,
                 _proof.stateRootBatchHeader,
                 _proof.stateRootProof
@@ -328,20 +315,11 @@ contract L1CrossDomainMessenger is
 
     /**
      * Sends a cross domain message.
-     * @param _canonicalTransactionChain Address of the CanonicalTransactionChain instance.
      * @param _message Message to send.
      * @param _gasLimit OVM gas limit for the message.
      */
-    function _sendXDomainMessage(
-        address _canonicalTransactionChain,
-        bytes memory _message,
-        uint256 _gasLimit
-    ) internal {
+    function _sendXDomainMessage(bytes memory _message, uint256 _gasLimit) internal {
         // slither-disable-next-line reentrancy-events
-        ICanonicalTransactionChain(_canonicalTransactionChain).enqueue(
-            Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER,
-            _gasLimit,
-            _message
-        );
+        ctc.enqueue(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER, _gasLimit, _message);
     }
 }
