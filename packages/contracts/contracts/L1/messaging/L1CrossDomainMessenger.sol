@@ -21,7 +21,6 @@ import {
 /* Interface Imports */
 import { IL1CrossDomainMessenger } from "./IL1CrossDomainMessenger.sol";
 import { OptimismPortal } from "../OptimismPortal.sol";
-import { IStateCommitmentChain } from "@eth-optimism/contracts/L1/rollup/IStateCommitmentChain.sol";
 
 /* External Imports */
 import {
@@ -61,7 +60,6 @@ contract L1CrossDomainMessenger is
      * Contract Variables *
      **********************/
     OptimismPortal public optimismPortal;
-    IStateCommitmentChain scc;
 
     // Bedrock upgrade note: the nonce must be initialized to greater than the last value of
     // CanonicalTransactionChain.queueElements.length. Otherwise it will be possible to have
@@ -90,19 +88,14 @@ contract L1CrossDomainMessenger is
 
     /**
      * @param _optimismPortal Address of the OptimismPortal.
-     * @param _scc Address of the SCC.
      */
     // slither-disable-next-line external-function
-    function initialize(OptimismPortal _optimismPortal, IStateCommitmentChain _scc)
-        public
-        initializer
-    {
+    function initialize(OptimismPortal _optimismPortal) public initializer {
         require(
             address(optimismPortal) == address(0),
             "L1CrossDomainMessenger already intialized."
         );
         optimismPortal = _optimismPortal;
-        scc = _scc;
         xDomainMsgSender = Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER;
 
         // Initialize upgradable OZ contracts
@@ -181,8 +174,7 @@ contract L1CrossDomainMessenger is
         address _target,
         address _sender,
         bytes memory _message,
-        uint256 _messageNonce,
-        L2MessageInclusionProof memory _proof
+        uint256 _messageNonce
     ) public nonReentrant whenNotPaused {
         bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
             _target,
@@ -192,8 +184,8 @@ contract L1CrossDomainMessenger is
         );
 
         require(
-            _verifyXDomainMessage(xDomainCalldata, _proof) == true,
-            "Provided message could not be verified."
+            msg.sender == address(optimismPortal),
+            "Messages must be relayed by first calling the Optimism Portal"
         );
 
         bytes32 xDomainCalldataHash = keccak256(xDomainCalldata);
@@ -241,83 +233,6 @@ contract L1CrossDomainMessenger is
     /**********************
      * Internal Functions *
      **********************/
-
-    /**
-     * Verifies that the given message is valid.
-     * @param _xDomainCalldata Calldata to verify.
-     * @param _proof Inclusion proof for the message.
-     * @return Whether or not the provided message is valid.
-     */
-    function _verifyXDomainMessage(
-        bytes memory _xDomainCalldata,
-        L2MessageInclusionProof memory _proof
-    ) internal view returns (bool) {
-        return (_verifyStateRootProof(_proof) && _verifyStorageProof(_xDomainCalldata, _proof));
-    }
-
-    /**
-     * Verifies that the state root within an inclusion proof is valid.
-     * @param _proof Message inclusion proof.
-     * @return Whether or not the provided proof is valid.
-     */
-    function _verifyStateRootProof(L2MessageInclusionProof memory _proof)
-        internal
-        view
-        returns (bool)
-    {
-        return (scc.insideFraudProofWindow(_proof.stateRootBatchHeader) == false &&
-            scc.verifyStateCommitment(
-                _proof.stateRoot,
-                _proof.stateRootBatchHeader,
-                _proof.stateRootProof
-            ));
-    }
-
-    /**
-     * Verifies that the storage proof within an inclusion proof is valid.
-     * @param _xDomainCalldata Encoded message calldata.
-     * @param _proof Message inclusion proof.
-     * @return Whether or not the provided proof is valid.
-     */
-    function _verifyStorageProof(
-        bytes memory _xDomainCalldata,
-        L2MessageInclusionProof memory _proof
-    ) internal view returns (bool) {
-        bytes32 storageKey = keccak256(
-            abi.encodePacked(
-                keccak256(
-                    abi.encodePacked(
-                        _xDomainCalldata,
-                        Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER
-                    )
-                ),
-                uint256(0)
-            )
-        );
-
-        (bool exists, bytes memory encodedMessagePassingAccount) = Lib_SecureMerkleTrie.get(
-            abi.encodePacked(Lib_PredeployAddresses.L2_TO_L1_MESSAGE_PASSER),
-            _proof.stateTrieWitness,
-            _proof.stateRoot
-        );
-
-        require(
-            exists == true,
-            "Message passing predeploy has not been initialized or invalid proof provided."
-        );
-
-        Lib_OVMCodec.EVMAccount memory account = Lib_OVMCodec.decodeEVMAccount(
-            encodedMessagePassingAccount
-        );
-
-        return
-            Lib_SecureMerkleTrie.verifyInclusionProof(
-                abi.encodePacked(storageKey),
-                abi.encodePacked(uint8(1)),
-                _proof.storageTrieWitness,
-                account.storageRoot
-            );
-    }
 
     /**
      * Sends a cross domain message.
