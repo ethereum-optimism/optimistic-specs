@@ -8,7 +8,7 @@ import { Vm } from "../../lib/forge-std/src/Vm.sol";
 /* Library Imports */
 import {
     AddressAliasHelper
-} from "../../lib/optimism/packages/contracts/contracts/standards/AddressAliasHelper.sol";
+} from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 
 /* Target contract */
 import { DepositFeed } from "../L1/abstracts/DepositFeed.sol";

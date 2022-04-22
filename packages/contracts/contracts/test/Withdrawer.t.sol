@@ -7,13 +7,13 @@ import { Withdrawer } from "../L2/Withdrawer.sol";
 
 import {
     AddressAliasHelper
-} from "../../lib/optimism/packages/contracts/contracts/standards/AddressAliasHelper.sol";
+} from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 import {
     Lib_RLPWriter
-} from "../../lib/optimism/packages/contracts/contracts/libraries/rlp/Lib_RLPWriter.sol";
+} from "@eth-optimism/contracts/libraries/rlp/Lib_RLPWriter.sol";
 import {
     Lib_Bytes32Utils
-} from "../../lib/optimism/packages/contracts/contracts/libraries/utils/Lib_Bytes32Utils.sol";
+} from "@eth-optimism/contracts/libraries/utils/Lib_Bytes32Utils.sol";
 
 
 contract WithdrawerTestCommon is DSTest {
