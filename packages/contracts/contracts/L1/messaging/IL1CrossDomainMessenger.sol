@@ -35,13 +35,11 @@ interface IL1CrossDomainMessenger is ICrossDomainMessenger {
      * @param _sender Message sender address.
      * @param _message Message to send to the target.
      * @param _messageNonce Nonce for the provided message.
-     * @param _proof Inclusion proof for the given message.
      */
     function relayMessage(
         address _target,
         address _sender,
         bytes memory _message,
-        uint256 _messageNonce,
-        L2MessageInclusionProof memory _proof
+        uint256 _messageNonce
     ) external;
 }
