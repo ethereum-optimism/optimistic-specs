@@ -5,6 +5,7 @@
   "main": "index.js",
   "license": "MIT",
   "dependencies": {
+    "@eth-optimism/contracts": "^0.5.21",
     "@ethersproject/address": "^5.6.0",
     "@ethersproject/bignumber": "^5.6.0",
     "@ethersproject/bytes": "^5.6.1",

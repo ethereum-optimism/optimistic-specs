@@ -2,9 +2,7 @@
 pragma solidity 0.8.10;
 
 /* Library Imports */
-import {
-    AddressAliasHelper
-} from "../../lib/optimism/packages/contracts/contracts/standards/AddressAliasHelper.sol";
+import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 import { WithdrawalVerifier } from "../libraries/Lib_WithdrawalVerifier.sol";
 
 /* Interaction imports */

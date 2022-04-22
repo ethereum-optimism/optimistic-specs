@@ -3,26 +3,24 @@ pragma solidity ^0.8.9;
 
 // solhint-disable max-line-length
 /* Library Imports */
-import {
-    AddressAliasHelper
-} from "../../../lib/optimism/packages/contracts/contracts/standards/AddressAliasHelper.sol";
+import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 import {
     Lib_CrossDomainUtils
-} from "../../../lib/optimism/packages/contracts/contracts/libraries/bridge/Lib_CrossDomainUtils.sol";
+} from "@eth-optimism/contracts/libraries/bridge/Lib_CrossDomainUtils.sol";
 import {
     Lib_DefaultValues
-} from "../../../lib/optimism/packages/contracts/contracts/libraries/constants/Lib_DefaultValues.sol";
+} from "@eth-optimism/contracts/libraries/constants/Lib_DefaultValues.sol";
 import {
     Lib_PredeployAddresses
-} from "../../../lib/optimism/packages/contracts/contracts/libraries/constants/Lib_PredeployAddresses.sol";
+} from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
 
 /* Interface Imports */
 import {
     IL2CrossDomainMessenger
-} from "../../../lib/optimism/packages/contracts/contracts/L2/messaging/IL2CrossDomainMessenger.sol";
+} from "@eth-optimism/contracts/L2/messaging/IL2CrossDomainMessenger.sol";
 import {
     iOVM_L2ToL1MessagePasser
-} from "../../../lib/optimism/packages/contracts/contracts/L2/predeploys/iOVM_L2ToL1MessagePasser.sol";
+} from "@eth-optimism/contracts/L2/predeploys/iOVM_L2ToL1MessagePasser.sol";
 
 // solhint-enable max-line-length
 
