@@ -25,9 +25,7 @@ import {
 } from "@eth-optimism/contracts/libraries/bridge/Lib_CrossDomainUtils.sol";
 
 /* Interface Imports */
-import {
-    IL1CrossDomainMessenger
-} from "@eth-optimism/contracts/L1/messaging/IL1CrossDomainMessenger.sol";
+import { IL1CrossDomainMessenger } from "./IL1CrossDomainMessenger.sol";
 import {
     ICanonicalTransactionChain
 } from "@eth-optimism/contracts/L1/rollup/ICanonicalTransactionChain.sol";
@@ -240,53 +238,6 @@ contract L1CrossDomainMessenger is
         bytes32 relayId = keccak256(abi.encodePacked(xDomainCalldata, msg.sender, block.number));
         // slither-disable-next-line reentrancy-benign
         relayedMessages[relayId] = true;
-    }
-
-    /**
-     * Replays a cross domain message to the target messenger.
-     * @inheritdoc IL1CrossDomainMessenger
-     */
-    // slither-disable-next-line external-function
-    function replayMessage(
-        address _target,
-        address _sender,
-        bytes memory _message,
-        uint256 _queueIndex,
-        uint32 _oldGasLimit,
-        uint32 _newGasLimit
-    ) public {
-        // Verify that the message is in the queue:
-        address canonicalTransactionChain = resolve("CanonicalTransactionChain");
-        Lib_OVMCodec.QueueElement memory element = ICanonicalTransactionChain(
-            canonicalTransactionChain
-        ).getQueueElement(_queueIndex);
-
-        // Compute the calldata that was originally used to send the message.
-        bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
-            _target,
-            _sender,
-            _message,
-            _queueIndex
-        );
-
-        // Compute the transactionHash
-        bytes32 transactionHash = keccak256(
-            abi.encode(
-                AddressAliasHelper.applyL1ToL2Alias(address(this)),
-                Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER,
-                _oldGasLimit,
-                xDomainCalldata
-            )
-        );
-
-        // Now check that the provided message data matches the one in the queue element.
-        require(
-            transactionHash == element.transactionHash,
-            "Provided message has not been enqueued."
-        );
-
-        // Send the same message but with the new gas limit.
-        _sendXDomainMessage(canonicalTransactionChain, xDomainCalldata, _newGasLimit);
     }
 
     /**********************
