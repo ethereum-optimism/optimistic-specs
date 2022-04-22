@@ -20,9 +20,7 @@ import {
 
 /* Interface Imports */
 import { IL1CrossDomainMessenger } from "./IL1CrossDomainMessenger.sol";
-import {
-    ICanonicalTransactionChain
-} from "@eth-optimism/contracts/L1/rollup/ICanonicalTransactionChain.sol";
+import { OptimismPortal } from "../OptimismPortal.sol";
 import { IStateCommitmentChain } from "@eth-optimism/contracts/L1/rollup/IStateCommitmentChain.sol";
 
 /* External Imports */
@@ -62,8 +60,13 @@ contract L1CrossDomainMessenger is
     /**********************
      * Contract Variables *
      **********************/
-    ICanonicalTransactionChain ctc;
+    OptimismPortal public optimismPortal;
     IStateCommitmentChain scc;
+
+    // Bedrock upgrade note: the nonce must be initialized to greater than the last value of
+    // CanonicalTransactionChain.queueElements.length. Otherwise it will be possible to have
+    // messages which cannot be relayed on L2.
+    uint256 messageNonce;
 
     mapping(bytes32 => bool) public blockedMessages;
     mapping(bytes32 => bool) public relayedMessages;
@@ -86,16 +89,19 @@ contract L1CrossDomainMessenger is
      ********************/
 
     /**
-     * @param _ctc Address of the CTC.
+     * @param _optimismPortal Address of the OptimismPortal.
      * @param _scc Address of the SCC.
      */
     // slither-disable-next-line external-function
-    function initialize(ICanonicalTransactionChain _ctc, IStateCommitmentChain _scc)
+    function initialize(OptimismPortal _optimismPortal, IStateCommitmentChain _scc)
         public
         initializer
     {
-        require(address(ctc) == address(0), "L1CrossDomainMessenger already intialized.");
-        ctc = _ctc;
+        require(
+            address(optimismPortal) == address(0),
+            "L1CrossDomainMessenger already intialized."
+        );
+        optimismPortal = _optimismPortal;
         scc = _scc;
         xDomainMsgSender = Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER;
 
@@ -152,21 +158,18 @@ contract L1CrossDomainMessenger is
         bytes memory _message,
         uint32 _gasLimit
     ) public {
-        // Use the CTC queue length as nonce
-        uint40 nonce = ctc.getQueueLength();
-
         bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
             _target,
             msg.sender,
             _message,
-            nonce
+            messageNonce
         );
 
         // slither-disable-next-line reentrancy-events
         _sendXDomainMessage(xDomainCalldata, _gasLimit);
 
         // slither-disable-next-line reentrancy-events
-        emit SentMessage(_target, msg.sender, _message, nonce, _gasLimit);
+        emit SentMessage(_target, msg.sender, _message, messageNonce, _gasLimit);
     }
 
     /**
@@ -205,7 +208,10 @@ contract L1CrossDomainMessenger is
             "Provided message has been blocked."
         );
 
-        require(_target != address(ctc), "Cannot send L2->L1 messages to L1 system contracts.");
+        require(
+            _target != address(optimismPortal),
+            "Cannot send L2->L1 messages to L1 system contracts."
+        );
 
         xDomainMsgSender = _sender;
         // slither-disable-next-line reentrancy-no-eth, reentrancy-events, reentrancy-benign
@@ -316,10 +322,15 @@ contract L1CrossDomainMessenger is
     /**
      * Sends a cross domain message.
      * @param _message Message to send.
-     * @param _gasLimit OVM gas limit for the message.
+     * @param _gasLimit L2 gas limit for the message.
      */
     function _sendXDomainMessage(bytes memory _message, uint256 _gasLimit) internal {
-        // slither-disable-next-line reentrancy-events
-        ctc.enqueue(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER, _gasLimit, _message);
+        optimismPortal.depositTransaction(
+            Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER,
+            0,
+            _gasLimit,
+            false,
+            _message
+        );
     }
 }
