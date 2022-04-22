@@ -1,21 +1,43 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.9;
 
+// solhint-disable max-line-length
 /* Library Imports */
-import { AddressAliasHelper } from "../../standards/AddressAliasHelper.sol";
-import { Lib_AddressResolver } from "../../libraries/resolver/Lib_AddressResolver.sol";
-import { Lib_OVMCodec } from "../../libraries/codec/Lib_OVMCodec.sol";
-import { Lib_AddressManager } from "../../libraries/resolver/Lib_AddressManager.sol";
-import { Lib_SecureMerkleTrie } from "../../libraries/trie/Lib_SecureMerkleTrie.sol";
-import { Lib_DefaultValues } from "../../libraries/constants/Lib_DefaultValues.sol";
-import { Lib_PredeployAddresses } from "../../libraries/constants/Lib_PredeployAddresses.sol";
-import { Lib_CrossDomainUtils } from "../../libraries/bridge/Lib_CrossDomainUtils.sol";
+import {
+    AddressAliasHelper
+} from "../../../lib/optimism/packages/contracts/contracts/standards/AddressAliasHelper.sol";
+import {
+    Lib_AddressResolver
+} from "../../../lib/optimism/packages/contracts/contracts/libraries/resolver/Lib_AddressResolver.sol";
+import {
+    Lib_OVMCodec
+} from "../../../lib/optimism/packages/contracts/contracts/libraries/codec/Lib_OVMCodec.sol";
+import {
+    Lib_AddressManager
+} from "../../../lib/optimism/packages/contracts/contracts/libraries/resolver/Lib_AddressManager.sol";
+import {
+    Lib_SecureMerkleTrie
+} from "../../../lib/optimism/packages/contracts/contracts/libraries/trie/Lib_SecureMerkleTrie.sol";
+import {
+    Lib_DefaultValues
+} from "../../../lib/optimism/packages/contracts/contracts/libraries/constants/Lib_DefaultValues.sol";
+import {
+    Lib_PredeployAddresses
+} from "../../../lib/optimism/packages/contracts/contracts/libraries/constants/Lib_PredeployAddresses.sol";
+import {
+    Lib_CrossDomainUtils
+} from "../../../lib/optimism/packages/contracts/contracts/libraries/bridge/Lib_CrossDomainUtils.sol";
 
 /* Interface Imports */
-import { IL1CrossDomainMessenger } from "./IL1CrossDomainMessenger.sol";
-import { ICanonicalTransactionChain } from "../rollup/ICanonicalTransactionChain.sol";
-import { IStateCommitmentChain } from "../rollup/IStateCommitmentChain.sol";
-
+import {
+    IL1CrossDomainMessenger
+} from "../../../lib/optimism/packages/contracts/contracts/L1/messaging/IL1CrossDomainMessenger.sol";
+import {
+    ICanonicalTransactionChain
+} from "../../../lib/optimism/packages/contracts/contracts/L1/rollup/ICanonicalTransactionChain.sol";
+import {
+    IStateCommitmentChain
+} from "../../../lib/optimism/packages/contracts/contracts/L1/rollup/IStateCommitmentChain.sol";
 /* External Imports */
 import {
     OwnableUpgradeable
@@ -26,6 +48,8 @@ import {
 import {
     ReentrancyGuardUpgradeable
 } from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+
+// solhint-enable max-line-length
 
 /**
  * @title L1CrossDomainMessenger
