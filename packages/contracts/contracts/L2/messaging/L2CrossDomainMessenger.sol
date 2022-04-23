@@ -10,17 +10,13 @@ import {
 import {
     Lib_DefaultValues
 } from "@eth-optimism/contracts/libraries/constants/Lib_DefaultValues.sol";
-import {
-    Lib_PredeployAddresses
-} from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
+import { Lib_BedrockPredeployAddresses } from "../../libraries/Lib_BedrockPredeployAddresses.sol";
 
 /* Interface Imports */
 import {
     IL2CrossDomainMessenger
 } from "@eth-optimism/contracts/L2/messaging/IL2CrossDomainMessenger.sol";
-import {
-    iOVM_L2ToL1MessagePasser
-} from "@eth-optimism/contracts/L2/predeploys/iOVM_L2ToL1MessagePasser.sol";
+import { Withdrawer } from "../Withdrawer.sol";
 
 // solhint-enable max-line-length
 
@@ -75,6 +71,13 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
         bytes memory _message,
         uint32 _gasLimit
     ) public {
+        // Temp note: I think we might be able to remove xDomainCallData from this contract
+        // entirely.
+        // Possibly also from the L1xDM as well, but needs considerations.
+        // Rationale: the proof no longer occurs in the L1 messenger, but rather in the
+        // WithdrawalRelayer logic (which is inherited into the Portal). This proof relies on
+        // the value returned by WithdrawalVerifier._deriveWithdrawalHash(), which takes in
+        // more arguments.
         bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
             _target,
             msg.sender,
@@ -82,19 +85,20 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
             messageNonce
         );
 
+        // Temp note: Further to my notes above, afaict this mapping is not used for anything.
+        // It'd be great if we can save an SSTORE by removing it.
         sentMessages[keccak256(xDomainCalldata)] = true;
 
-        // Actually send the message.
-        // slither-disable-next-line reentrancy-no-eth, reentrancy-events
-        iOVM_L2ToL1MessagePasser(Lib_PredeployAddresses.L2_TO_L1_MESSAGE_PASSER).passMessageToL1(
-            xDomainCalldata
-        );
-
         // Emit an event before we bump the nonce or the nonce will be off by one.
-        // slither-disable-next-line reentrancy-events
         emit SentMessage(_target, msg.sender, _message, messageNonce, _gasLimit);
-        // slither-disable-next-line reentrancy-no-eth
         messageNonce += 1;
+
+        // Actually send the message.
+        Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
+            l1CrossDomainMessenger,
+            _gasLimit,
+            _message
+        );
     }
 
     /**
@@ -116,6 +120,9 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
             "Provided message could not be verified."
         );
 
+        // Temp note: Here we would need to keep the xDomainCalldata hashing and
+        // storage, because it allows replays when the call fails, and prevents
+        // them when it succeeds.
         bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
             _target,
             _sender,
@@ -130,10 +137,11 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
             "Provided message has already been received."
         );
 
-        // Prevent calls to OVM_L2ToL1MessagePasser, which would enable
+        // Prevent calls to WITHDRAWER, which would enable
         // an attacker to maliciously craft the _message to spoof
         // a call from any L2 account.
-        if (_target == Lib_PredeployAddresses.L2_TO_L1_MESSAGE_PASSER) {
+        // Todo: evaluate if this attack is still relevant
+        if (_target == Lib_BedrockPredeployAddresses.WITHDRAWER) {
             // Write to the successfulMessages mapping and return immediately.
             successfulMessages[xDomainCalldataHash] = true;
             return;
