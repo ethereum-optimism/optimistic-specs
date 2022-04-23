@@ -64,7 +64,7 @@ contract L1CrossDomainMessenger is
     // Bedrock upgrade note: the nonce must be initialized to greater than the last value of
     // CanonicalTransactionChain.queueElements.length. Otherwise it will be possible to have
     // messages which cannot be relayed on L2.
-    uint256 messageNonce;
+    uint256 public messageNonce;
 
     mapping(bytes32 => bool) public blockedMessages;
     mapping(bytes32 => bool) public relayedMessages;
