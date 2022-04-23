@@ -89,8 +89,7 @@ contract L1CrossDomainMessenger is
     /**
      * @param _optimismPortal Address of the OptimismPortal.
      */
-    // slither-disable-next-line external-function
-    function initialize(OptimismPortal _optimismPortal) public initializer {
+    function initialize(OptimismPortal _optimismPortal) external initializer {
         require(
             address(optimismPortal) == address(0),
             "L1CrossDomainMessenger already intialized."
@@ -130,8 +129,7 @@ contract L1CrossDomainMessenger is
         emit MessageAllowed(_xDomainCalldataHash);
     }
 
-    // slither-disable-next-line external-function
-    function xDomainMessageSender() public view returns (address) {
+    function xDomainMessageSender() external view returns (address) {
         require(
             xDomainMsgSender != Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER,
             "xDomainMessageSender is not set"
@@ -145,12 +143,11 @@ contract L1CrossDomainMessenger is
      * @param _message Message to send to the target.
      * @param _gasLimit Gas limit for the provided message.
      */
-    // slither-disable-next-line external-function
     function sendMessage(
         address _target,
         bytes memory _message,
         uint32 _gasLimit
-    ) public {
+    ) external {
         bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
             _target,
             msg.sender,
@@ -158,24 +155,21 @@ contract L1CrossDomainMessenger is
             messageNonce
         );
 
-        // slither-disable-next-line reentrancy-events
-        _sendXDomainMessage(xDomainCalldata, _gasLimit);
-
-        // slither-disable-next-line reentrancy-events
         emit SentMessage(_target, msg.sender, _message, messageNonce, _gasLimit);
+
+        _sendXDomainMessage(xDomainCalldata, _gasLimit);
     }
 
     /**
      * Relays a cross domain message to a contract.
      * @inheritdoc IL1CrossDomainMessenger
      */
-    // slither-disable-next-line external-function
     function relayMessage(
         address _target,
         address _sender,
         bytes memory _message,
         uint256 _messageNonce
-    ) public nonReentrant whenNotPaused {
+    ) external nonReentrant whenNotPaused {
         bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
             _target,
             _sender,
