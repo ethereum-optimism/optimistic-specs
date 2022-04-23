@@ -49,7 +49,7 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
     // pause: should not pause the contract when called by account other than the owner
     function testCannot_pause() external {
         vm.expectRevert('Ownable: caller is not the owner');
-        vm.prank(address(0xABBA));
+            vm.prank(address(0xABBA));
         messenger.pause();
     }
 
@@ -77,11 +77,10 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
         messenger.sendMessage(recipient, NON_ZERO_DATA, uint32(NON_ZERO_GASLIMIT));
         messenger.sendMessage(recipient, NON_ZERO_DATA, uint32(NON_ZERO_GASLIMIT));
     }
-
+}
 
 
 // xDomainMessageSender: should return the xDomainMsgSender address
-
 
 // relayMessage: should revert if still inside the fraud proof window
 // relayMessage: should revert if attempting to relay a message sent to an L1 system contract
