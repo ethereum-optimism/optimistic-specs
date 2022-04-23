@@ -50,8 +50,7 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
      * Public Functions *
      ********************/
 
-    // slither-disable-next-line external-function
-    function xDomainMessageSender() public view returns (address) {
+    function xDomainMessageSender() external view returns (address) {
         require(
             xDomainMsgSender != Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER,
             "xDomainMessageSender is not set"
@@ -65,12 +64,11 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
      * @param _message Message to send to the target.
      * @param _gasLimit Gas limit for the provided message.
      */
-    // slither-disable-next-line external-function
     function sendMessage(
         address _target,
         bytes memory _message,
         uint32 _gasLimit
-    ) public {
+    ) external {
         // Temp note: I think we might be able to remove xDomainCallData from this contract
         // entirely.
         // Possibly also from the L1xDM as well, but needs considerations.
@@ -105,16 +103,15 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
      * Relays a cross domain message to a contract.
      * @inheritdoc IL2CrossDomainMessenger
      */
-    // slither-disable-next-line external-function
     function relayMessage(
         address _target,
         address _sender,
         bytes memory _message,
         uint256 _messageNonce
-    ) public {
+    ) external {
         // Since it is impossible to deploy a contract to an address on L2 which matches
         // the alias of the L1CrossDomainMessenger, this check can only pass when it is called in
-        // the first call from of a deposit transaction. Thus reentrancy is prevented here.
+        // the first call frame of a deposit transaction. Thus reentrancy is prevented here.
         require(
             AddressAliasHelper.undoL1ToL2Alias(msg.sender) == l1CrossDomainMessenger,
             "Provided message could not be verified."
