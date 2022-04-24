@@ -5,6 +5,7 @@ pragma solidity 0.8.10;
 import { CommonTest } from "./CommonTest.sol";
 import { L2OutputOracle_Initializer } from "./L2OutputOracle.t.sol";
 
+/* Libraries */
 import {
     Lib_DefaultValues
 } from "@eth-optimism/contracts/libraries/constants/Lib_DefaultValues.sol";
@@ -14,6 +15,7 @@ import {
 import {
     Lib_CrossDomainUtils
 } from "@eth-optimism/contracts/libraries/bridge/Lib_CrossDomainUtils.sol";
+import { WithdrawalVerifier } from "../libraries/Lib_WithdrawalVerifier.sol";
 
 /* Target contract dependencies */
 import { L2OutputOracle } from "../L1/L2OutputOracle.sol";
@@ -34,8 +36,8 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
     address recipient = address(0xabbaacdc);
 
     function setUp() external {
-        // Oracle value is zero, but this test does not depend on it.
-        op = new OptimismPortal(oracle, 7 days);
+        // new portal with zero finalization window
+        op = new OptimismPortal(oracle, 0);
         messenger = new L1CrossDomainMessenger();
         messenger.initialize(op);
     }
@@ -48,8 +50,10 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
 
     // pause: should not pause the contract when called by account other than the owner
     function testCannot_pause() external {
-        vm.expectRevert('Ownable: caller is not the owner');
-            vm.prank(address(0xABBA));
+        emit log_address(address(op));
+        emit log_address(address(messenger));
+        vm.expectRevert("Ownable: caller is not the owner");
+        vm.prank(address(0xABBA));
         messenger.pause();
     }
 
@@ -66,7 +70,11 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
             address(op),
             abi.encodeWithSignature(
                 "depositTransaction(address,uint256,uint256,bool,bytes)",
-                Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER, 0, NON_ZERO_GASLIMIT, false, xDomainCalldata
+                Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER,
+                0,
+                NON_ZERO_GASLIMIT,
+                false,
+                xDomainCalldata
             )
         );
         messenger.sendMessage(recipient, NON_ZERO_DATA, uint32(NON_ZERO_GASLIMIT));
@@ -77,20 +85,51 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
         messenger.sendMessage(recipient, NON_ZERO_DATA, uint32(NON_ZERO_GASLIMIT));
         messenger.sendMessage(recipient, NON_ZERO_DATA, uint32(NON_ZERO_GASLIMIT));
     }
+
+    // xDomainMessageSender: should return the xDomainMsgSender address
+
+    // relayMessage: should send a successful call to the target contract
+    function test_relayMessageSucceeds() external {
+        address target = address(0xabcd);
+        address sender = address(0x1234);
+        bytes memory message = hex"1111";
+        uint256 messageNonce = 42;
+        // The encoding we'll use to verify that the message was successful relayed
+        bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
+            target,
+            sender,
+            message,
+            messageNonce
+        );
+
+        // ensure that both the messenger and target receive a call
+        vm.expectCall(
+            address(messenger),
+            abi.encodeWithSelector(
+                L1CrossDomainMessenger.relayMessage.selector,
+                target,
+                sender,
+                message,
+                messageNonce
+            )
+        );
+        vm.expectCall(address(0xabcd), hex"1111");
+        vm.prank(address(op));
+        messenger.relayMessage(target, sender, message, messageNonce);
+        // Ensure the hash of the xDomainCalldata was stored in the successfulMessages mapping.
+        bytes32 messageHash = keccak256(xDomainCalldata);
+        assert(messenger.successfulMessages(messageHash));
+    }
+
+    // relayMessage: should revert if still inside the fraud proof window
+    // relayMessage: should revert if attempting to relay a message sent to an L1 system contract
+    // relayMessage: should revert if provided an invalid output root proof
+    // relayMessage: should revert if provided an invalid storage trie witness
+    // relayMessage: the xDomainMessageSender is reset to the original value
+    // relayMessage: should revert if trying to send the same message twice
+    // relayMessage: should revert if paused
+
+    // blockMessage and allowMessage: should revert if called by an account other than the owner
+    // blockMessage and allowMessage: should revert if the message is blocked
+    // blockMessage and allowMessage: should succeed if the message is blocked, then unblocked
 }
-
-
-// xDomainMessageSender: should return the xDomainMsgSender address
-
-// relayMessage: should revert if still inside the fraud proof window
-// relayMessage: should revert if attempting to relay a message sent to an L1 system contract
-// relayMessage: should revert if provided an invalid output root proof
-// relayMessage: should revert if provided an invalid storage trie witness
-// relayMessage: should send a successful call to the target contract
-// relayMessage: the xDomainMessageSender is reset to the original value
-// relayMessage: should revert if trying to send the same message twice
-// relayMessage: should revert if paused
-
-// blockMessage and allowMessage: should revert if called by an account other than the owner
-// blockMessage and allowMessage: should revert if the message is blocked
-// blockMessage and allowMessage: should succeed if the message is blocked, then unblocked
