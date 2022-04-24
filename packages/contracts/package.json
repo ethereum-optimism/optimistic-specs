@@ -14,6 +14,7 @@
     "@openzeppelin/contracts": "^4.5.0",
     "@openzeppelin/contracts-upgradeable": "^4.5.2",
     "hardhat": "^2.7.1",
+    "merkle-patricia-tree": "^4.2.4",
     "rlp": "^2.2.7"
   },
   "scripts": {
