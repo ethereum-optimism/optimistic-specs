@@ -90,7 +90,10 @@ contract L1CrossDomainMessenger is
     /**
      * @param _optimismPortal Address of the OptimismPortal.
      */
-    function initialize(OptimismPortal _optimismPortal, address _l2CrossDomainMessenger) external initializer {
+    function initialize(OptimismPortal _optimismPortal, address _l2CrossDomainMessenger)
+        external
+        initializer
+    {
         require(
             address(optimismPortal) == address(0),
             "L1CrossDomainMessenger already intialized."
