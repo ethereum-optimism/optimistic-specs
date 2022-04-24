@@ -2,17 +2,18 @@
 pragma solidity ^0.8.9;
 
 /* Interface Imports */
-import { IL1StandardBridge } from "../../L1/messaging/IL1StandardBridge.sol";
-import { IL1ERC20Bridge } from "../../L1/messaging/IL1ERC20Bridge.sol";
-import { IL2ERC20Bridge } from "./IL2ERC20Bridge.sol";
+import { IL1StandardBridge } from "@eth-optimism/contracts/L1/messaging/IL1StandardBridge.sol";
+import { IL1ERC20Bridge } from "@eth-optimism/contracts/L1/messaging/IL1ERC20Bridge.sol";
+import { IL2ERC20Bridge } from "@eth-optimism/contracts/L2/messaging/IL2ERC20Bridge.sol";
 
 /* Library Imports */
 import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
-import { CrossDomainEnabled } from "../../libraries/bridge/CrossDomainEnabled.sol";
-import { Lib_PredeployAddresses } from "../../libraries/constants/Lib_PredeployAddresses.sol";
+import { CrossDomainEnabled } from "@eth-optimism/contracts/libraries/bridge/CrossDomainEnabled.sol";
+import { Lib_PredeployAddresses } from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
+import { Lib_BedrockPredeployAddresses } from "../../libraries/Lib_BedrockPredeployAddresses.sol";
 
 /* Contract Imports */
-import { IL2StandardERC20 } from "../../standards/IL2StandardERC20.sol";
+import { IL2StandardERC20 } from "@eth-optimism/contracts/standards/IL2StandardERC20.sol";
 
 /**
  * @title L2StandardBridge
