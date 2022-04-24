@@ -39,7 +39,7 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
         // new portal with zero finalization window
         op = new OptimismPortal(oracle, 0);
         messenger = new L1CrossDomainMessenger();
-        messenger.initialize(op);
+        messenger.initialize(op, Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER);
     }
 
     // pause: should pause the contract when called by the current owner
@@ -91,7 +91,7 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
     // relayMessage: should send a successful call to the target contract
     function test_relayMessageSucceeds() external {
         address target = address(0xabcd);
-        address sender = address(0x1234);
+        address sender = Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER;
         bytes memory message = hex"1111";
         uint256 messageNonce = 42;
         // The encoding we'll use to verify that the message was successful relayed
@@ -114,8 +114,11 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
             )
         );
         vm.expectCall(address(0xabcd), hex"1111");
+        // set the value of op.l2Sender() to be the L2 Cross Domain Messenger.
+        vm.store(address(op), 0, bytes32(abi.encode(sender)));
         vm.prank(address(op));
         messenger.relayMessage(target, sender, message, messageNonce);
+
         // Ensure the hash of the xDomainCalldata was stored in the successfulMessages mapping.
         bytes32 messageHash = keccak256(xDomainCalldata);
         assert(messenger.successfulMessages(messageHash));

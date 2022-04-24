@@ -117,6 +117,11 @@ contract WithdrawalsRelay_finalizeWithdrawalTransaction_Test is CommonTest {
     }
 
     function test_verifyWithdrawal() external {
+        // todo: get FFI working for this test
+        // string[] memory inputs = new string[](3);
+        // inputs[0] = "ts-node";
+        // inputs[1] = "scripts/makeProof";
+        // inputs[2] = string(abi.encode(wdNonce, wdSender, wdTarget, wdValue, wdGasLimit, wdData));
         // Warp to after the finality window
         vm.warp(appendedTimestamp + 7 days);
         wr.finalizeWithdrawalTransaction(

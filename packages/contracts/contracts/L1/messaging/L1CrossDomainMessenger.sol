@@ -60,6 +60,7 @@ contract L1CrossDomainMessenger is
      * Contract Variables *
      **********************/
     OptimismPortal public optimismPortal;
+    address public l2CrossDomainMessenger;
 
     // Bedrock upgrade note: the nonce must be initialized to greater than the last value of
     // CanonicalTransactionChain.queueElements.length. Otherwise it will be possible to have
@@ -89,12 +90,13 @@ contract L1CrossDomainMessenger is
     /**
      * @param _optimismPortal Address of the OptimismPortal.
      */
-    function initialize(OptimismPortal _optimismPortal) external initializer {
+    function initialize(OptimismPortal _optimismPortal, address _l2CrossDomainMessenger) external initializer {
         require(
             address(optimismPortal) == address(0),
             "L1CrossDomainMessenger already intialized."
         );
         optimismPortal = _optimismPortal;
+        l2CrossDomainMessenger = _l2CrossDomainMessenger;
         xDomainMsgSender = Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER;
 
         // Initialize upgradable OZ contracts
@@ -170,16 +172,20 @@ contract L1CrossDomainMessenger is
         bytes memory _message,
         uint256 _messageNonce
     ) external nonReentrant whenNotPaused {
+        require(
+            msg.sender == address(optimismPortal),
+            "Messages must be relayed by first calling the Optimism Portal"
+        );
+        require(
+            optimismPortal.l2Sender() == l2CrossDomainMessenger,
+            "Message must be sent from the L2 Cross Domain Messenger"
+        );
+
         bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
             _target,
             _sender,
             _message,
             _messageNonce
-        );
-
-        require(
-            msg.sender == address(optimismPortal),
-            "Messages must be relayed by first calling the Optimism Portal"
         );
 
         bytes32 xDomainCalldataHash = keccak256(xDomainCalldata);
