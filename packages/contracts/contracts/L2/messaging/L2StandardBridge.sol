@@ -8,12 +8,15 @@ import { IL2ERC20Bridge } from "@eth-optimism/contracts/L2/messaging/IL2ERC20Bri
 
 /* Library Imports */
 import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
-import { CrossDomainEnabled } from "@eth-optimism/contracts/libraries/bridge/CrossDomainEnabled.sol";
-import { Lib_PredeployAddresses } from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
+import {
+    Lib_PredeployAddresses
+} from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
 import { Lib_BedrockPredeployAddresses } from "../../libraries/Lib_BedrockPredeployAddresses.sol";
+import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 
 /* Contract Imports */
 import { IL2StandardERC20 } from "@eth-optimism/contracts/standards/IL2StandardERC20.sol";
+import { Withdrawer } from "../Withdrawer.sol";
 
 /**
  * @title L2StandardBridge
@@ -24,7 +27,7 @@ import { IL2StandardERC20 } from "@eth-optimism/contracts/standards/IL2StandardE
  * This contract also acts as a burner of the tokens intended for withdrawal, informing the L1
  * bridge to release L1 funds.
  */
-contract L2StandardBridge is IL2ERC20Bridge, CrossDomainEnabled {
+contract L2StandardBridge is IL2ERC20Bridge {
     /********************************
      * External Contract References *
      ********************************/
@@ -36,11 +39,9 @@ contract L2StandardBridge is IL2ERC20Bridge, CrossDomainEnabled {
      ***************/
 
     /**
-     * @param _l2CrossDomainMessenger Cross-domain messenger used by this contract.
      * @param _l1TokenBridge Address of the L1 bridge deployed to the main chain.
      */
-    constructor(address _l2CrossDomainMessenger, address _l1TokenBridge)
-        CrossDomainEnabled(_l2CrossDomainMessenger)
+    constructor(address _l1TokenBridge)
     {
         l1TokenBridge = _l1TokenBridge;
     }
@@ -124,12 +125,25 @@ contract L2StandardBridge is IL2ERC20Bridge, CrossDomainEnabled {
             );
         }
 
-        // Send message up to L1 bridge
-        // slither-disable-next-line reentrancy-events
-        sendCrossDomainMessage(l1TokenBridge, _l1Gas, message);
+        message = abi.encodeWithSelector(
+            IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
+            l1Token,
+            _l2Token,
+            _from,
+            _to,
+            _amount,
+            _data
+        );
 
         // slither-disable-next-line reentrancy-events
         emit WithdrawalInitiated(l1Token, _l2Token, msg.sender, _to, _amount, _data);
+
+        // Send message up to L1 bridge
+        Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
+            l1TokenBridge,
+            _l1Gas,
+            message
+        );
     }
 
     /************************************
@@ -146,7 +160,15 @@ contract L2StandardBridge is IL2ERC20Bridge, CrossDomainEnabled {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external virtual onlyFromCrossDomainAccount(l1TokenBridge) {
+    ) external virtual {
+        // Since it is impossible to deploy a contract to an address on L2 which matches
+        // the alias of the l1TokenBridge, this check can only pass when it is called in
+        // the first call frame of a deposit transaction. Thus reentrancy is prevented here.
+        require(
+            AddressAliasHelper.undoL1ToL2Alias(msg.sender) == l1TokenBridge,
+            "Can only be called by a the l1TokenBridge"
+        );
+
         // Check the target token is compliant and
         // verify the deposited token on L1 matches the L2 deposited token representation here
         if (
@@ -179,11 +201,14 @@ contract L2StandardBridge is IL2ERC20Bridge, CrossDomainEnabled {
                 _data
             );
 
-            // Send message up to L1 bridge
-            // slither-disable-next-line reentrancy-events
-            sendCrossDomainMessage(l1TokenBridge, 0, message);
-            // slither-disable-next-line reentrancy-events
             emit DepositFailed(_l1Token, _l2Token, _from, _to, _amount, _data);
+
+            // Send message up to L1 bridge
+            Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
+                l1TokenBridge,
+                0,
+                message
+            );
         }
     }
 }

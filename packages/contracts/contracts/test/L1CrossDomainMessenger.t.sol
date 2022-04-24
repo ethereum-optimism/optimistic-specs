@@ -50,8 +50,6 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
 
     // pause: should not pause the contract when called by account other than the owner
     function testCannot_pause() external {
-        emit log_address(address(op));
-        emit log_address(address(messenger));
         vm.expectRevert("Ownable: caller is not the owner");
         vm.prank(address(0xABBA));
         messenger.pause();

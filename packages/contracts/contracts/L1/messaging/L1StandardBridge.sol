@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.9;
+pragma solidity ^0.8.9;
 
 /* Interface Imports */
 import { IL1StandardBridge } from "@eth-optimism/contracts/L1/messaging/IL1StandardBridge.sol";
 import { IL1ERC20Bridge } from "@eth-optimism/contracts/L1/messaging/IL1ERC20Bridge.sol";
 import { IL2ERC20Bridge } from "@eth-optimism/contracts/L2/messaging/IL2ERC20Bridge.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import { OptimismPortal } from "../OptimismPortal.sol";
 
 /* Library Imports */
-import {
-    CrossDomainEnabled
-} from "@eth-optimism/contracts/libraries/bridge/CrossDomainEnabled.sol";
 import {
     Lib_PredeployAddresses
 } from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
@@ -24,13 +22,14 @@ import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.s
  * and listening to it for newly finalized withdrawals.
  *
  */
-contract L1StandardBridge is IL1StandardBridge, CrossDomainEnabled {
+contract L1StandardBridge is IL1StandardBridge {
     using SafeERC20 for IERC20;
 
     /********************************
      * External Contract References *
      ********************************/
 
+    OptimismPortal public optimismPortal;
     address public l2TokenBridge;
 
     // Maps L1 token to L2 token to balance of the L1 token deposited
@@ -41,20 +40,20 @@ contract L1StandardBridge is IL1StandardBridge, CrossDomainEnabled {
      ***************/
 
     // This contract lives behind a proxy, so the constructor parameters will go unused.
-    constructor() CrossDomainEnabled(address(0)) {}
+    constructor() {}
 
     /******************
      * Initialization *
      ******************/
 
     /**
-     * @param _l1messenger L1 Messenger address being used for cross-chain communications.
+     * @param _optimismPortal OptimismPortal address.
      * @param _l2TokenBridge L2 standard bridge address.
      */
     // slither-disable-next-line external-function
-    function initialize(address _l1messenger, address _l2TokenBridge) public {
-        require(messenger == address(0), "Contract has already been initialized.");
-        messenger = _l1messenger;
+    function initialize(OptimismPortal _optimismPortal, address _l2TokenBridge) public {
+        require(address(optimismPortal) == address(0), "Contract has already been initialized.");
+        optimismPortal = _optimismPortal;
         l2TokenBridge = _l2TokenBridge;
     }
 
@@ -126,12 +125,16 @@ contract L1StandardBridge is IL1StandardBridge, CrossDomainEnabled {
             _data
         );
 
-        // Send calldata into L2
-        // slither-disable-next-line reentrancy-events
-        sendCrossDomainMessage(l2TokenBridge, _l2Gas, message);
-
-        // slither-disable-next-line reentrancy-events
         emit ETHDepositInitiated(_from, _to, msg.value, _data);
+
+        // Send calldata into L2
+        optimismPortal.depositTransaction(
+            Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
+            0,
+            _l2Gas,
+            false,
+            message
+        );
     }
 
     /**
@@ -201,15 +204,20 @@ contract L1StandardBridge is IL1StandardBridge, CrossDomainEnabled {
             _data
         );
 
-        // Send calldata into L2
-        // slither-disable-next-line reentrancy-events, reentrancy-benign
-        sendCrossDomainMessage(l2TokenBridge, _l2Gas, message);
-
         // slither-disable-next-line reentrancy-benign
         deposits[_l1Token][_l2Token] = deposits[_l1Token][_l2Token] + _amount;
 
         // slither-disable-next-line reentrancy-events
         emit ERC20DepositInitiated(_l1Token, _l2Token, _from, _to, _amount, _data);
+
+        // Send calldata into L2
+        optimismPortal.depositTransaction(
+            Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
+            0,
+            _l2Gas,
+            false,
+            message
+        );
     }
 
     /*************************
@@ -224,7 +232,15 @@ contract L1StandardBridge is IL1StandardBridge, CrossDomainEnabled {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external onlyFromCrossDomainAccount(l2TokenBridge) {
+    ) external {
+        require(
+            msg.sender == address(optimismPortal),
+            "Messages must be relayed by first calling the Optimism Portal"
+        );
+        require(
+            optimismPortal.l2Sender() == l2TokenBridge,
+            "Message must be sent from the L2 Token Bridge"
+        );
         // slither-disable-next-line reentrancy-events
         (bool success, ) = _to.call{ value: _amount }(new bytes(0));
         require(success, "TransferHelper::safeTransferETH: ETH transfer failed");
@@ -243,7 +259,16 @@ contract L1StandardBridge is IL1StandardBridge, CrossDomainEnabled {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external onlyFromCrossDomainAccount(l2TokenBridge) {
+    ) external {
+        require(
+            msg.sender == address(optimismPortal),
+            "Messages must be relayed by first calling the Optimism Portal"
+        );
+        require(
+            optimismPortal.l2Sender() == l2TokenBridge,
+            "Message must be sent from the L2 Token Bridge"
+        );
+
         deposits[_l1Token][_l2Token] = deposits[_l1Token][_l2Token] - _amount;
 
         // When a withdrawal is finalized on L1, the L1 Bridge transfers the funds to the withdrawer
@@ -264,5 +289,7 @@ contract L1StandardBridge is IL1StandardBridge, CrossDomainEnabled {
      * NOTE: This is left for one upgrade only so we are able to receive the migrated ETH from the
      * old contract
      */
+    // Bedrock upgrade note: we may use this if this contract gets merged into the portal,
+    // or even if we just start using a new proxy.
     function donateETH() external payable {}
 }
