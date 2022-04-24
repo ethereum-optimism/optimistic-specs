@@ -13,6 +13,13 @@ interface WithdrawalArgs {
   data: string
 }
 
+interface OutputRootProof {
+  version: string
+  stateRoot: string
+  withdrawerStorageRoot: string
+  latestBlockhash: string
+}
+
 export const deriveWithdrawalHash = (wd: WithdrawalArgs): string => {
   return ethers.utils.keccak256(
     ethers.utils.defaultAbiCoder.encode(
@@ -23,11 +30,18 @@ export const deriveWithdrawalHash = (wd: WithdrawalArgs): string => {
 }
 
 export const generateMockWithdrawalProof = async (
-  wd: WithdrawalArgs
+  wd: WithdrawalArgs | string
 ): Promise<{
-  proof: any
+  outputRootProof: OutputRootProof
+  storageTrieWitness: string
 }> => {
-  const withdrawalHash = deriveWithdrawalHash(wd)
+  let withdrawalHash
+  if (typeof wd == 'string') {
+    // wd should be an abi encoded string
+    withdrawalHash = ethers.utils.keccak256(wd)
+  } else {
+    withdrawalHash = deriveWithdrawalHash(wd as WithdrawalArgs)
+  }
 
   const storageKey = ethers.utils.keccak256(
     ethers.utils.hexConcat([
@@ -59,7 +73,7 @@ export const generateMockWithdrawalProof = async (
     secure: true,
   })
 
-  const proof = {
+  return {
     outputRootProof: {
       version: ethers.constants.HashZero,
       stateRoot: toHexString(generator._trie.root),
@@ -69,10 +83,6 @@ export const generateMockWithdrawalProof = async (
     storageTrieWitness: (
       await storageGenerator.makeInclusionProofTest(storageKey)
     ).proof,
-  }
-
-  return {
-    proof,
   }
 }
 
