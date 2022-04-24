@@ -3,13 +3,17 @@ pragma solidity 0.8.9;
 
 /* Interface Imports */
 import { IL1StandardBridge } from "@eth-optimism/contracts/L1/messaging/IL1StandardBridge.sol";
-import { IL1ERC20Bridge } from "./IL1ERC20Bridge.sol";
-import { IL2ERC20Bridge } from "../../L2/messaging/IL2ERC20Bridge.sol";
+import { IL1ERC20Bridge } from "@eth-optimism/contracts/L1/messaging/IL1ERC20Bridge.sol";
+import { IL2ERC20Bridge } from "@eth-optimism/contracts/L2/messaging/IL2ERC20Bridge.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 /* Library Imports */
-import { CrossDomainEnabled } from "../../libraries/bridge/CrossDomainEnabled.sol";
-import { Lib_PredeployAddresses } from "../../libraries/constants/Lib_PredeployAddresses.sol";
+import {
+    CrossDomainEnabled
+} from "@eth-optimism/contracts/libraries/bridge/CrossDomainEnabled.sol";
+import {
+    Lib_PredeployAddresses
+} from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
