@@ -61,7 +61,7 @@ contract L1StandardBridge is IL1StandardBridge {
      * Depositing *
      **************/
 
-    /** @dev Modifier requiring sender to be EOA.  This check could be bypassed by a malicious
+    /** @dev Modifier requiring sender to be EOA. This check could be bypassed by a malicious
      *  contract via initcode, but it takes care of the user error we want to avoid.
      */
     modifier onlyEOA() {
@@ -225,14 +225,10 @@ contract L1StandardBridge is IL1StandardBridge {
      *************************/
 
     /**
-     * @inheritdoc IL1StandardBridge
+     * @notice Ensures that the caller is the portal, and that it has the l2Sender value
+     * set to the address of the L2 Token Bridge.
      */
-    function finalizeETHWithdrawal(
-        address _from,
-        address _to,
-        uint256 _amount,
-        bytes calldata _data
-    ) external {
+    modifier onlyL2Bridge() {
         require(
             msg.sender == address(optimismPortal),
             "Messages must be relayed by first calling the Optimism Portal"
@@ -241,7 +237,18 @@ contract L1StandardBridge is IL1StandardBridge {
             optimismPortal.l2Sender() == l2TokenBridge,
             "Message must be sent from the L2 Token Bridge"
         );
+        _;
+    }
 
+    /**
+     * @inheritdoc IL1StandardBridge
+     */
+    function finalizeETHWithdrawal(
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes calldata _data
+    ) external onlyL2Bridge {
         emit ETHWithdrawalFinalized(_from, _to, _amount, _data);
 
         (bool success, ) = _to.call{ value: _amount }(new bytes(0));
@@ -258,22 +265,12 @@ contract L1StandardBridge is IL1StandardBridge {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external {
-        require(
-            msg.sender == address(optimismPortal),
-            "Messages must be relayed by first calling the Optimism Portal"
-        );
-        require(
-            optimismPortal.l2Sender() == l2TokenBridge,
-            "Message must be sent from the L2 Token Bridge"
-        );
-
+    ) external onlyL2Bridge {
         deposits[_l1Token][_l2Token] = deposits[_l1Token][_l2Token] - _amount;
         emit ERC20WithdrawalFinalized(_l1Token, _l2Token, _from, _to, _amount, _data);
 
         // When a withdrawal is finalized on L1, the L1 Bridge transfers the funds to the withdrawer
         IERC20(_l1Token).safeTransfer(_to, _amount);
-
     }
 
     /*****************************
