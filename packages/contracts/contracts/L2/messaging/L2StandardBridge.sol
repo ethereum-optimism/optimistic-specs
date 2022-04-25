@@ -41,8 +41,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
     /**
      * @param _l1TokenBridge Address of the L1 bridge deployed to the main chain.
      */
-    constructor(address _l1TokenBridge)
-    {
+    constructor(address _l1TokenBridge) {
         l1TokenBridge = _l1TokenBridge;
     }
 
