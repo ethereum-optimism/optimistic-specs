@@ -4,7 +4,7 @@ pragma solidity ^0.8.9;
 /* Interface Imports */
 import { IL1StandardBridge } from "@eth-optimism/contracts/L1/messaging/IL1StandardBridge.sol";
 import { IL1ERC20Bridge } from "@eth-optimism/contracts/L1/messaging/IL1ERC20Bridge.sol";
-import { IL2ERC20Bridge } from "@eth-optimism/contracts/L2/messaging/IL2ERC20Bridge.sol";
+import { IL2ERC20Bridge } from "./IL2ERC20Bridge.sol";
 
 /* Library Imports */
 import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
@@ -159,7 +159,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external virtual {
+    ) external payable virtual {
         // Since it is impossible to deploy a contract to an address on L2 which matches
         // the alias of the l1TokenBridge, this check can only pass when it is called in
         // the first call frame of a deposit transaction. Thus reentrancy is prevented here.
@@ -168,9 +168,15 @@ contract L2StandardBridge is IL2ERC20Bridge {
             "Can only be called by a the l1TokenBridge"
         );
 
-        // Check the target token is compliant and
-        // verify the deposited token on L1 matches the L2 deposited token representation here
-        if (
+        if (_l1Token == address(0) && _l2Token == Lib_PredeployAddresses.OVM_ETH) {
+            // An ETH deposit is being made via the Token Bridge.
+            // We simply forward it on. If this call fails, ETH will be stuck, but the L1Bridge
+            // uses onlyEOA on the receive function, so anyone sending to a contract knows
+            // what they are doing.
+            address(_to).call{ value: msg.value }(hex"");
+        } else if (
+            // Check the target token is compliant and
+            // verify the deposited token on L1 matches the L2 deposited token representation here
             // slither-disable-next-line reentrancy-events
             ERC165Checker.supportsInterface(_l2Token, 0x1d1d8b63) &&
             _l1Token == IL2StandardERC20(_l2Token).l1Token()
