@@ -241,12 +241,11 @@ contract L1StandardBridge is IL1StandardBridge {
             optimismPortal.l2Sender() == l2TokenBridge,
             "Message must be sent from the L2 Token Bridge"
         );
-        // slither-disable-next-line reentrancy-events
+
+        emit ETHWithdrawalFinalized(_from, _to, _amount, _data);
+
         (bool success, ) = _to.call{ value: _amount }(new bytes(0));
         require(success, "TransferHelper::safeTransferETH: ETH transfer failed");
-
-        // slither-disable-next-line reentrancy-events
-        emit ETHWithdrawalFinalized(_from, _to, _amount, _data);
     }
 
     /**
@@ -270,13 +269,11 @@ contract L1StandardBridge is IL1StandardBridge {
         );
 
         deposits[_l1Token][_l2Token] = deposits[_l1Token][_l2Token] - _amount;
+        emit ERC20WithdrawalFinalized(_l1Token, _l2Token, _from, _to, _amount, _data);
 
         // When a withdrawal is finalized on L1, the L1 Bridge transfers the funds to the withdrawer
-        // slither-disable-next-line reentrancy-events
         IERC20(_l1Token).safeTransfer(_to, _amount);
 
-        // slither-disable-next-line reentrancy-events
-        emit ERC20WithdrawalFinalized(_l1Token, _l2Token, _from, _to, _amount, _data);
     }
 
     /*****************************
