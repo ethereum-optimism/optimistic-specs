@@ -105,6 +105,11 @@ contract L2StandardBridge is IL2ERC20Bridge {
         bytes memory message;
 
         if (_l2Token == Lib_PredeployAddresses.OVM_ETH) {
+            // bedrock upgrade note: ETH exists as an ERC20 in the
+            // current system but will be migrated to actual ETH
+            // as part of the upgrade. This branching logic can
+            // likely be removed, as there should be no more OVM_ETH
+            // and no way to create it
             message = abi.encodeWithSelector(
                 IL1StandardBridge.finalizeETHWithdrawal.selector,
                 _from,
@@ -123,16 +128,6 @@ contract L2StandardBridge is IL2ERC20Bridge {
                 _data
             );
         }
-
-        message = abi.encodeWithSelector(
-            IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
-            l1Token,
-            _l2Token,
-            _from,
-            _to,
-            _amount,
-            _data
-        );
 
         // slither-disable-next-line reentrancy-events
         emit WithdrawalInitiated(l1Token, _l2Token, msg.sender, _to, _amount, _data);
@@ -168,6 +163,8 @@ contract L2StandardBridge is IL2ERC20Bridge {
             "Can only be called by a the l1TokenBridge"
         );
 
+        // bedrock update note: can likely remove this first branch as there
+        // will be no more OVM_ETH
         if (_l1Token == address(0) && _l2Token == Lib_PredeployAddresses.OVM_ETH) {
             // An ETH deposit is being made via the Token Bridge.
             // We simply forward it on. If this call fails, ETH will be stuck, but the L1Bridge
