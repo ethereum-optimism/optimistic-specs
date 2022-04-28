@@ -125,6 +125,7 @@ func TestL2OutputSubmitter(t *testing.T) {
 	}
 
 	cfg := defaultSystemConfig(t)
+	delete(cfg.Nodes, "verifier")
 
 	sys, err := cfg.start()
 	require.Nil(t, err, "Error starting up system")

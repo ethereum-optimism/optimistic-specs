@@ -335,6 +335,7 @@ func (cfg SystemConfig) start() (*System, error) {
 	sys.cfg.RollupConfig.Genesis = sys.RolupGenesis
 	sys.cfg.RollupConfig.BatchSenderAddress = batchSubmitterAddr
 	sys.cfg.L2OOCfg.L2StartTime = new(big.Int).SetUint64(l2GenesisTime)
+	fmt.Println("L2 Start time", sys.cfg.L2OOCfg.L2StartTime)
 
 	// Deploy Deposit Contract
 	deployerPrivKey, err := sys.wallet.PrivateKey(accounts.Account{

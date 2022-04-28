@@ -130,6 +130,8 @@ func (d *outputImpl) createNewBlock(ctx context.Context, l2Head eth.L2BlockRef, 
 	// Generate an L2 block ref from the payload.
 	ref, err := l2.PayloadToBlockRef(payload, &d.Config.Genesis)
 
+	fmt.Println("New L2 block", ref.Number, ref.Time)
+
 	// Derive relevant batch data so we can submit this block to L1.
 	// TODO: Can this be removed when batch submission is separated?
 	batch := &derive.BatchData{
@@ -237,6 +239,8 @@ func (d *outputImpl) insertEpoch(ctx context.Context, l2Head eth.L2BlockRef, l2S
 
 		} else {
 			payload, _, err = d.insertHeadBlock(ctx, fc, attrs, true)
+			fmt.Println("New L2 block", uint64(payload.BlockNumber), uint64(payload.Timestamp))
+
 		}
 		if err != nil {
 			return lastHead, lastSafeHead, didReorg, fmt.Errorf("failed to extend L2 chain at block %d/%d of epoch %d: %w", i, len(batches), epoch, err)
@@ -257,6 +261,7 @@ func (d *outputImpl) insertEpoch(ctx context.Context, l2Head eth.L2BlockRef, l2S
 
 		fc.HeadBlockHash = lastHead.Hash
 		fc.SafeBlockHash = lastSafeHead.Hash
+
 	}
 
 	return lastHead, lastSafeHead, didReorg, nil
