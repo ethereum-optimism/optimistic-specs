@@ -134,6 +134,9 @@ contract L1CrossDomainMessenger is
         emit MessageAllowed(_xDomainCalldataHash);
     }
 
+    /**
+     * Get the xDomainMessageSender
+     */
     function xDomainMessageSender() external view returns (address) {
         require(
             xDomainMsgSender != Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER,
@@ -144,6 +147,7 @@ contract L1CrossDomainMessenger is
 
     /**
      * Sends a cross domain message to the target messenger.
+     * This function faciliates L1 to L2 communication.
      * @param _target Target contract address.
      * @param _message Message to send to the target.
      * @param _gasLimit Gas limit for the provided message.
@@ -167,6 +171,8 @@ contract L1CrossDomainMessenger is
 
     /**
      * Relays a cross domain message to a contract.
+     * This function faciliates L2 to L1 communication.
+     * Calls WithdrawalsRelay.finalizeWithdrawalTransaction
      * @inheritdoc IL1CrossDomainMessenger
      */
     function relayMessage(
