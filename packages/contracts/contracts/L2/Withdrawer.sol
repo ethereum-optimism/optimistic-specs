@@ -69,6 +69,7 @@ contract Withdrawer {
         if (msg.sender != tx.origin) {
             from = AddressAliasHelper.undoL1ToL2Alias(msg.sender);
         }
+
         bytes32 withdrawalHash = WithdrawalVerifier._deriveWithdrawalHash(
             nonce,
             msg.sender,
@@ -80,9 +81,7 @@ contract Withdrawer {
         withdrawals[withdrawalHash] = true;
 
         emit WithdrawalInitiated(nonce, from, _target, msg.value, _gasLimit, _data);
-        unchecked {
-            nonce++;
-        }
+        unchecked { ++nonce; }
     }
 
     /**

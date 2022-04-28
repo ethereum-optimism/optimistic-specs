@@ -89,7 +89,7 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
 
         // Emit an event before we bump the nonce or the nonce will be off by one.
         emit SentMessage(_target, msg.sender, _message, messageNonce, _gasLimit);
-        messageNonce += 1;
+        unchecked { ++messageNonce; }
 
         // Actually send the message.
         Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
