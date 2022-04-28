@@ -2,8 +2,8 @@
 pragma solidity 0.8.10;
 
 /* Testing utilities */
-import { DSTest } from "../../lib/ds-test/src/test.sol";
-import { Vm } from "../../lib/forge-std/src/Vm.sol";
+import { DSTest } from "forge-std/Test.sol";
+import { Vm } from "forge-std/Vm.sol";
 
 contract CommonTest is DSTest {
     Vm vm = Vm(HEVM_ADDRESS);
