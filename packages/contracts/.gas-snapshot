@@ -31,7 +31,7 @@ L2CrossDomainMessenger_Test:test_L2MessengerCannotCallL2MessagePasser() (gas: 44
 L2CrossDomainMessenger_Test:test_L2MessengerCannotRelaySameMessageTwice() (gas: 69883)
 L2CrossDomainMessenger_Test:test_L2MessengerCorrectL1Messenger() (gas: 9688)
 L2CrossDomainMessenger_Test:test_L2MessengerRevertInvalidL1XDomainMessenger() (gas: 13781)
-L2CrossDomainMessenger_Test:test_L2MessengerSendMessage() (gas: 125663)
+L2CrossDomainMessenger_Test:test_L2MessengerSendMessage() (gas: 124835)
 L2CrossDomainMessenger_Test:test_L2MessengerSendSameMessageTwice() (gas: 162907)
 L2CrossDomainMessenger_Test:test_L2MessengerXDomainMessageSenderReset() (gas: 71843)
 L2CrossDomainMessenger_Test:test_L2MessengerxDomainMsgSender() (gas: 13320)
