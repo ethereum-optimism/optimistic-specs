@@ -23,6 +23,7 @@ import { OptimismPortal } from "../L1/OptimismPortal.sol";
 
 /* Target contract */
 import { L1CrossDomainMessenger } from "../L1/messaging/L1CrossDomainMessenger.sol";
+import { IDepositFeed } from "../L1/abstracts/IDepositFeed.sol";
 
 import {
     ICrossDomainMessenger
@@ -79,8 +80,8 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
         );
         vm.expectCall(
             address(op),
-            abi.encodeWithSignature(
-                "depositTransaction(address,uint256,uint256,bool,bytes)",
+            abi.encodeWithSelector(
+                IDepositFeed.depositTransaction.selector,
                 Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER,
                 0,
                 NON_ZERO_GASLIMIT,
