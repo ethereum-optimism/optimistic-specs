@@ -164,6 +164,7 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
 
         // Store an identifier that can be used to prove that the given message was relayed by some
         // user. Gives us an easy way to pay relayers for their work.
+        // TODO: consider unaliasing `msg.sender` here
         bytes32 relayId = keccak256(abi.encodePacked(xDomainCalldata, msg.sender, block.number));
 
         // slither-disable-next-line reentrancy-benign
