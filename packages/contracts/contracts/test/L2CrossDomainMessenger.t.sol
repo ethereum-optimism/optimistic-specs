@@ -89,7 +89,6 @@ contract L2CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
         uint32 gasLimit = 1000;
 
         uint256 nonce = W.nonce();
-        address l1CrossDomainMessenger = L2Messenger.l1CrossDomainMessenger();
         address sender = AddressAliasHelper.undoL1ToL2Alias(address(L2Messenger));
 
         vm.expectEmit(true, true, true, true);
