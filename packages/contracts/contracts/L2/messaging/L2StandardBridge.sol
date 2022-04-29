@@ -103,14 +103,14 @@ contract L2StandardBridge is IL2ERC20Bridge {
         // slither-disable-next-line reentrancy-events
         address l1Token = IL2StandardERC20(_l2Token).l1Token();
         bytes memory message = abi.encodeWithSelector(
-                IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
-                l1Token,
-                _l2Token,
-                _from,
-                _to,
-                _amount,
-                _data
-            );
+            IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
+            l1Token,
+            _l2Token,
+            _from,
+            _to,
+            _amount,
+            _data
+        );
 
         // slither-disable-next-line reentrancy-events
         emit WithdrawalInitiated(l1Token, _l2Token, msg.sender, _to, _amount, _data);

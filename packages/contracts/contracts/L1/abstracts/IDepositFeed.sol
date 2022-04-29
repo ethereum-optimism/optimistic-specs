@@ -7,5 +7,5 @@ interface IDepositFeed {
         uint64 _gasLimit,
         bool _isCreation,
         bytes memory _data
-    ) payable external;
+    ) external payable;
 }
