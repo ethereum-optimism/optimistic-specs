@@ -17,9 +17,9 @@ import { L2StandardERC20 } from "../L2/tokens/L2StandardERC20.sol";
 import { IL2StandardERC20 } from "../L2/tokens/IL2StandardERC20.sol";
 
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import { CommonTest } from "./CommonTest.sol";
+import { CommonTest } from "./CommonTest.t.sol";
 import { L2OutputOracle_Initializer } from "./L2OutputOracle.t.sol";
-import { LibRLP } from "./Lib_RLP.sol";
+import { LibRLP } from "./Lib_RLP.t.sol";
 
 contract L1StandardBridge_Test is CommonTest, L2OutputOracle_Initializer {
     OptimismPortal op;

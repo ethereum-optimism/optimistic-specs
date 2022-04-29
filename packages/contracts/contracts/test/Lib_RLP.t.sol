@@ -3,8 +3,6 @@ pragma solidity >=0.8.0;
 
 import {Bytes32AddressLib} from "solmate/utils/Bytes32AddressLib.sol";
 
-import { console } from "forge-std/console.sol";
-
 // prettier-ignore
 library LibRLP {
     using Bytes32AddressLib for bytes32;

@@ -1,7 +1,7 @@
 //SPDX-License-Identifier: MIT
 pragma solidity 0.8.10;
 
-import { CommonTest } from "./CommonTest.sol";
+import { CommonTest } from "./CommonTest.t.sol";
 import { L2OutputOracle_Initializer } from "./L2OutputOracle.t.sol";
 
 import {

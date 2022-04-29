@@ -2,7 +2,7 @@
 pragma solidity 0.8.10;
 
 /* Testing utilities */
-import { CommonTest } from "./CommonTest.sol";
+import { CommonTest } from "./CommonTest.t.sol";
 
 /* Target contract dependencies */
 import { L2OutputOracle } from "../L1/L2OutputOracle.sol";
