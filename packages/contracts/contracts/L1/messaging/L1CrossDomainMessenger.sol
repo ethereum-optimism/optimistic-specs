@@ -244,7 +244,9 @@ contract L1CrossDomainMessenger is
      **********************/
 
     /**
-     * Sends a cross domain message.
+     * Sends a cross domain message. To preserve backwards compatibility,
+     * the gasLimit is a uint256 so that the function selector stays the same.
+     * TODO: revert on overflow when converting to uint64?
      * @param _message Message to send.
      * @param _gasLimit L2 gas limit for the message.
      */
@@ -252,7 +254,7 @@ contract L1CrossDomainMessenger is
         optimismPortal.depositTransaction(
             Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER,
             0,
-            _gasLimit,
+            uint64(_gasLimit),
             false,
             _message
         );
