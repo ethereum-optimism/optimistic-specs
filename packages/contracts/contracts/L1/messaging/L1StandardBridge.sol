@@ -114,26 +114,15 @@ contract L1StandardBridge is IL1StandardBridge {
         uint32 _l2Gas,
         bytes memory _data
     ) internal {
-        // Construct calldata for finalizeDeposit call
-        bytes memory message = abi.encodeWithSelector(
-            IL2ERC20Bridge.finalizeDeposit.selector,
-            address(0),
-            Lib_PredeployAddresses.OVM_ETH,
-            _from,
-            _to,
-            msg.value,
-            _data
-        );
-
         emit ETHDepositInitiated(_from, _to, msg.value, _data);
 
         // Send calldata into L2
         optimismPortal.depositTransaction{ value: msg.value }(
-            Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
+            _to,
             msg.value,
             _l2Gas,
             false,
-            message
+            _data
         );
     }
 

@@ -102,23 +102,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
         // Construct calldata for l1TokenBridge.finalizeERC20Withdrawal(_to, _amount)
         // slither-disable-next-line reentrancy-events
         address l1Token = IL2StandardERC20(_l2Token).l1Token();
-        bytes memory message;
-
-        if (_l2Token == Lib_PredeployAddresses.OVM_ETH) {
-            // bedrock upgrade note: ETH exists as an ERC20 in the
-            // current system but will be migrated to actual ETH
-            // as part of the upgrade. This branching logic can
-            // likely be removed, as there should be no more OVM_ETH
-            // and no way to create it
-            message = abi.encodeWithSelector(
-                IL1StandardBridge.finalizeETHWithdrawal.selector,
-                _from,
-                _to,
-                _amount,
-                _data
-            );
-        } else {
-            message = abi.encodeWithSelector(
+        bytes memory message = abi.encodeWithSelector(
                 IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
                 l1Token,
                 _l2Token,
@@ -127,7 +111,6 @@ contract L2StandardBridge is IL2ERC20Bridge {
                 _amount,
                 _data
             );
-        }
 
         // slither-disable-next-line reentrancy-events
         emit WithdrawalInitiated(l1Token, _l2Token, msg.sender, _to, _amount, _data);
@@ -154,7 +137,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external payable virtual {
+    ) external virtual {
         // Since it is impossible to deploy a contract to an address on L2 which matches
         // the alias of the l1TokenBridge, this check can only pass when it is called in
         // the first call frame of a deposit transaction. Thus reentrancy is prevented here.
@@ -163,15 +146,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
             "Can only be called by a the l1TokenBridge"
         );
 
-        // bedrock update note: can likely remove this first branch as there
-        // will be no more OVM_ETH
-        if (_l1Token == address(0) && _l2Token == Lib_PredeployAddresses.OVM_ETH) {
-            // An ETH deposit is being made via the Token Bridge.
-            // We simply forward it on. If this call fails, ETH will be stuck, but the L1Bridge
-            // uses onlyEOA on the receive function, so anyone sending to a contract knows
-            // what they are doing.
-            address(_to).call{ value: msg.value }(hex"");
-        } else if (
+        if (
             // Check the target token is compliant and
             // verify the deposited token on L1 matches the L2 deposited token representation here
             // slither-disable-next-line reentrancy-events

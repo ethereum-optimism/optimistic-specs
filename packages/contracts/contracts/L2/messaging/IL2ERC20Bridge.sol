@@ -104,5 +104,5 @@ interface IL2ERC20Bridge {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external payable;
+    ) external;
 }
