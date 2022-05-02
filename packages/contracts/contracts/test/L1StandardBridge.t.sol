@@ -4,6 +4,7 @@ pragma solidity 0.8.10;
 import {
     Lib_PredeployAddresses
 } from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
+import { IL2ERC20Bridge } from "@eth-optimism/contracts/L2/messaging/IL2ERC20Bridge.sol";
 
 import { IWithdrawer } from "../L2/IWithdrawer.sol";
 import { Withdrawer } from "../L2/Withdrawer.sol";
@@ -21,16 +22,57 @@ import { CommonTest } from "./CommonTest.t.sol";
 import { L2OutputOracle_Initializer } from "./L2OutputOracle.t.sol";
 import { LibRLP } from "./Lib_RLP.t.sol";
 
+import { stdStorage, StdStorage } from "forge-std/Test.sol";
+
 contract L1StandardBridge_Test is CommonTest, L2OutputOracle_Initializer {
+    using stdStorage for StdStorage;
     OptimismPortal op;
+
+    event ETHDepositInitiated(
+        address indexed _from,
+        address indexed _to,
+        uint256 _amount,
+        bytes _data
+    );
+
+    event ETHWithdrawalFinalized(
+        address indexed _from,
+        address indexed _to,
+        uint256 _amount,
+        bytes _data
+    );
+
+    event ERC20DepositInitiated(
+        address indexed _l1Token,
+        address indexed _l2Token,
+        address indexed _from,
+        address _to,
+        uint256 _amount,
+        bytes _data
+    );
+
+    event ERC20WithdrawalFinalized(
+        address indexed _l1Token,
+        address indexed _l2Token,
+        address indexed _from,
+        address _to,
+        uint256 _amount,
+        bytes _data
+    );
 
     IWithdrawer W;
     L1StandardBridge L1Bridge;
     L2StandardBridge L2Bridge;
     IL2StandardTokenFactory L2TokenFactory;
     IL2StandardERC20 L2Token;
+    ERC20 token;
+
+    address alice = address(128);
+    address bob = address(256);
 
     function setUp() external {
+        vm.deal(alice, 1 << 16);
+
         L1Bridge = new L1StandardBridge();
         L2Bridge = new L2StandardBridge(address(L1Bridge));
         op = new OptimismPortal(oracle, 100);
@@ -45,7 +87,7 @@ contract L1StandardBridge_Test is CommonTest, L2OutputOracle_Initializer {
         vm.etch(Lib_PredeployAddresses.L2_STANDARD_TOKEN_FACTORY, address(factory).code);
         L2TokenFactory = IL2StandardTokenFactory(Lib_PredeployAddresses.L2_STANDARD_TOKEN_FACTORY);
 
-        ERC20 token = new ERC20("Test Token", "TT");
+        token = new ERC20("Test Token", "TT");
 
         // Deploy the L2 ERC20 now
         L2TokenFactory.createStandardL2Token(
@@ -69,34 +111,369 @@ contract L1StandardBridge_Test is CommonTest, L2OutputOracle_Initializer {
 
     // receive
     // - can accept ETH
+    function test_L1BridgeReceiveETH() external {
+        vm.expectEmit(true, true, true, true);
+        emit ETHDepositInitiated(alice, alice, 100, hex"");
+
+        vm.expectCall(
+            address(op),
+            abi.encodeWithSelector(
+                op.depositTransaction.selector,
+                alice,
+                100,
+                200000,
+                false,
+                hex""
+            )
+        );
+
+        vm.prank(alice);
+        (bool success, bytes memory data) = address(L1Bridge).call{ value: 100 }(hex"");
+        assertEq(success, true);
+        assertEq(data, hex"");
+        assertEq(address(op).balance, 100);
+    }
+
     // depositETH
     // - emits ETHDepositInitiated
     // - calls optimismPortal.depositTransaction
     // - only EOA
     // - ETH ends up in the optimismPortal
+    function test_L1BridgeDepositETH() external {
+        vm.expectEmit(true, true, true, true);
+        emit ETHDepositInitiated(alice, alice, 1000, hex"ff");
+
+        vm.expectCall(
+            address(op),
+            abi.encodeWithSelector(
+                op.depositTransaction.selector,
+                alice,
+                1000,
+                10000,
+                false,
+                hex"ff"
+            )
+        );
+
+        vm.prank(alice);
+        L1Bridge.depositETH{ value: 1000 }(10000, hex"ff");
+        assertEq(address(op).balance, 1000);
+    }
+
+    function test_L1BridgeOnlyEOADepositETH() external {
+        vm.etch(alice, address(token).code);
+
+        vm.expectRevert("Account not EOA");
+        vm.prank(alice);
+        L1Bridge.depositETH{ value: 1000 }(10000, hex"ff");
+        assertEq(address(op).balance, 0);
+    }
+
     // depositETHTo
     // - emits ETHDepositInitiated
     // - calls optimismPortal.depositTransaction
     // - EOA or contract can call
     // - ETH ends up in the optimismPortal
+    function test_L1BridgeDepositETHTo() external {
+        vm.expectEmit(true, true, true, true);
+        emit ETHDepositInitiated(alice, bob, 1000, hex"ff");
+
+        vm.expectCall(
+            address(op),
+            abi.encodeWithSelector(
+                op.depositTransaction.selector,
+                bob,
+                1000,
+                10000,
+                false,
+                hex"ff"
+            )
+        );
+
+        vm.prank(alice);
+        L1Bridge.depositETHTo{ value: 1000 }(bob, 10000, hex"ff");
+        assertEq(address(op).balance, 1000);
+    }
+
     // depositERC20
     // - updates bridge.deposits
     // - emits ERC20DepositInitiated
     // - calls optimismPortal.depositTransaction
     // - only callable by EOA
+    function test_L1BridgeDepositERC20() external {
+        vm.expectEmit(true, true, true, true);
+        emit ERC20DepositInitiated(
+            address(token),
+            address(L2Token),
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        deal(address(token), alice, 100000, true);
+
+        vm.prank(alice);
+        token.approve(address(L1Bridge), type(uint256).max);
+
+        vm.expectCall(
+            address(token),
+            abi.encodeWithSelector(
+                ERC20.transferFrom.selector,
+                alice,
+                address(L1Bridge),
+                100
+            )
+        );
+
+        vm.expectCall(
+            address(op),
+            abi.encodeWithSelector(
+                op.depositTransaction.selector,
+                Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
+                0,
+                10000,
+                false,
+                abi.encodeWithSelector(
+                    IL2ERC20Bridge.finalizeDeposit.selector,
+                    address(token),
+                    address(L2Token),
+                    alice,
+                    alice,
+                    100,
+                    hex""
+                )
+            )
+        );
+
+        vm.prank(alice);
+        L1Bridge.depositERC20(
+            address(token),
+            address(L2Token),
+            100,
+            10000,
+            hex""
+        );
+
+        assertEq(L1Bridge.deposits(address(token), address(L2Token)), 100);
+    }
+
+    function test_L1BridgeOnlyEOADepositERC20() external {
+        vm.etch(alice, address(token).code);
+
+        vm.expectRevert("Account not EOA");
+        vm.prank(alice);
+        L1Bridge.depositERC20(
+            address(token),
+            address(L2Token),
+            100,
+            10000,
+            hex""
+        );
+        assertEq(L1Bridge.deposits(address(token), address(L2Token)), 0);
+    }
+
     // depositERC20To
     // - updates bridge.deposits
     // - emits ERC20DepositInitiated
     // - calls optimismPortal.depositTransaction
-    // - reverts if called by EOA
     // - callable by a contract
+    function test_L1BridgeDepositERC20To() external {
+        vm.expectEmit(true, true, true, true);
+        emit ERC20DepositInitiated(
+            address(token),
+            address(L2Token),
+            alice,
+            bob,
+            1000,
+            hex""
+        );
+
+        deal(address(token), alice, 100000, true);
+
+        vm.prank(alice);
+        token.approve(address(L1Bridge), type(uint256).max);
+
+        vm.expectCall(
+            address(token),
+            abi.encodeWithSelector(
+                ERC20.transferFrom.selector,
+                alice,
+                address(L1Bridge),
+                1000
+            )
+        );
+
+        vm.expectCall(
+            address(op),
+            abi.encodeWithSelector(
+                op.depositTransaction.selector,
+                Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
+                0,
+                10000,
+                false,
+                abi.encodeWithSelector(
+                    IL2ERC20Bridge.finalizeDeposit.selector,
+                    address(token),
+                    address(L2Token),
+                    alice,
+                    bob,
+                    1000,
+                    hex""
+                )
+            )
+        );
+
+        vm.prank(alice);
+        L1Bridge.depositERC20To(
+            address(token),
+            address(L2Token),
+            bob,
+            1000,
+            10000,
+            hex""
+        );
+
+        assertEq(L1Bridge.deposits(address(token), address(L2Token)), 1000);
+    }
+
     // finalizeETHWithdrawal
     // - emits ETHWithdrawalFinalized
     // - only callable by L2 bridge
+    function test_L1BridgeFinalizeETHWithdrawal() external {
+        vm.deal(address(op), 100);
+        vm.store(address(op), 0, bytes32(abi.encode(L2Bridge)));
+
+        vm.expectEmit(true, true, true, true);
+        emit ETHWithdrawalFinalized(
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        vm.expectCall(
+            alice,
+            hex""
+        );
+
+        vm.prank(address(op));
+        L1Bridge.finalizeETHWithdrawal{ value: 100 }(
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        assertEq(address(op).balance, 0);
+    }
+
+    function test_L1BridgeOnlyPortalFinalizeETHWithdrawal() external {
+        vm.expectRevert("Messages must be relayed by first calling the Optimism Portal");
+        L1Bridge.finalizeETHWithdrawal{ value: 100 }(
+            alice,
+            alice,
+            100,
+            hex""
+        );
+    }
+
+    function test_L1BridgeOnlyL2BridgeFinalizeETHWithdrawal() external {
+        vm.deal(address(op), 100);
+
+        vm.expectRevert("Message must be sent from the L2 Token Bridge");
+        vm.prank(address(op));
+        L1Bridge.finalizeETHWithdrawal{ value: 100 }(
+            alice,
+            alice,
+            100,
+            hex""
+        );
+    }
+
     // finalizeERC20Withdrawal
     // - updates bridge.deposits
     // - emits ERC20WithdrawalFinalized
     // - only callable by L2 bridge
+    function test_L1BridgeFinalizeERC20Withdrawal() external {
+        deal(address(token), address(L1Bridge), 100, true);
+
+        uint256 slot = stdstore
+            .target(address(L1Bridge))
+            .sig("deposits(address,address)")
+            .with_key(address(token))
+            .with_key(address(L2Token))
+            .find();
+
+        // Give the L1 bridge some ERC20 tokens
+        vm.store(address(L1Bridge), bytes32(slot), bytes32(uint256(100)));
+        assertEq(L1Bridge.deposits(address(token), address(L2Token)), 100);
+
+        vm.expectEmit(true, true, true, true);
+        emit ERC20WithdrawalFinalized(
+            address(token),
+            address(L2Token),
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        vm.expectCall(
+            address(token),
+            abi.encodeWithSelector(
+                ERC20.transfer.selector,
+                alice,
+                100
+            )
+        );
+
+        vm.store(address(op), 0, bytes32(abi.encode(L2Bridge)));
+        vm.prank(address(op));
+        L1Bridge.finalizeERC20Withdrawal(
+            address(token),
+            address(L2Token),
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        assertEq(token.balanceOf(address(L1Bridge)), 0);
+        assertEq(token.balanceOf(address(alice)), 100);
+    }
+
+    function test_L1BridgeOnlyPortalFinalizeERC20Withdrawal() external {
+        vm.expectRevert("Messages must be relayed by first calling the Optimism Portal");
+        L1Bridge.finalizeERC20Withdrawal(
+            address(token),
+            address(L2Token),
+            alice,
+            alice,
+            100,
+            hex""
+        );
+    }
+
+    function test_L1BridgeOnlyL2BridgeFinalizeERC20Withdrawal() external {
+        vm.expectRevert("Message must be sent from the L2 Token Bridge");
+        vm.prank(address(op));
+        L1Bridge.finalizeERC20Withdrawal(
+            address(token),
+            address(L2Token),
+            alice,
+            alice,
+            100,
+            hex""
+        );
+    }
+
     // donateETH
     // - can send ETH to the contract
+    function test_L1BridgeDonateETH() external {
+        assertEq(address(L1Bridge).balance, 0);
+        vm.prank(alice);
+        L1Bridge.donateETH{ value: 1000 }();
+        assertEq(address(L1Bridge).balance, 1000);
+    }
 }
