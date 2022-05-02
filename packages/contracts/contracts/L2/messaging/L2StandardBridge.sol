@@ -2,9 +2,9 @@
 pragma solidity ^0.8.9;
 
 /* Interface Imports */
-import { IL1StandardBridge } from "@eth-optimism/contracts/L1/messaging/IL1StandardBridge.sol";
 import { IL1ERC20Bridge } from "@eth-optimism/contracts/L1/messaging/IL1ERC20Bridge.sol";
 import { IL2ERC20Bridge } from "./IL2ERC20Bridge.sol";
+import { IL1StandardBridge } from "../../L1/messaging/IL1StandardBridge.sol";
 
 /* Library Imports */
 import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
@@ -94,23 +94,38 @@ contract L2StandardBridge is IL2ERC20Bridge {
         uint32 _l1Gas,
         bytes calldata _data
     ) internal {
-        // When a withdrawal is initiated, we burn the withdrawer's funds to prevent subsequent L2
-        // usage
-        // slither-disable-next-line reentrancy-events
-        IL2StandardERC20(_l2Token).burn(msg.sender, _amount);
+        address l1Token;
+        bytes memory message;
 
-        // Construct calldata for l1TokenBridge.finalizeERC20Withdrawal(_to, _amount)
-        // slither-disable-next-line reentrancy-events
-        address l1Token = IL2StandardERC20(_l2Token).l1Token();
-        bytes memory message = abi.encodeWithSelector(
-            IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
-            l1Token,
-            _l2Token,
-            _from,
-            _to,
-            _amount,
-            _data
-        );
+        // TODO: determine if this is the correct functionality
+        if (_l2Token == Lib_PredeployAddresses.OVM_ETH || _l2Token == address(0)) {
+            l1Token = address(0);
+            message = abi.encodeWithSelector(
+                IL1StandardBridge.finalizeETHWithdrawal.selector,
+                _from,
+                _to,
+                _amount,
+                _data
+            );
+        } else {
+            // When a withdrawal is initiated, we burn the withdrawer's funds to prevent subsequent L2
+            // usage
+            // slither-disable-next-line reentrancy-events
+            IL2StandardERC20(_l2Token).burn(msg.sender, _amount);
+
+            // Construct calldata for l1TokenBridge.finalizeERC20Withdrawal(_to, _amount)
+            // slither-disable-next-line reentrancy-events
+            l1Token = IL2StandardERC20(_l2Token).l1Token();
+            message = abi.encodeWithSelector(
+                IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
+                l1Token,
+                _l2Token,
+                _from,
+                _to,
+                _amount,
+                _data
+            );
+        }
 
         // slither-disable-next-line reentrancy-events
         emit WithdrawalInitiated(l1Token, _l2Token, msg.sender, _to, _amount, _data);

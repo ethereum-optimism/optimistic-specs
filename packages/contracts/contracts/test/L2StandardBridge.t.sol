@@ -18,47 +18,27 @@ import { IL2StandardERC20 } from "../L2/tokens/IL2StandardERC20.sol";
 
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { CommonTest } from "./CommonTest.t.sol";
-import { L2OutputOracle_Initializer } from "./L2OutputOracle.t.sol";
+import { L2OutputOracle_Initializer, BridgeInitializer } from "./L2OutputOracle.t.sol";
 import { LibRLP } from "./Lib_RLP.t.sol";
+import { IL1ERC20Bridge } from "../L1/messaging/IL1ERC20Bridge.sol";
 
 import { console } from "forge-std/console.sol";
+import { stdStorage, StdStorage } from "forge-std/Test.sol";
 
-contract L2StandardBridge_Test is CommonTest, L2OutputOracle_Initializer {
-    OptimismPortal op;
-
-    IWithdrawer W;
-    L1StandardBridge L1Bridge;
-    L2StandardBridge L2Bridge;
-    IL2StandardTokenFactory L2TokenFactory;
-    IL2StandardERC20 L2Token;
+contract L2StandardBridge_Test is CommonTest, BridgeInitializer  {
+    using stdStorage for StdStorage;
 
     function setUp() external {
-        L1Bridge = new L1StandardBridge();
-        L2Bridge = new L2StandardBridge(address(L1Bridge));
-        op = new OptimismPortal(oracle, 100);
+        // put some tokens in the bridge, give them to alice on L2
+        uint256 slot = stdstore
+            .target(address(L1Bridge))
+            .sig("deposits(address,address)")
+            .with_key(address(token))
+            .with_key(address(L2Token))
+            .find();
 
-        L1Bridge.initialize(op, address(L2Bridge));
-
-        Withdrawer w = new Withdrawer();
-        vm.etch(Lib_BedrockPredeployAddresses.WITHDRAWER, address(w).code);
-        W = IWithdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER);
-
-        L2StandardTokenFactory factory = new L2StandardTokenFactory();
-        vm.etch(Lib_PredeployAddresses.L2_STANDARD_TOKEN_FACTORY, address(factory).code);
-        L2TokenFactory = IL2StandardTokenFactory(Lib_PredeployAddresses.L2_STANDARD_TOKEN_FACTORY);
-
-        ERC20 token = new ERC20("Test Token", "TT");
-
-        // Deploy the L2 ERC20 now
-        L2TokenFactory.createStandardL2Token(
-            address(token),
-            string(abi.encodePacked("L2-", token.name())),
-            string(abi.encodePacked("L2-", token.symbol()))
-        );
-
-        L2Token = IL2StandardERC20(
-            LibRLP.computeAddress(address(L2TokenFactory), 0)
-        );
+        vm.store(address(L1Bridge), bytes32(slot), bytes32(uint256(100000)));
+        deal(address(L2Token), alice, 100000, true);
     }
 
     function test_L2BridgeCorrectL1Bridge() external {
@@ -70,10 +50,66 @@ contract L2StandardBridge_Test is CommonTest, L2OutputOracle_Initializer {
     // - token is burned
     // - emits WithdrawalInitiated
     // - calls Withdrawer.initiateWithdrawal
+    function test_L2BridgeWithdraw() external {
+        vm.expectEmit(true, true, true, true);
+        emit WithdrawalInitiated(
+            address(token),
+            address(L2Token),
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        uint256 aliceBalance = L2Token.balanceOf(alice);
+
+        vm.expectCall(
+            Lib_BedrockPredeployAddresses.WITHDRAWER,
+            abi.encodeWithSelector(
+                IWithdrawer.initiateWithdrawal.selector,
+                address(L1Bridge),
+                10000,
+                abi.encodeWithSelector(
+                    IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
+                    address(token),
+                    address(L2Token),
+                    alice,
+                    alice,
+                    100,
+                    hex""
+                )
+            )
+        );
+
+        vm.expectCall(
+            address(L2Token),
+            abi.encodeWithSelector(
+                IL2StandardERC20.burn.selector,
+                alice,
+                100
+            )
+        );
+
+        vm.prank(address(alice));
+        L2Bridge.withdraw(
+            address(L2Token),
+            100,
+            10000,
+            hex""
+        );
+
+        assertEq(L2Token.balanceOf(alice), aliceBalance - 100);
+        assertEq(L2Token.totalSupply(), L2Token.balanceOf(alice));
+    }
+
+    // TODO: test withdrawing ETH
+    // with L2Bridge.withdraw
+
     // withdrawTo
     // - token is burned
     // - emits WithdrawalInitiated w/ correct recipient
     // - calls Withdrawer.initiateWithdrawal
+
     // finalizeDeposit
     // - only callable by l1TokenBridge
     // - supported token pair emits DepositFinalized

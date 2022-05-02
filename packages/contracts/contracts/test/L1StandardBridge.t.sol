@@ -19,87 +19,13 @@ import { IL2StandardERC20 } from "../L2/tokens/IL2StandardERC20.sol";
 
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import { CommonTest } from "./CommonTest.t.sol";
-import { L2OutputOracle_Initializer } from "./L2OutputOracle.t.sol";
+import { L2OutputOracle_Initializer, BridgeInitializer } from "./L2OutputOracle.t.sol";
 import { LibRLP } from "./Lib_RLP.t.sol";
 
 import { stdStorage, StdStorage } from "forge-std/Test.sol";
 
-contract L1StandardBridge_Test is CommonTest, L2OutputOracle_Initializer {
+contract L1StandardBridge_Test is CommonTest, BridgeInitializer  {
     using stdStorage for StdStorage;
-    OptimismPortal op;
-
-    event ETHDepositInitiated(
-        address indexed _from,
-        address indexed _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    event ETHWithdrawalFinalized(
-        address indexed _from,
-        address indexed _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    event ERC20DepositInitiated(
-        address indexed _l1Token,
-        address indexed _l2Token,
-        address indexed _from,
-        address _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    event ERC20WithdrawalFinalized(
-        address indexed _l1Token,
-        address indexed _l2Token,
-        address indexed _from,
-        address _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    IWithdrawer W;
-    L1StandardBridge L1Bridge;
-    L2StandardBridge L2Bridge;
-    IL2StandardTokenFactory L2TokenFactory;
-    IL2StandardERC20 L2Token;
-    ERC20 token;
-
-    address alice = address(128);
-    address bob = address(256);
-
-    function setUp() external {
-        vm.deal(alice, 1 << 16);
-
-        L1Bridge = new L1StandardBridge();
-        L2Bridge = new L2StandardBridge(address(L1Bridge));
-        op = new OptimismPortal(oracle, 100);
-
-        L1Bridge.initialize(op, address(L2Bridge));
-
-        Withdrawer w = new Withdrawer();
-        vm.etch(Lib_BedrockPredeployAddresses.WITHDRAWER, address(w).code);
-        W = IWithdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER);
-
-        L2StandardTokenFactory factory = new L2StandardTokenFactory();
-        vm.etch(Lib_PredeployAddresses.L2_STANDARD_TOKEN_FACTORY, address(factory).code);
-        L2TokenFactory = IL2StandardTokenFactory(Lib_PredeployAddresses.L2_STANDARD_TOKEN_FACTORY);
-
-        token = new ERC20("Test Token", "TT");
-
-        // Deploy the L2 ERC20 now
-        L2TokenFactory.createStandardL2Token(
-            address(token),
-            string(abi.encodePacked("L2-", token.name())),
-            string(abi.encodePacked("L2-", token.symbol()))
-        );
-
-        L2Token = IL2StandardERC20(
-            LibRLP.computeAddress(address(L2TokenFactory), 0)
-        );
-    }
 
     function test_L1BridgeSetsPortalAndL2Bridge() external {
         OptimismPortal portal = L1Bridge.optimismPortal();
