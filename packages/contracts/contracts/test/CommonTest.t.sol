@@ -5,6 +5,9 @@ pragma solidity 0.8.10;
 import { Test } from "forge-std/Test.sol";
 
 contract CommonTest is Test {
+    address alice = address(128);
+    address bob = address(256);
+
     address immutable ZERO_ADDRESS = address(0);
     address immutable NON_ZERO_ADDRESS = address(1);
     uint256 immutable NON_ZERO_VALUE = 100;
