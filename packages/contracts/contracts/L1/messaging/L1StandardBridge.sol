@@ -231,7 +231,7 @@ contract L1StandardBridge is IL1StandardBridge {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external onlyL2Bridge payable {
+    ) external payable onlyL2Bridge {
         emit ETHWithdrawalFinalized(_from, _to, _amount, _data);
 
         (bool success, ) = _to.call{ value: _amount }(new bytes(0));
