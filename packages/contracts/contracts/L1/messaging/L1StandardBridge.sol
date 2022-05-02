@@ -2,11 +2,11 @@
 pragma solidity ^0.8.9;
 
 /* Interface Imports */
-import { IL1StandardBridge } from "@eth-optimism/contracts/L1/messaging/IL1StandardBridge.sol";
-import { IL1ERC20Bridge } from "@eth-optimism/contracts/L1/messaging/IL1ERC20Bridge.sol";
 import { IL2ERC20Bridge } from "@eth-optimism/contracts/L2/messaging/IL2ERC20Bridge.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { OptimismPortal } from "../OptimismPortal.sol";
+import { IL1StandardBridge } from "./IL1StandardBridge.sol";
+import { IL1ERC20Bridge } from "./IL1ERC20Bridge.sol";
 
 /* Library Imports */
 import {
@@ -231,7 +231,7 @@ contract L1StandardBridge is IL1StandardBridge {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external onlyL2Bridge {
+    ) external onlyL2Bridge payable {
         emit ETHWithdrawalFinalized(_from, _to, _amount, _data);
 
         (bool success, ) = _to.call{ value: _amount }(new bytes(0));
