@@ -146,6 +146,45 @@ Batch contents:
 
 [EIP-2718]: https://eips.ethereum.org/EIPS/eip-2718
 
+The guarantee must be held that all transactions containing batches
+being sent to L1 must be valid. This means that users must not be able
+to submit transactions to L2 that make an L1 transaction including it
+be invalid. The only way to do so would be to send a transaction to L2
+that is so large that it would use more than the L1 block's gas limit
+as part of [intrinsic gas][intrinsic-gas]. As of [London][london],
+a zero byte of calldata costs 4 gas while a non zero byte of calldata
+costs 16 gas and the [block gas limit is 30 million][block-size].
+An entire block's worth of gas could be used by a transaction with
+7.5 megabytes of zero byte calldata. Including a transaction
+that uses more than the entire block gas limit as part of it's
+intrinsic gas would cause a liveness failure of L2.
+
+```python
+block_gas_limit = 30_000_000
+max_tx_size = block_gas_limit / 4 # 7500000.0
+```
+
+L1 has a [policy defining the max size][p2p-max-size]
+of a transaction that it will gossip via p2p. If the
+sequencer accepts a transaction that would cause the
+batch to be too large to be gossiped via p2p, it would
+need a direct communication channel with the block
+producer to ensure that the batch can be included in a block
+because it will not be sent via p2p. This max size
+is defined to prevent denial of service attacks on the p2p
+network.
+
+As of [London][london], the policy is set to 128kb.
+The sequencer should not accept transactions larger
+than 126kb to give a 2kb safety buffer. This may
+change pending adoption of [EIP-4844][eip-4844].
+
+[intrinsic-gas]: https://github.com/ethereum/go-ethereum/blob/3fd16af5a91e232f1b32c85db79c45d5563ae14f/core/state_transition.go#L118
+[london]: https://ethereum.org/en/history/#london
+[block-size]: <https://ethereum.org/en/developers/docs/gas/#:~:text=Each%20block%20has%20a%20target,2x%20the%20target%20block%20size>).
+[p2p-max-size]: <https://github.com/ethereum/go-ethereum/blob/5157d4540a58a660a914e5cc1eac6f2e281e35d7/core/tx_pool.go#L53>
+[eip-4844]: <https://github.com/ethereum/EIPs/blob/master/EIPS/eip-4844.md>
+
 The L1 attributes are read from the L1 block header, while deposits are read from the block's [receipts][g-receipts].
 Refer to the [**deposit contract specification**][deposit-contract-spec] for details on how deposits are encoded as log
 entries. The deposited and sequenced transactions are combined when the Payload Attributes are constructed.
