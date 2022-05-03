@@ -28,6 +28,13 @@ import { Withdrawer } from "../Withdrawer.sol";
  * bridge to release L1 funds.
  */
 contract L2StandardBridge is IL2ERC20Bridge {
+    /**********
+     * Errors *
+     **********/
+
+    /// @notice Represents invalid value handling to prevent stuck ETH
+    error InvalidWithdrawalAmount();
+
     /********************************
      * External Contract References *
      ********************************/
@@ -57,7 +64,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
         uint256 _amount,
         uint32 _l1Gas,
         bytes calldata _data
-    ) external virtual {
+    ) external payable virtual {
         _initiateWithdrawal(_l2Token, msg.sender, msg.sender, _amount, _l1Gas, _data);
     }
 
@@ -70,8 +77,85 @@ contract L2StandardBridge is IL2ERC20Bridge {
         uint256 _amount,
         uint32 _l1Gas,
         bytes calldata _data
-    ) external virtual {
+    ) external payable virtual {
         _initiateWithdrawal(_l2Token, msg.sender, _to, _amount, _l1Gas, _data);
+    }
+
+    function withdrawETH() external payable {
+        _initiateETHWithdrawal(msg.sender, msg.sender, msg.value, 30000, hex"");
+    }
+
+    function withdrawETH(
+        uint32 _l1Gas,
+        bytes calldata _data
+    ) external payable {
+        _initiateETHWithdrawal(msg.sender, msg.sender, msg.value, _l1Gas, _data);
+    }
+
+    function withdrawETHTo(
+        address _to,
+        uint256 _l1Gas,
+        bytes calldata _data
+    ) external payable {
+        _initiateETHWithdrawal(msg.sender, _to, msg.value, _l1Gas, _data);
+    }
+
+    function _initiateETHWithdrawal(
+        address _from,
+        address _to,
+        uint256 _amount,
+        uint256 _l1Gas,
+        bytes memory _data
+    ) internal {
+
+        // Send message up to L1 bridge
+        Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal{ value: _amount }(
+            l1TokenBridge,
+            _l1Gas,
+            abi.encodeWithSelector(
+                IL1StandardBridge.finalizeETHWithdrawal.selector,
+                _from,
+                _to,
+                _amount,
+                _data
+            )
+        );
+
+        emit WithdrawalInitiated(address(0), Lib_PredeployAddresses.OVM_ETH, msg.sender, _to, _amount, _data);
+    }
+
+    function _initiateERC20Withdrawal(
+        address _l2Token,
+        address _from,
+        address _to,
+        uint256 _amount,
+        uint32 _l1Gas,
+        bytes calldata _data
+    ) internal {
+        // When a withdrawal is initiated, we burn the withdrawer's funds to prevent
+        // subsequent L2 usage
+        // slither-disable-next-line reentrancy-events
+        IL2StandardERC20(_l2Token).burn(msg.sender, _amount);
+
+        // slither-disable-next-line reentrancy-events
+        address l1Token = IL2StandardERC20(_l2Token).l1Token();
+
+        // Send message up to L1 bridge
+        Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
+            l1TokenBridge,
+            _l1Gas,
+            abi.encodeWithSelector(
+                IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
+                l1Token,
+                _l2Token,
+                _from,
+                _to,
+                _amount,
+                _data
+            )
+        );
+        // slither-disable-next-line reentrancy-events
+        emit WithdrawalInitiated(l1Token, _l2Token, msg.sender, _to, _amount, _data);
     }
 
     /**
@@ -94,48 +178,32 @@ contract L2StandardBridge is IL2ERC20Bridge {
         uint32 _l1Gas,
         bytes calldata _data
     ) internal {
-        address l1Token;
-        bytes memory message;
+        if (_l2Token == Lib_PredeployAddresses.OVM_ETH) {
+            if (msg.value != _amount) {
+                revert InvalidWithdrawalAmount();
+            }
 
-        // TODO: determine if this is the correct functionality
-        if (_l2Token == Lib_PredeployAddresses.OVM_ETH || _l2Token == address(0)) {
-            l1Token = address(0);
-            message = abi.encodeWithSelector(
-                IL1StandardBridge.finalizeETHWithdrawal.selector,
+            _initiateETHWithdrawal(
                 _from,
                 _to,
                 _amount,
+                _l1Gas,
                 _data
             );
         } else {
-            // When a withdrawal is initiated, we burn the withdrawer's funds to prevent subsequent L2
-            // usage
-            // slither-disable-next-line reentrancy-events
-            IL2StandardERC20(_l2Token).burn(msg.sender, _amount);
+            if (msg.value != 0) {
+                revert InvalidWithdrawalAmount();
+            }
 
-            // Construct calldata for l1TokenBridge.finalizeERC20Withdrawal(_to, _amount)
-            // slither-disable-next-line reentrancy-events
-            l1Token = IL2StandardERC20(_l2Token).l1Token();
-            message = abi.encodeWithSelector(
-                IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
-                l1Token,
+            _initiateERC20Withdrawal(
                 _l2Token,
                 _from,
                 _to,
                 _amount,
+                _l1Gas,
                 _data
             );
         }
-
-        // slither-disable-next-line reentrancy-events
-        emit WithdrawalInitiated(l1Token, _l2Token, msg.sender, _to, _amount, _data);
-
-        // Send message up to L1 bridge
-        Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
-            l1TokenBridge,
-            _l1Gas,
-            message
-        );
     }
 
     /************************************
@@ -145,6 +213,10 @@ contract L2StandardBridge is IL2ERC20Bridge {
     /**
      * @inheritdoc IL2ERC20Bridge
      */
+
+    // be sure that depositing eth works through the bridge just like the old
+    // contracts
+
     function finalizeDeposit(
         address _l1Token,
         address _l2Token,
@@ -152,7 +224,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external virtual {
+    ) external payable virtual {
         // Since it is impossible to deploy a contract to an address on L2 which matches
         // the alias of the l1TokenBridge, this check can only pass when it is called in
         // the first call frame of a deposit transaction. Thus reentrancy is prevented here.
@@ -161,7 +233,21 @@ contract L2StandardBridge is IL2ERC20Bridge {
             "Can only be called by a the l1TokenBridge"
         );
 
+        // Check to see if the bridge is being used to deposit ETH.
+        // The `msg.value` must match the `_amount` to prevent
+        // ETH from getting stuck in the contract
         if (
+            _l1Token == address(0) &&
+            _l2Token == Lib_PredeployAddresses.OVM_ETH &&
+            msg.value == _amount
+        ) {
+            // An ETH deposit is being made via the Token Bridge.
+            // We simply forward it on. If this call fails, ETH will be stuck, but the L1Bridge
+            // uses onlyEOA on the receive function, so anyone sending to a contract knows
+            // what they are doing.
+            address(_to).call{ value: _amount }(hex"");
+            emit DepositFinalized(_l1Token, _l2Token, _from, _to, _amount, _data);
+        } else if (
             // Check the target token is compliant and
             // verify the deposited token on L1 matches the L2 deposited token representation here
             // slither-disable-next-line reentrancy-events
@@ -183,24 +269,38 @@ contract L2StandardBridge is IL2ERC20Bridge {
             // message so that users can get their funds out in some cases.
             // There is no way to prevent malicious token contracts altogether, but this does limit
             // user error and mitigate some forms of malicious contract behavior.
-            bytes memory message = abi.encodeWithSelector(
-                IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
-                _l1Token,
-                _l2Token,
-                _to, // switched the _to and _from here to bounce back the deposit to the sender
-                _from,
-                _amount,
-                _data
-            );
 
             emit DepositFailed(_l1Token, _l2Token, _from, _to, _amount, _data);
 
-            // Send message up to L1 bridge
-            Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
-                l1TokenBridge,
-                0,
-                message
-            );
+            // Withdraw ETH in the case that the user submitted a bad ETH
+            // deposit to prevent ETH from getting stuck
+            if (_l1Token == address(0) && _l2Token == Lib_PredeployAddresses.OVM_ETH) {
+                Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal{ value: msg.value }(
+                    l1TokenBridge,
+                    0, // TODO: does a 0 gaslimit work here?
+                    abi.encodeWithSelector(
+                        IL1StandardBridge.finalizeETHWithdrawal.selector,
+                        _to, // switched the _to and _from here to bounce back the deposit to the sender
+                        _from,
+                        _amount,
+                        _data
+                    )
+                );
+            } else {
+                Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
+                    l1TokenBridge,
+                    0, // TODO: does a 0 gaslimit work here?
+                    abi.encodeWithSelector(
+                        IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
+                        _l1Token,
+                        _l2Token,
+                        _to, // switched the _to and _from here to bounce back the deposit to the sender
+                        _from,
+                        _amount,
+                        _data
+                    )
+                );
+            }
         }
     }
 }

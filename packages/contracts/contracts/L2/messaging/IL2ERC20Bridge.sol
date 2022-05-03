@@ -60,7 +60,7 @@ interface IL2ERC20Bridge {
         uint256 _amount,
         uint32 _l1Gas,
         bytes calldata _data
-    ) external;
+    ) external payable;
 
     /**
      * @dev initiate a withdraw of some token to a recipient's account on L1.
@@ -78,7 +78,7 @@ interface IL2ERC20Bridge {
         uint256 _amount,
         uint32 _l1Gas,
         bytes calldata _data
-    ) external;
+    ) external payable;
 
     /*************************
      * Cross-chain Functions *
@@ -104,5 +104,5 @@ interface IL2ERC20Bridge {
         address _to,
         uint256 _amount,
         bytes calldata _data
-    ) external;
+    ) external payable;
 }
