@@ -204,9 +204,6 @@ contract L2StandardBridge is IL2ERC20Bridge {
      * @inheritdoc IL2ERC20Bridge
      */
 
-    // be sure that depositing eth works through the bridge just like the old
-    // contracts
-
     function finalizeDeposit(
         address _l1Token,
         address _l2Token,
