@@ -272,7 +272,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
                     0, // TODO: does a 0 gaslimit work here?
                     abi.encodeWithSelector(
                         IL1StandardBridge.finalizeETHWithdrawal.selector,
-                        _to, // switched the _to and _from here to bounce back the deposit to the sender
+                        _to, // switch the _to and _from to send deposit back to the sender
                         _from,
                         _amount,
                         _data
@@ -286,7 +286,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
                         IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
                         _l1Token,
                         _l2Token,
-                        _to, // switched the _to and _from here to bounce back the deposit to the sender
+                        _to, // switch the _to and _from to send deposit back to the sender
                         _from,
                         _amount,
                         _data
