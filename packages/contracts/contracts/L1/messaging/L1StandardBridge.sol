@@ -77,14 +77,14 @@ contract L1StandardBridge is IL1StandardBridge {
      * default amount is forwarded to L2.
      */
     receive() external payable onlyEOA {
-        _initiateETHDeposit(msg.sender, msg.sender, 200_000, bytes(""));
+        _initiateETHDeposit(msg.sender, msg.sender, msg.value, 200_000, bytes(""));
     }
 
     /**
      * @inheritdoc IL1StandardBridge
      */
     function depositETH(uint32 _l2Gas, bytes calldata _data) external payable onlyEOA {
-        _initiateETHDeposit(msg.sender, msg.sender, _l2Gas, _data);
+        _initiateETHDeposit(msg.sender, msg.sender, msg.value, _l2Gas, _data);
     }
 
     /**
@@ -95,7 +95,7 @@ contract L1StandardBridge is IL1StandardBridge {
         uint32 _l2Gas,
         bytes calldata _data
     ) external payable {
-        _initiateETHDeposit(msg.sender, _to, _l2Gas, _data);
+        _initiateETHDeposit(msg.sender, _to, msg.value, _l2Gas, _data);
     }
 
     /**
@@ -111,13 +111,28 @@ contract L1StandardBridge is IL1StandardBridge {
     function _initiateETHDeposit(
         address _from,
         address _to,
+        uint256 _amount,
         uint32 _l2Gas,
         bytes memory _data
     ) internal {
-        emit ETHDepositInitiated(_from, _to, msg.value, _data);
+        emit ETHDepositInitiated(_from, _to, _amount, _data);
 
         // Send calldata into L2
-        optimismPortal.depositTransaction{ value: msg.value }(_to, msg.value, _l2Gas, false, _data);
+        optimismPortal.depositTransaction{ value: _amount }(
+            Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
+            _amount,
+            _l2Gas,
+            false,
+            abi.encodeWithSelector(
+                IL2ERC20Bridge.finalizeDeposit.selector,
+                address(0),
+                Lib_PredeployAddresses.OVM_ETH,
+                _from,
+                _to,
+                _amount,
+                _data
+            )
+        );
     }
 
     /**
