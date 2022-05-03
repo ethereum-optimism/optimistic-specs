@@ -85,10 +85,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
         _initiateETHWithdrawal(msg.sender, msg.sender, msg.value, 30000, hex"");
     }
 
-    function withdrawETH(
-        uint32 _l1Gas,
-        bytes calldata _data
-    ) external payable {
+    function withdrawETH(uint32 _l1Gas, bytes calldata _data) external payable {
         _initiateETHWithdrawal(msg.sender, msg.sender, msg.value, _l1Gas, _data);
     }
 
@@ -107,7 +104,6 @@ contract L2StandardBridge is IL2ERC20Bridge {
         uint256 _l1Gas,
         bytes memory _data
     ) internal {
-
         // Send message up to L1 bridge
         Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal{ value: _amount }(
             l1TokenBridge,
@@ -121,7 +117,14 @@ contract L2StandardBridge is IL2ERC20Bridge {
             )
         );
 
-        emit WithdrawalInitiated(address(0), Lib_PredeployAddresses.OVM_ETH, msg.sender, _to, _amount, _data);
+        emit WithdrawalInitiated(
+            address(0),
+            Lib_PredeployAddresses.OVM_ETH,
+            msg.sender,
+            _to,
+            _amount,
+            _data
+        );
     }
 
     function _initiateERC20Withdrawal(
@@ -183,26 +186,13 @@ contract L2StandardBridge is IL2ERC20Bridge {
                 revert InvalidWithdrawalAmount();
             }
 
-            _initiateETHWithdrawal(
-                _from,
-                _to,
-                _amount,
-                _l1Gas,
-                _data
-            );
+            _initiateETHWithdrawal(_from, _to, _amount, _l1Gas, _data);
         } else {
             if (msg.value != 0) {
                 revert InvalidWithdrawalAmount();
             }
 
-            _initiateERC20Withdrawal(
-                _l2Token,
-                _from,
-                _to,
-                _amount,
-                _l1Gas,
-                _data
-            );
+            _initiateERC20Withdrawal(_l2Token, _from, _to, _amount, _l1Gas, _data);
         }
     }
 
@@ -275,7 +265,9 @@ contract L2StandardBridge is IL2ERC20Bridge {
             // Withdraw ETH in the case that the user submitted a bad ETH
             // deposit to prevent ETH from getting stuck
             if (_l1Token == address(0) && _l2Token == Lib_PredeployAddresses.OVM_ETH) {
-                Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal{ value: msg.value }(
+                Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal{
+                    value: msg.value
+                }(
                     l1TokenBridge,
                     0, // TODO: does a 0 gaslimit work here?
                     abi.encodeWithSelector(
