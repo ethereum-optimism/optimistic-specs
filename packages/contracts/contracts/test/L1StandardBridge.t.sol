@@ -45,11 +45,19 @@ contract L1StandardBridge_Test is CommonTest, BridgeInitializer  {
             address(op),
             abi.encodeWithSelector(
                 op.depositTransaction.selector,
-                alice,
+                Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
                 100,
                 200000,
                 false,
-                hex""
+                abi.encodeWithSelector(
+                    IL2ERC20Bridge.finalizeDeposit.selector,
+                    address(0),
+                    Lib_PredeployAddresses.OVM_ETH,
+                    alice,
+                    alice,
+                    100,
+                    hex""
+                )
             )
         );
 
@@ -65,6 +73,8 @@ contract L1StandardBridge_Test is CommonTest, BridgeInitializer  {
     // - calls optimismPortal.depositTransaction
     // - only EOA
     // - ETH ends up in the optimismPortal
+
+    // TODO: this now goes through the bridge
     function test_L1BridgeDepositETH() external {
         vm.expectEmit(true, true, true, true);
         emit ETHDepositInitiated(alice, alice, 1000, hex"ff");
@@ -73,11 +83,19 @@ contract L1StandardBridge_Test is CommonTest, BridgeInitializer  {
             address(op),
             abi.encodeWithSelector(
                 op.depositTransaction.selector,
-                alice,
+                Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
                 1000,
                 10000,
                 false,
-                hex"ff"
+                abi.encodeWithSelector(
+                    IL2ERC20Bridge.finalizeDeposit.selector,
+                    address(0),
+                    Lib_PredeployAddresses.OVM_ETH,
+                    alice,
+                    alice,
+                    1000,
+                    hex"ff"
+                )
             )
         );
 
@@ -108,11 +126,19 @@ contract L1StandardBridge_Test is CommonTest, BridgeInitializer  {
             address(op),
             abi.encodeWithSelector(
                 op.depositTransaction.selector,
-                bob,
+                Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
                 1000,
                 10000,
                 false,
-                hex"ff"
+                abi.encodeWithSelector(
+                    IL2ERC20Bridge.finalizeDeposit.selector,
+                    address(0),
+                    Lib_PredeployAddresses.OVM_ETH,
+                    alice,
+                    bob,
+                    1000,
+                    hex"ff"
+                )
             )
         );
 
