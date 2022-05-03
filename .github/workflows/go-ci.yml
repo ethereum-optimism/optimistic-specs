@@ -39,6 +39,17 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18
+
+      - name: Install abigen
+        run: |
+          git clone https://github.com/ethereum/go-ethereum /geth
+          cd /geth
+          make devtools
+
       - name: Install Foundry
         uses: onbjerg/foundry-toolchain@v1
         with:
@@ -49,18 +60,18 @@ jobs:
           node-version: "16"
           cache: "yarn"
 
-      - name: install deps
+      - name: Install Dependencies
         run: |
           cd packages/contracts
           yarn install
 
-      - name: opnode contracts
+      - name: opnode Contracts
         run: |
           cd opnode/contracts
           make
           git diff --exit-code
 
-      - name: l2os bindings
+      - name: l2os Bindings
         run: |
           cd l2os
           make bindings
