@@ -21,6 +21,7 @@ import { CommonTest } from "./CommonTest.t.sol";
 import { L2OutputOracle_Initializer, BridgeInitializer } from "./L2OutputOracle.t.sol";
 import { LibRLP } from "./Lib_RLP.t.sol";
 import { IL1ERC20Bridge } from "../L1/messaging/IL1ERC20Bridge.sol";
+import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 
 import { console } from "forge-std/console.sol";
 import { stdStorage, StdStorage } from "forge-std/Test.sol";
@@ -102,18 +103,271 @@ contract L2StandardBridge_Test is CommonTest, BridgeInitializer  {
         assertEq(L2Token.totalSupply(), L2Token.balanceOf(alice));
     }
 
-    // TODO: test withdrawing ETH
-    // with L2Bridge.withdraw
+    function test_L2BridgeRevertWithdraw() external {
+        vm.expectRevert(abi.encodeWithSignature("InvalidWithdrawalAmount()"));
+        vm.prank(address(alice));
+        L2Bridge.withdraw{ value: 100 }(
+            address(L2Token),
+            100,
+            10000,
+            hex""
+        );
+    }
+
+    function test_L2BridgeWithdrawETH() external {
+        vm.expectCall(
+            Lib_BedrockPredeployAddresses.WITHDRAWER,
+            abi.encodeWithSelector(
+                Withdrawer.initiateWithdrawal.selector,
+                address(L1Bridge),
+                10000,
+                abi.encodeWithSelector(
+                    L1StandardBridge.finalizeETHWithdrawal.selector,
+                    alice,
+                    alice,
+                    100,
+                    hex""
+                )
+            )
+        );
+
+        vm.expectEmit(true, true, true, true);
+        emit WithdrawalInitiated(
+            address(0),
+            Lib_PredeployAddresses.OVM_ETH,
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        uint256 aliceBalance = alice.balance;
+
+        vm.prank(address(alice));
+        L2Bridge.withdraw{ value: 100 }(
+            Lib_PredeployAddresses.OVM_ETH,
+            100,
+            10000,
+            hex""
+        );
+
+        uint256 aliceBalancePost = alice.balance;
+
+        // Alice's balance should go down
+        assertEq(aliceBalance - 100, aliceBalancePost);
+    }
+
+    function test_L2BridgeRevertWithdrawETH() external {
+        vm.expectRevert(abi.encodeWithSignature("InvalidWithdrawalAmount()"));
+        vm.prank(address(alice));
+        L2Bridge.withdraw(
+            Lib_PredeployAddresses.OVM_ETH,
+            100,
+            10000,
+            hex""
+        );
+    }
 
     // withdrawTo
     // - token is burned
     // - emits WithdrawalInitiated w/ correct recipient
     // - calls Withdrawer.initiateWithdrawal
+    function test_L2BridgeWithdrawTo() external {
+        assertEq(L2Token.balanceOf(bob), 0);
+
+        uint256 aliceBalance = L2Token.balanceOf(alice);
+
+        vm.expectCall(
+            Lib_BedrockPredeployAddresses.WITHDRAWER,
+            abi.encodeWithSelector(
+                Withdrawer.initiateWithdrawal.selector,
+                address(L1Bridge),
+                200000,
+                abi.encodeWithSelector(
+                    IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
+                    address(token),
+                    address(L2Token),
+                    alice,
+                    bob,
+                    200,
+                    hex""
+                )
+            )
+        );
+
+        vm.expectEmit(true, true, true, true);
+        emit WithdrawalInitiated(
+            address(token),
+            address(L2Token),
+            alice,
+            bob,
+            200,
+            hex""
+        );
+
+        vm.prank(alice);
+        L2Bridge.withdrawTo(
+            address(L2Token),
+            bob,
+            200,
+            200000,
+            hex""
+        );
+
+        // alice's balance should go down
+        uint256 aliceBalancePost = L2Token.balanceOf(alice);
+        assertEq(aliceBalance - 200, aliceBalancePost);
+    }
+
+    // TODO: the eth functions
 
     // finalizeDeposit
     // - only callable by l1TokenBridge
     // - supported token pair emits DepositFinalized
     // - invalid deposit emits DepositFailed
     // - invalid deposit calls Withdrawer.initiateWithdrawal
+    function test_L2BridgeFinalizeDeposit() external {
+        uint256 aliceBalance = L2Token.balanceOf(alice);
+
+        vm.expectCall(
+            address(L2Token),
+            abi.encodeWithSelector(
+                IL2StandardERC20.mint.selector,
+                alice,
+                100
+            )
+        );
+
+        vm.expectEmit(true, true, true, true);
+        emit DepositFinalized(
+            address(token),
+            address(L2Token),
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        vm.prank(AddressAliasHelper.applyL1ToL2Alias(address(L1Bridge)));
+        L2Bridge.finalizeDeposit(
+            address(token),
+            address(L2Token),
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        uint256 aliceBalancePost = L2Token.balanceOf(alice);
+        assertEq(aliceBalance + 100, aliceBalancePost);
+    }
+
+    function test_L2BridgeBadDeposit() external {
+        vm.expectEmit(true, true, true, true);
+        emit DepositFailed(
+            address(10),
+            address(L2Token),
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        vm.prank(AddressAliasHelper.applyL1ToL2Alias(address(L1Bridge)));
+        L2Bridge.finalizeDeposit(
+            address(10),
+            address(L2Token),
+            alice,
+            alice,
+            100,
+            hex""
+        );
+    }
+
+    function test_L2BridgeFinalizeETHDeposit() external {
+        uint256 aliceBalance = alice.balance;
+
+        vm.expectEmit(true, true, true, true);
+        emit DepositFinalized(
+            address(0),
+            Lib_PredeployAddresses.OVM_ETH,
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        hoax(AddressAliasHelper.applyL1ToL2Alias(address(L1Bridge)));
+        L2Bridge.finalizeDeposit{ value: 100 }(
+            address(0),
+            Lib_PredeployAddresses.OVM_ETH,
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        uint256 aliceBalancePost = alice.balance;
+        assertEq(aliceBalance + 100, aliceBalancePost);
+    }
+
+    // when the values do not match up
+    function test_L2BridgeFinalizeETHDepositWrongAmount() external {
+        uint256 aliceBalance = alice.balance;
+
+        vm.expectEmit(true, true, true, true);
+        emit DepositFailed(
+            address(0),
+            Lib_PredeployAddresses.OVM_ETH,
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        vm.expectCall(
+            Lib_BedrockPredeployAddresses.WITHDRAWER,
+            abi.encodeWithSelector(
+                Withdrawer.initiateWithdrawal.selector,
+                address(L1Bridge),
+                0,
+                abi.encodeWithSelector(
+                    L1StandardBridge.finalizeETHWithdrawal.selector,
+                    alice,
+                    alice,
+                    100,
+                    hex""
+                )
+            )
+        );
+
+        hoax(AddressAliasHelper.applyL1ToL2Alias(address(L1Bridge)));
+        L2Bridge.finalizeDeposit{ value: 200 }(
+            address(0),
+            Lib_PredeployAddresses.OVM_ETH,
+            alice,
+            alice,
+            100,
+            hex""
+        );
+
+        uint256 aliceBalancePost = alice.balance;
+        assertEq(aliceBalance, aliceBalancePost);
+        assertEq(address(L2Bridge).balance, 0);
+        assertEq(address(Lib_BedrockPredeployAddresses.WITHDRAWER).balance, 200);
+    }
+
+    function test_L2BridgeFinalizeDepositRevertsOnCaller() external {
+        vm.expectRevert("Can only be called by a the l1TokenBridge");
+        vm.prank(alice);
+        L2Bridge.finalizeDeposit(
+            address(0),
+            Lib_PredeployAddresses.OVM_ETH,
+            alice,
+            alice,
+            100,
+            hex""
+        );
+    }
 }
 
