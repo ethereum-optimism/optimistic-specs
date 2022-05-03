@@ -100,13 +100,14 @@ if curr_num != block.number {
     curr_number := block.number
     curr_bought_gas := 0
     pack_and_store(curr_basefee, curr_number, curr_bought_gas)
-
 }
 
 curr_bought_gas += required_gas
 require(curr_bought_gas <= GUARANTEED_GAS_LIMIT)
 require(curr_bought_gas <= SANITY_GAS_LIMIT)
 gas_cost = requested_gas * curr_basefee
+
+store(curr_bought_gas) # May have to be a pack and store as well.
 
 burn(gas_cost) # Via gas or eth.
 ```
