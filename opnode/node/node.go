@@ -60,7 +60,7 @@ func dialRPCClientWithBackoff(ctx context.Context, log log.Logger, addr string) 
 	return ret, nil
 }
 
-func New(ctx context.Context, cfg *Config, log log.Logger, appVersion string) (*OpNode, error) {
+func New(ctx context.Context, cfg *Config, log log.Logger, snapshotLog log.Logger, appVersion string) (*OpNode, error) {
 	if err := cfg.Check(); err != nil {
 		return nil, err
 	}
@@ -102,7 +102,9 @@ func New(ctx context.Context, cfg *Config, log log.Logger, appVersion string) (*
 			return nil, err
 		}
 
-		engine := driver.NewDriver(cfg.Rollup, client, l1Source, log.New("engine", i, "Sequencer", cfg.Sequencer), cfg.Sequencer)
+		// TODO: attach the p2p node ID to the snapshot logger
+		snapshotLog := snapshotLog.New("engine_addr", addr)
+		engine := driver.NewDriver(cfg.Rollup, client, l1Source, log.New("engine", i, "Sequencer", cfg.Sequencer), snapshotLog, cfg.Sequencer)
 		l2Engines = append(l2Engines, engine)
 	}
 

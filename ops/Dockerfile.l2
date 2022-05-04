@@ -1,4 +1,5 @@
-FROM ethereumoptimism/reference-optimistic-geth:latest
+#FROM ethereumoptimism/reference-optimistic-geth:latest
+FROM inphi/reference-optimistic-geth:latest
 
 RUN apk add --no-cache jq
 

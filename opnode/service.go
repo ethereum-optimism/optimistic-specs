@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum-optimism/optimistic-specs/opnode/node"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/urfave/cli"
 )
 
@@ -85,4 +86,20 @@ func NewLogConfig(ctx *cli.Context) (node.LogConfig, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+func NewSnapshotLogger(ctx *cli.Context) (log.Logger, error) {
+	snapshotFile := ctx.GlobalString(flags.SnapshotLog.Name)
+	handler := log.StreamHandler(os.Stdout, log.JSONFormat())
+	if snapshotFile != "" {
+		var err error
+		handler, err = log.FileHandler(snapshotFile, log.JSONFormat())
+		if err != nil {
+			return nil, err
+		}
+	}
+	handler = log.SyncHandler(handler)
+	logger := log.New()
+	logger.SetHandler(handler)
+	return logger, nil
 }

@@ -46,6 +46,7 @@ services:
       - --l2.eth=http://l2:8545
       - --rpc.addr=0.0.0.0
       - --rpc.port=8545
+     #- --snapshotlog.file=/snapshot.log
     ports:
         - "7545:8545"
     volumes:
