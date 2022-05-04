@@ -76,9 +76,11 @@ an EIP-1559 style fee market with the following pseudo code:
 
 ```text
 BASE_FEE_MAX_CHANGE_DENOMINATOR = 8
+ELASTICITY_MULTIPLIER = 2
 
 curr_basefee: u128, curr_num: u64, curr_bought_gas: u64 = load_and_unpack_storage()
 GUARANTEED_GAS_LIMIT: u64, SANITY_GAS_LIMIT: u64 = load_and_unpack_storage2()
+gas_target = GUARANTEED_GAS_LIMIT // ELASTICITY_MULTIPLIER
 
 # // implies floor division, however because gas_delta is always positive, it is the same as truncating (aka round to 0) division
 # If first deposit of this block, calculate the new basefee and store other info as well.
@@ -93,13 +95,13 @@ if curr_num != block.number {
     } else {
         gas_delta     := gas_target - curr_bought_gas
         basefee_delta := gas_delta * curr_basefee // gas_target // BASE_FEE_MAX_CHANGE_DENOMINATOR
-        // Fun fact, geth doesn't let the new_basefee get below 0.
+        // Fun fact, geth doesn't let the new_basefee get below 0 and while not in the EIP spec, we should add this as well.
         new_basefee   := curr_basefee - basefee_delta
     }
     curr_basefee := new_basefee
     curr_number := block.number
     curr_bought_gas := 0
-    pack_and_store(curr_basefee, curr_number, curr_bought_gas)
+   
 }
 
 curr_bought_gas += required_gas
@@ -107,9 +109,9 @@ require(curr_bought_gas <= GUARANTEED_GAS_LIMIT)
 require(curr_bought_gas <= SANITY_GAS_LIMIT)
 gas_cost = requested_gas * curr_basefee
 
-store(curr_bought_gas) # May have to be a pack and store as well.
-
 burn(gas_cost) # Via gas or eth.
+
+pack_and_store(curr_basefee, curr_number, curr_bought_gas)
 ```
 
 ### Rationale for Guaranteed vs Additional Gas
