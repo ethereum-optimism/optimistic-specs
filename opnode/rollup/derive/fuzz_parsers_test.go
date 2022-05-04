@@ -130,21 +130,37 @@ func FuzzL1InfoAgainstContract(f *testing.F) {
 // The purpose is to check that we can never create a transaction that emits a log that we cannot parse as well
 // as ensuring that our custom marshalling matches abigen.
 func FuzzUnmarshallLogEvent(f *testing.F) {
-	f.Fuzz(func(t *testing.T, _to, _mint, _value, _gasPrice, _initialBalance, data []byte, l2GasLimit, l1GasLimit uint64, isCreation bool) {
+	b := func(i int64) []byte {
+		return big.NewInt(i).Bytes()
+	}
+	type setup struct {
+		to         common.Address
+		mint       int64
+		value      int64
+		gasLimit   uint64
+		data       string
+		isCreation bool
+	}
+	cases := []setup{
+		{
+			mint:     100,
+			value:    50,
+			gasLimit: 100000,
+		},
+	}
+	for _, c := range cases {
+		f.Add(c.to.Bytes(), b(c.mint), b(c.value), []byte(c.data), c.gasLimit, c.isCreation)
+	}
+
+	f.Fuzz(func(t *testing.T, _to, _mint, _value, data []byte, l2GasLimit uint64, isCreation bool) {
 		to := common.BytesToAddress(_to)
 		mint := BytesToBigInt(_mint)
 		value := BytesToBigInt(_value)
-		gasPrice := BytesToBigInt(_gasPrice)
-
-		// Stop it from estimating gas
-		if l1GasLimit == 0 {
-			l1GasLimit += 1
-		}
 
 		// Setup opts
 		opts.Value = mint
-		opts.GasPrice = gasPrice
-		opts.GasLimit = l1GasLimit
+		opts.GasPrice = common.Big2
+		opts.GasLimit = 500_000
 		opts.NoSend = true
 		opts.Nonce = common.Big0
 		// Create the deposit transaction
@@ -157,18 +173,25 @@ func FuzzUnmarshallLogEvent(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		state.SetBalance(from, BytesToBigInt(_initialBalance))
+		state.SetBalance(from, BytesToBigInt([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}))
 		state.SetCode(addr, common.FromHex(deposit.OptimismPortalDeployedBin))
-
-		cfg := runtime.Config{
-			Origin: from,
-			Value:  tx.Value(),
-			State:  state,
+		_, err = state.Commit(false)
+		if err != nil {
+			t.Fatal(err)
 		}
 
-		_, _, _ = runtime.Call(addr, tx.Data(), &cfg)
+		cfg := runtime.Config{
+			Origin:   from,
+			Value:    tx.Value(),
+			State:    state,
+			GasLimit: opts.GasLimit,
+		}
+
+		_, _, err = runtime.Call(addr, tx.Data(), &cfg)
 		logs := state.Logs()
-		if len(logs) == 0 {
+		if err == nil && len(logs) != 1 {
+			t.Fatal("No logs or error after execution")
+		} else if err != nil {
 			return
 		}
 
