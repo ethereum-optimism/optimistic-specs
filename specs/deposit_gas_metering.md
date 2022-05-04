@@ -78,7 +78,7 @@ an EIP-1559 style fee market with the following pseudo code:
 BASE_FEE_MAX_CHANGE_DENOMINATOR = 8
 
 curr_basefee: u128, curr_num: u64, curr_bought_gas: u64 = load_and_unpack_storage()
-gas_target_limit: u64, gas_sanity_limit: u64 = load_and_unpack_storage2()
+GUARANTEED_GAS_LIMIT: u64, SANITY_GAS_LIMIT: u64 = load_and_unpack_storage2()
 
 # // implies floor division, however because gas_delta is always positive, it is the same as truncating (aka round to 0) division
 # If first deposit of this block, calculate the new basefee and store other info as well.
