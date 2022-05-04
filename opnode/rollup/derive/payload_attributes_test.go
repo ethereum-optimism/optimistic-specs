@@ -44,13 +44,15 @@ func GenerateDeposit(source UserDepositSource, rng *rand.Rand) *types.DepositTx 
 	}
 
 	dep := &types.DepositTx{
-		SourceHash: source.SourceHash(),
-		From:       GenerateAddress(rng),
-		To:         to,
-		Value:      RandETH(rng, 200),
-		Gas:        uint64(rng.Int63n(10 * 1e6)), // 10 M gas max
-		Data:       data,
-		Mint:       mint,
+		SourceHash:         source.SourceHash(),
+		From:               GenerateAddress(rng),
+		To:                 to,
+		Value:              RandETH(rng, 200),
+		GuaranteedGas:      uint64(rng.Int63n(10 * 1e6)), // 10 M gas max
+		Data:               data,
+		Mint:               mint,
+		AdditionalGas:      uint64(rng.Int63n(10 * 1e6)), // 10 M gas max,
+		AdditionalGasPrice: big.NewInt(rng.Int63n(10 * 1e6)),
 	}
 	return dep
 }
@@ -69,7 +71,7 @@ func GenerateDepositLog(deposit *types.DepositTx) *types.Log {
 		toBytes,
 	}
 
-	data := make([]byte, 6*32)
+	data := make([]byte, 8*32)
 	offset := 0
 	if deposit.Mint != nil {
 		deposit.Mint.FillBytes(data[offset : offset+32])
@@ -79,13 +81,19 @@ func GenerateDepositLog(deposit *types.DepositTx) *types.Log {
 	deposit.Value.FillBytes(data[offset : offset+32])
 	offset += 32
 
-	binary.BigEndian.PutUint64(data[offset+24:offset+32], deposit.Gas)
+	deposit.AdditionalGasPrice.FillBytes(data[offset : offset+32])
+	offset += 32
+
+	binary.BigEndian.PutUint64(data[offset+24:offset+32], deposit.AdditionalGas)
+	offset += 32
+
+	binary.BigEndian.PutUint64(data[offset+24:offset+32], deposit.GuaranteedGas)
 	offset += 32
 	if deposit.To == nil { // isCreation
 		data[offset+31] = 1
 	}
 	offset += 32
-	binary.BigEndian.PutUint64(data[offset+24:offset+32], 5*32)
+	binary.BigEndian.PutUint64(data[offset+24:offset+32], 7*32)
 	offset += 32
 	binary.BigEndian.PutUint64(data[offset+24:offset+32], uint64(len(deposit.Data)))
 	data = append(data, deposit.Data...)

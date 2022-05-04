@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	DepositEventABI        = "TransactionDeposited(address,address,uint256,uint256,uint64,bool,bytes)"
+	DepositEventABI        = "TransactionDeposited(address,address,uint256,uint256,uint256,uint64,uint64,bool,bytes)"
 	DepositEventABIHash    = crypto.Keccak256Hash([]byte(DepositEventABI))
 	L1InfoFuncSignature    = "setL1BlockValues(uint64,uint64,uint256,bytes32,uint64)"
 	L1InfoFuncBytes4       = crypto.Keccak256([]byte(L1InfoFuncSignature))[:4]
@@ -66,17 +66,18 @@ func (dep *L1InfoDepositSource) SourceHash() common.Hash {
 // UnmarshalLogEvent decodes an EVM log entry emitted by the deposit contract into typed deposit data.
 //
 // parse log data for:
-//     event TransactionDeposited(
-//    	 address indexed from,
-//    	 address indexed to,
-//       uint256 mint,
-//    	 uint256 value,
-//    	 uint64 gasLimit,
-//    	 bool isCreation,
-//    	 data data
-//     );
-//
-// Additionally, the event log-index and
+// 	event TransactionDeposited(
+// 		address indexed from,
+// 		address indexed to,
+// 		uint256 mint,
+// 		uint256 value,
+// 		uint256 additionalGasPrice,
+// 		uint64 additionalGasLimit,
+// 		uint64 guaranteedGas,
+// 		bool isCreation,
+// 		bytes data
+// 	);
+// Additionally the log index is mixed into the source hash of the deposit TX.
 func UnmarshalLogEvent(ev *types.Log) (*types.DepositTx, error) {
 	if len(ev.Topics) != 3 {
 		return nil, fmt.Errorf("expected 3 event topics (event identity, indexed from, indexed to)")
@@ -84,7 +85,8 @@ func UnmarshalLogEvent(ev *types.Log) (*types.DepositTx, error) {
 	if ev.Topics[0] != DepositEventABIHash {
 		return nil, fmt.Errorf("invalid deposit event selector: %s, expected %s", ev.Topics[0], DepositEventABIHash)
 	}
-	if len(ev.Data) < 6*32 {
+	// Each fixed length field is 32 bytes. The variable length field is 64 bytes (offset + length)
+	if len(ev.Data) < 8*32 {
 		return nil, fmt.Errorf("deposit event data too small (%d bytes): %x", len(ev.Data), ev.Data)
 	}
 
@@ -114,12 +116,23 @@ func UnmarshalLogEvent(ev *types.Log) (*types.DepositTx, error) {
 	dep.Value = new(big.Int).SetBytes(ev.Data[offset : offset+32])
 	offset += 32
 
-	gas := new(big.Int).SetBytes(ev.Data[offset : offset+32])
-	if !gas.IsUint64() {
-		return nil, fmt.Errorf("bad gas value: %x", ev.Data[offset:offset+32])
+	dep.AdditionalGasPrice = new(big.Int).SetBytes(ev.Data[offset : offset+32])
+	offset += 32
+
+	additionalGas := new(big.Int).SetBytes(ev.Data[offset : offset+32])
+	if !additionalGas.IsUint64() {
+		return nil, fmt.Errorf("bad additional gas value: %x", ev.Data[offset:offset+32])
 	}
 	offset += 32
-	dep.Gas = gas.Uint64()
+	dep.AdditionalGas = additionalGas.Uint64()
+
+	guaranteedGas := new(big.Int).SetBytes(ev.Data[offset : offset+32])
+	if !guaranteedGas.IsUint64() {
+		return nil, fmt.Errorf("bad guaranteed gas value: %x", ev.Data[offset:offset+32])
+	}
+	offset += 32
+	dep.GuaranteedGas = guaranteedGas.Uint64()
+
 	// isCreation: If the boolean byte is 1 then dep.To will stay nil,
 	// and it will create a contract using L2 account nonce to determine the created address.
 	if ev.Data[offset+31] == 0 {
@@ -191,13 +204,13 @@ func L1InfoDeposit(seqNumber uint64, block L1Info) (*types.DepositTx, error) {
 	}
 
 	return &types.DepositTx{
-		SourceHash: source.SourceHash(),
-		From:       L1InfoDepositerAddress,
-		To:         &L1InfoPredeployAddr,
-		Mint:       nil,
-		Value:      big.NewInt(0),
-		Gas:        99_999_999,
-		Data:       data,
+		SourceHash:    source.SourceHash(),
+		From:          L1InfoDepositerAddress,
+		To:            &L1InfoPredeployAddr,
+		Mint:          nil,
+		Value:         big.NewInt(0),
+		GuaranteedGas: 99_999_999, // TODO: This needs to change.
+		Data:          data,
 	}, nil
 }
 

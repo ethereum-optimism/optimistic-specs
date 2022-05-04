@@ -119,7 +119,7 @@ func FuzzL1InfoAgainstContract(f *testing.F) {
 		}
 
 		if !cmp.Equal(expected, actual, cmp.Comparer(BigEqual)) {
-			t.Fatalf("The data did not round trip correctly. expected: %v. actual: %v", expected, actual)
+			t.Fatalf("The data did not round trip correctly.\nexpected: %v\nactual: %v", expected, actual)
 		}
 
 	})
@@ -134,28 +134,33 @@ func FuzzUnmarshallLogEvent(f *testing.F) {
 		return big.NewInt(i).Bytes()
 	}
 	type setup struct {
-		to         common.Address
-		mint       int64
-		value      int64
-		gasLimit   uint64
-		data       string
-		isCreation bool
+		to                 common.Address
+		mint               int64
+		value              int64
+		additionalGasPrice int64
+		data               string
+		guaranteedGas      uint64
+		additionalGas      uint64
+		isCreation         bool
 	}
 	cases := []setup{
 		{
-			mint:     100,
-			value:    50,
-			gasLimit: 100000,
+			mint:               100,
+			value:              50,
+			additionalGasPrice: 2,
+			guaranteedGas:      100,
+			additionalGas:      10,
 		},
 	}
 	for _, c := range cases {
-		f.Add(c.to.Bytes(), b(c.mint), b(c.value), []byte(c.data), c.gasLimit, c.isCreation)
+		f.Add(c.to.Bytes(), b(c.mint), b(c.value), b(c.additionalGasPrice), []byte(c.data), c.guaranteedGas, c.additionalGas, c.isCreation)
 	}
 
-	f.Fuzz(func(t *testing.T, _to, _mint, _value, data []byte, l2GasLimit uint64, isCreation bool) {
+	f.Fuzz(func(t *testing.T, _to, _mint, _value, _additionalGasPrice, data []byte, guaranteedGas, additionalGas uint64, isCreation bool) {
 		to := common.BytesToAddress(_to)
 		mint := BytesToBigInt(_mint)
 		value := BytesToBigInt(_value)
+		additionalGasPrice := BytesToBigInt(_additionalGasPrice)
 
 		// Setup opts
 		opts.Value = mint
@@ -164,7 +169,7 @@ func FuzzUnmarshallLogEvent(f *testing.F) {
 		opts.NoSend = true
 		opts.Nonce = common.Big0
 		// Create the deposit transaction
-		tx, err := portalContract.DepositTransaction(opts, to, value, l2GasLimit, isCreation, data)
+		tx, err := portalContract.DepositTransaction(opts, to, value, additionalGasPrice, additionalGas, guaranteedGas, isCreation, data)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -209,38 +214,42 @@ func FuzzUnmarshallLogEvent(f *testing.F) {
 		}
 
 		reconstructed := &deposit.OptimismPortalTransactionDeposited{
-			From:       dep.From,
-			Value:      dep.Value,
-			GasLimit:   dep.Gas,
-			IsCreation: dep.To == nil,
-			Data:       dep.Data,
-			Raw:        types.Log{},
+			From:               dep.From,
+			To:                 common.Address{}, // Empty b/c it's a pointer in the Tx
+			Mint:               common.Big0,      // Zero b/c will be set if the pointer in the Tx is not nil
+			Value:              dep.Value,
+			AdditionalGasPrice: dep.AdditionalGasPrice,
+			AdditionalGasLimit: dep.AdditionalGas,
+			GuaranteedGas:      dep.GuaranteedGas,
+			IsCreation:         dep.To == nil,
+			Data:               dep.Data,
+			Raw:                types.Log{},
 		}
 		if dep.To != nil {
 			reconstructed.To = *dep.To
 		}
 		if dep.Mint != nil {
 			reconstructed.Mint = dep.Mint
-		} else {
-			reconstructed.Mint = common.Big0
 		}
 
 		if !cmp.Equal(depositEvent, reconstructed, cmp.Comparer(BigEqual)) {
-			t.Fatalf("The deposit tx did not match. tx: %v. actual: %v", reconstructed, depositEvent)
+			t.Fatalf("The deposit tx did not match.\ntx: %+v\nactual: %+v", reconstructed, depositEvent)
 		}
 
 		inputArgs := &deposit.OptimismPortalTransactionDeposited{
-			From:       from,
-			To:         to,
-			Mint:       mint,
-			Value:      value,
-			GasLimit:   l2GasLimit,
-			IsCreation: isCreation,
-			Data:       data,
-			Raw:        types.Log{},
+			From:               from,
+			To:                 to,
+			Mint:               mint,
+			Value:              value,
+			AdditionalGasPrice: additionalGasPrice,
+			AdditionalGasLimit: additionalGas,
+			GuaranteedGas:      guaranteedGas,
+			IsCreation:         isCreation,
+			Data:               data,
+			Raw:                types.Log{},
 		}
 		if !cmp.Equal(depositEvent, inputArgs, cmp.Comparer(BigEqual)) {
-			t.Fatalf("The input args did not match. input: %v. actual: %v", inputArgs, depositEvent)
+			t.Fatalf("The input args did not match.\ninput: %+v\nactual: %+v", inputArgs, depositEvent)
 		}
 	})
 }
