@@ -117,7 +117,15 @@ contract L1StandardBridge is IL1StandardBridge {
         emit ETHDepositInitiated(_from, _to, msg.value, _data);
 
         // Send calldata into L2
-        optimismPortal.depositTransaction{ value: msg.value }(_to, msg.value, _l2Gas, false, _data);
+        optimismPortal.depositTransaction{ value: msg.value }(
+            _to,
+            msg.value,
+            0,
+            0,
+            _l2Gas,
+            false,
+            _data
+        );
     }
 
     /**
@@ -197,6 +205,8 @@ contract L1StandardBridge is IL1StandardBridge {
         optimismPortal.depositTransaction(
             Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
             0,
+            0,
+            0, // TODO: Probably want to use additional gas here.
             _l2Gas,
             false,
             message

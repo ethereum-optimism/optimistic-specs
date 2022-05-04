@@ -16,7 +16,9 @@ contract OptimismPortal_Test is CommonTest {
         address indexed to,
         uint256 mint,
         uint256 value,
-        uint64 gasLimit,
+        uint256 additionalGasPrice,
+        uint64 additionalGasLimit,
+        uint64 guaranteedGas,
         bool isCreation,
         bytes data
     );
@@ -36,7 +38,7 @@ contract OptimismPortal_Test is CommonTest {
         vm.prank(address(this), address(this));
 
         vm.expectEmit(true, true, false, true);
-        emit TransactionDeposited(address(this), address(this), 100, 100, 30_000, false, hex"");
+        emit TransactionDeposited(address(this), address(this), 100, 100, 0, 0, 30_000, false, hex"");
 
         (bool s, ) = address(op).call{ value: 100 }(hex"");
         s; // Silence the compiler's "Return value of low-level calls not used" warning.

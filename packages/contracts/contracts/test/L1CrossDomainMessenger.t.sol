@@ -84,6 +84,8 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
                 IDepositFeed.depositTransaction.selector,
                 Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER,
                 0,
+                ZERO_VALUE,
+                ZERO_GASLIMIT,
                 NON_ZERO_GASLIMIT,
                 false,
                 xDomainCalldata

@@ -33,7 +33,9 @@ abstract contract DepositFeed is IDepositFeed {
         address indexed to,
         uint256 mint,
         uint256 value,
-        uint64 gasLimit,
+        uint256 additionalGasPrice,
+        uint64 additionalGasLimit,
+        uint64 guaranteedGas,
         bool isCreation,
         bytes data
     );
@@ -47,14 +49,18 @@ abstract contract DepositFeed is IDepositFeed {
      * deriving deposit transactions.
      * @param _to The L2 destination address.
      * @param _value The ETH value to send in the deposit transaction.
-     * @param _gasLimit The L2 gasLimit.
+     * @param _additionalGasPrice The price at which to buy additional gas.
+     * @param _additionalGasLimit Amount on additional gas on buy on L2. Not guaranteed to provided.
+     * @param _guaranteedGas The amount of non refundable L2 gas to buy.
      * @param _isCreation Whether or not the transaction should be contract creation.
      * @param _data The input data.
      */
     function depositTransaction(
         address _to,
         uint256 _value,
-        uint64 _gasLimit,
+        uint256 _additionalGasPrice,
+        uint64 _additionalGasLimit,
+        uint64 _guaranteedGas,
         bool _isCreation,
         bytes memory _data
     ) public payable {
@@ -68,6 +74,16 @@ abstract contract DepositFeed is IDepositFeed {
             from = AddressAliasHelper.applyL1ToL2Alias(msg.sender);
         }
 
-        emit TransactionDeposited(from, _to, msg.value, _value, _gasLimit, _isCreation, _data);
+        emit TransactionDeposited(
+            from,
+            _to,
+            msg.value,
+            _value,
+            _additionalGasPrice,
+            _additionalGasLimit,
+            _guaranteedGas,
+            _isCreation,
+            _data
+        );
     }
 }

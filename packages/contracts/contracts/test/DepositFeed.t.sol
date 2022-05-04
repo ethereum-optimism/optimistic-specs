@@ -23,7 +23,9 @@ contract DepositFeedTest is CommonTest {
         address indexed to,
         uint256 mint,
         uint256 value,
-        uint64 gasLimit,
+        uint256 additionalGasPrice,
+        uint64 additionalGasLimit,
+        uint64 guaranteedGas,
         bool isCreation,
         bytes data
     );
@@ -35,7 +37,7 @@ contract DepositFeedTest is CommonTest {
     // Test: depositTransaction fails when contract creation has a non-zero destination address
     function test_depositTransaction_ContractCreationReverts() external {
         vm.expectRevert(abi.encodeWithSignature("NonZeroCreationTarget()"));
-        df.depositTransaction(NON_ZERO_ADDRESS, NON_ZERO_VALUE, NON_ZERO_GASLIMIT, true, hex"");
+        df.depositTransaction(NON_ZERO_ADDRESS, NON_ZERO_VALUE, NON_ZERO_VALUE, NON_ZERO_GASLIMIT, NON_ZERO_GASLIMIT, true, hex"");
     }
 
     // Test: depositTransaction should emit the correct log when an EOA deposits a tx with 0 value
@@ -48,6 +50,8 @@ contract DepositFeedTest is CommonTest {
             NON_ZERO_ADDRESS,
             ZERO_VALUE,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             false,
             NON_ZERO_DATA
@@ -56,6 +60,36 @@ contract DepositFeedTest is CommonTest {
         df.depositTransaction(
             NON_ZERO_ADDRESS,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
+            NON_ZERO_GASLIMIT,
+            false,
+            NON_ZERO_DATA
+        );
+    }
+
+    // Test: depositTransaction should emit the correct log when an EOA deposits a tx with 0 value
+    function test_depositTransaction_NoValueEOA_AdditionalGas() external {
+        // EOA emulation
+        vm.prank(address(this), address(this));
+        vm.expectEmit(true, true, false, true);
+        emit TransactionDeposited(
+            address(this),
+            NON_ZERO_ADDRESS,
+            ZERO_VALUE,
+            ZERO_VALUE,
+            NON_ZERO_VALUE,
+            2 * NON_ZERO_GASLIMIT,
+            NON_ZERO_GASLIMIT,
+            false,
+            NON_ZERO_DATA
+        );
+
+        df.depositTransaction(
+            NON_ZERO_ADDRESS,
+            ZERO_VALUE,
+            NON_ZERO_VALUE,
+            2 * NON_ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             false,
             NON_ZERO_DATA
@@ -70,6 +104,8 @@ contract DepositFeedTest is CommonTest {
             NON_ZERO_ADDRESS,
             ZERO_VALUE,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             false,
             NON_ZERO_DATA
@@ -78,6 +114,8 @@ contract DepositFeedTest is CommonTest {
         df.depositTransaction(
             NON_ZERO_ADDRESS,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             false,
             NON_ZERO_DATA
@@ -95,12 +133,14 @@ contract DepositFeedTest is CommonTest {
             ZERO_ADDRESS,
             ZERO_VALUE,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             true,
             NON_ZERO_DATA
         );
 
-        df.depositTransaction(ZERO_ADDRESS, ZERO_VALUE, NON_ZERO_GASLIMIT, true, NON_ZERO_DATA);
+        df.depositTransaction(ZERO_ADDRESS, ZERO_VALUE, ZERO_VALUE, ZERO_GASLIMIT, NON_ZERO_GASLIMIT, true, NON_ZERO_DATA);
     }
 
     // Test: depositTransaction should emit the correct log when a contract deposits a contract creation with 0 value
@@ -111,12 +151,14 @@ contract DepositFeedTest is CommonTest {
             ZERO_ADDRESS,
             ZERO_VALUE,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             true,
             NON_ZERO_DATA
         );
 
-        df.depositTransaction(ZERO_ADDRESS, ZERO_VALUE, NON_ZERO_GASLIMIT, true, NON_ZERO_DATA);
+        df.depositTransaction(ZERO_ADDRESS, ZERO_VALUE, ZERO_VALUE, ZERO_GASLIMIT, NON_ZERO_GASLIMIT, true, NON_ZERO_DATA);
     }
 
     // Test: depositTransaction should increase its eth balance when an EOA deposits a transaction with ETH
@@ -130,6 +172,8 @@ contract DepositFeedTest is CommonTest {
             NON_ZERO_ADDRESS,
             NON_ZERO_VALUE,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             false,
             NON_ZERO_DATA
@@ -138,6 +182,8 @@ contract DepositFeedTest is CommonTest {
         df.depositTransaction{ value: NON_ZERO_VALUE }(
             NON_ZERO_ADDRESS,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             false,
             NON_ZERO_DATA
@@ -153,6 +199,8 @@ contract DepositFeedTest is CommonTest {
             NON_ZERO_ADDRESS,
             NON_ZERO_VALUE,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             false,
             NON_ZERO_DATA
@@ -161,6 +209,8 @@ contract DepositFeedTest is CommonTest {
         df.depositTransaction{ value: NON_ZERO_VALUE }(
             NON_ZERO_ADDRESS,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             false,
             NON_ZERO_DATA
@@ -178,6 +228,8 @@ contract DepositFeedTest is CommonTest {
             ZERO_ADDRESS,
             NON_ZERO_VALUE,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             true,
             hex""
@@ -186,6 +238,8 @@ contract DepositFeedTest is CommonTest {
         df.depositTransaction{ value: NON_ZERO_VALUE }(
             ZERO_ADDRESS,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             true,
             hex""
@@ -201,6 +255,8 @@ contract DepositFeedTest is CommonTest {
             ZERO_ADDRESS,
             NON_ZERO_VALUE,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             true,
             NON_ZERO_DATA
@@ -209,6 +265,8 @@ contract DepositFeedTest is CommonTest {
         df.depositTransaction{ value: NON_ZERO_VALUE }(
             ZERO_ADDRESS,
             ZERO_VALUE,
+            ZERO_VALUE,
+            ZERO_GASLIMIT,
             NON_ZERO_GASLIMIT,
             true,
             NON_ZERO_DATA

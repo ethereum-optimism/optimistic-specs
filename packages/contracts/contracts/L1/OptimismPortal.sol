@@ -35,6 +35,6 @@ contract OptimismPortal is DepositFeed, WithdrawalsRelay {
      * depositTransaction() function directly.
      */
     receive() external payable {
-        depositTransaction(msg.sender, msg.value, 30000, false, bytes(""));
+        depositTransaction(msg.sender, msg.value, 0, 0, 30000, false, bytes(""));
     }
 }

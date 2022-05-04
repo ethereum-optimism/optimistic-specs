@@ -254,6 +254,8 @@ contract L1CrossDomainMessenger is
         optimismPortal.depositTransaction(
             Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER,
             0,
+            0,
+            0,
             uint64(_gasLimit),
             false,
             _message
