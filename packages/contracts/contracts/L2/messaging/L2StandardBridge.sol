@@ -85,10 +85,6 @@ contract L2StandardBridge is IL2ERC20Bridge {
         _initiateETHWithdrawal(msg.sender, msg.sender, msg.value, 30000, hex"");
     }
 
-    function withdrawETH(uint32 _l1Gas, bytes calldata _data) external payable {
-        _initiateETHWithdrawal(msg.sender, msg.sender, msg.value, _l1Gas, _data);
-    }
-
     function withdrawETHTo(
         address _to,
         uint256 _l1Gas,
@@ -272,7 +268,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
                         _to, // switch the _to and _from to send deposit back to the sender
                         _from,
                         _amount,
-                        _data
+                        msg.value
                     )
                 );
             } else {

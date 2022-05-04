@@ -241,9 +241,11 @@ contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
     }
 
     // relayMessage: should revert if trying to send the same message twice
+    /*
     function test_relayShouldRevertSendingSameMessageTwice() external {
         // TODO: this is a test on the L2CrossDomainMessenger
     }
+    */
 
     // relayMessage: should revert if paused
     function test_relayShouldRevertIfPaused() external {
