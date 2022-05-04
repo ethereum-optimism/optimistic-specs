@@ -2,6 +2,7 @@
 pragma solidity 0.8.10;
 
 import { IDepositFeed } from "./IDepositFeed.sol";
+import { GasMetering } from "./GasMetering.sol";
 
 /* Library Imports */
 import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
@@ -10,7 +11,7 @@ import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAli
  * @title DepositFeed
  * @notice Implements the logic for depositing from L1 to L2.
  */
-abstract contract DepositFeed is IDepositFeed {
+abstract contract DepositFeed is IDepositFeed, GasMetering {
     /**********
      * Errors *
      **********/
@@ -57,7 +58,7 @@ abstract contract DepositFeed is IDepositFeed {
         uint64 _gasLimit,
         bool _isCreation,
         bytes memory _data
-    ) public payable {
+    ) public payable gasMetered {
         if (_isCreation && _to != address(0)) {
             revert NonZeroCreationTarget();
         }
