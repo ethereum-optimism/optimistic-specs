@@ -5,14 +5,31 @@ pragma solidity ^0.8.9;
 import { Lib_OVMCodec } from "@eth-optimism/contracts/libraries/codec/Lib_OVMCodec.sol";
 
 /* Interface Imports */
-import {
-    ICrossDomainMessenger
-} from "@eth-optimism/contracts/libraries/bridge/ICrossDomainMessenger.sol";
+import { ICrossDomainMessenger } from "../../ICrossDomainMessenger.sol";
+import { WithdrawalVerifier } from "../../libraries/Lib_WithdrawalVerifier.sol";
 
 /**
  * @title IL1CrossDomainMessenger
  */
 interface IL1CrossDomainMessenger is ICrossDomainMessenger {
+    /**********
+     * Events *
+     **********/
+
+    /**
+     * @notice Emitted when a Transaction is deposited from L1 to L2. The parameters of this
+     * event are read by the rollup node and used to derive deposit transactions on L2.
+     */
+    event TransactionDeposited(
+        address indexed from,
+        address indexed to,
+        uint256 mint,
+        uint256 value,
+        uint64 gasLimit,
+        bool isCreation,
+        bytes data
+    );
+
     /*******************
      * Data Structures *
      *******************/
@@ -31,15 +48,16 @@ interface IL1CrossDomainMessenger is ICrossDomainMessenger {
 
     /**
      * Relays a cross domain message to a contract.
-     * @param _target Target contract address.
-     * @param _sender Message sender address.
-     * @param _message Message to send to the target.
-     * @param _messageNonce Nonce for the provided message.
      */
     function relayMessage(
-        address _target,
+        uint256 _nonce,
         address _sender,
-        bytes memory _message,
-        uint256 _messageNonce
-    ) external;
+        address _target,
+        uint256 _value,
+        uint256 _gasLimit,
+        bytes calldata _data,
+        uint256 _l2Timestamp,
+        WithdrawalVerifier.OutputRootProof calldata _outputRootProof,
+        bytes calldata _withdrawalProof
+    ) external payable;
 }

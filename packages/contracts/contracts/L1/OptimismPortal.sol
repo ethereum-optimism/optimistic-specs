@@ -15,6 +15,9 @@ import { L2OutputOracle } from "./L2OutputOracle.sol";
  * pool of ETH which is deposited to and withdrawn from L2. Aside from affecting the ETH balance,
  * the deposit and withdrawal codepaths should be independent from one another.
  */
+
+// PLAN:
+// - start implementing in this file then rename this file/contract
 contract OptimismPortal is DepositFeed, WithdrawalsRelay {
     /***************
      * Constructor *

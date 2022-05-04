@@ -108,10 +108,10 @@ abstract contract WithdrawalsRelay {
         }
 
         // Get the output root.
-        bytes32 outputRoot = L2_ORACLE.getL2Output(_timestamp);
+        L2OutputOracle.OutputProposal memory proposal = L2_ORACLE.getL2Output(_timestamp);
 
         // Verify that the output root can be generated with the elements in the proof.
-        if (outputRoot != WithdrawalVerifier._deriveOutputRoot(_outputRootProof)) {
+        if (proposal.outputRoot != WithdrawalVerifier._deriveOutputRoot(_outputRootProof)) {
             revert InvalidOutputRootProof();
         }
 
