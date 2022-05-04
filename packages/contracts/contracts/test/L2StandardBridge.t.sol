@@ -335,7 +335,7 @@ contract L2StandardBridge_Test is CommonTest, BridgeInitializer  {
                     L1StandardBridge.finalizeETHWithdrawal.selector,
                     alice,
                     alice,
-                    100,
+                    200,
                     hex""
                 )
             )

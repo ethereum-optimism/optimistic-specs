@@ -267,8 +267,8 @@ contract L2StandardBridge is IL2ERC20Bridge {
                         IL1StandardBridge.finalizeETHWithdrawal.selector,
                         _to, // switch the _to and _from to send deposit back to the sender
                         _from,
-                        _amount,
-                        msg.value
+                        msg.value,
+                        _data
                     )
                 );
             } else {
