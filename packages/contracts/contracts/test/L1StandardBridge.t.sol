@@ -73,8 +73,6 @@ contract L1StandardBridge_Test is CommonTest, BridgeInitializer  {
     // - calls optimismPortal.depositTransaction
     // - only EOA
     // - ETH ends up in the optimismPortal
-
-    // TODO: this now goes through the bridge
     function test_L1BridgeDepositETH() external {
         vm.expectEmit(true, true, true, true);
         emit ETHDepositInitiated(alice, alice, 1000, hex"ff");
