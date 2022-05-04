@@ -46,8 +46,8 @@ jobs:
 
       - name: Install abigen
         run: |
-          git clone https://github.com/ethereum/go-ethereum /geth
-          cd /geth
+          git clone https://github.com/ethereum/go-ethereum /tmp/geth
+          cd /tmp/geth
           make devtools
 
       - name: Install Foundry
