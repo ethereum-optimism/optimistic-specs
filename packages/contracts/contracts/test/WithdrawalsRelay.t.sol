@@ -23,7 +23,9 @@ contract WithdrawalsRelay_finalizeWithdrawalTransaction_Test is CommonTest {
         address indexed to,
         uint256 mint,
         uint256 value,
-        uint256 gasLimit,
+        uint256 additionalGasPrice,
+        uint64 additionalGasLimit,
+        uint64 guaranteedGas,
         bool isCreation,
         bytes data
     );
