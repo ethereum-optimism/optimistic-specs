@@ -174,6 +174,9 @@ func FuzzUnmarshallLogEvent(f *testing.F) {
 
 		// Test that our custom parsing matches the ABI parsing
 		depositEvent, err := portalContract.ParseTransactionDeposited(*(logs[0]))
+		if err != nil {
+			t.Fatalf("Could not parse log that was emitted by the deposit contract: %v", err)
+		}
 		depositEvent.Raw = types.Log{} // Clear out the log
 
 		// Verify that is passes our custom unmarshalling logic
