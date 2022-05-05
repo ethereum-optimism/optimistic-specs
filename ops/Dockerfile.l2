@@ -1,4 +1,4 @@
-FROM ethereumoptimism/reference-optimistic-geth:latest
+FROM ethereumoptimism/reference-optimistic-geth:new-deposit-tx-type
 
 RUN apk add --no-cache jq
 
