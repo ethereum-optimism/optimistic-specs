@@ -4,7 +4,9 @@ interface DepositFeed {
     function depositTransaction(
         address _to,
         uint256 _value,
-        uint64 _gasLimit,
+        uint256 _additionalGasPrice,
+        uint64 _additionalGasLimit,
+        uint64 _guaranteedGas,
         bool _isCreation,
         bytes memory _data
     ) external payable;
@@ -22,6 +24,8 @@ contract MultiDepositor {
             df.depositTransaction{value : 1000000000}(
                 to,
                 1000,
+                0,
+                0,
                 3000000,
                 false,
                 ""

@@ -24,6 +24,8 @@ describe('Deposits', () => {
     const result = await portal.depositTransaction(
       tx.to,
       tx.value,
+      '0',
+      '0',
       '3000000',
       false,
       [],
@@ -68,6 +70,8 @@ describe('Deposits', () => {
     const tx = await factory.getDeployTransaction()
     const result = await portal.depositTransaction(
       `0x${'0'.repeat(40)}`,
+      '0',
+      '0',
       '0',
       '3000000',
       true,

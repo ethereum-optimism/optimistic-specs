@@ -82,6 +82,8 @@ describe('Withdrawals', () => {
       let tx = await portal.connect(env.l1Wallet).depositTransaction(
         recipient.address,
         utils.parseEther('1.337'),
+        '0',
+        '0',
         gasLimit,
         false,
         [],
