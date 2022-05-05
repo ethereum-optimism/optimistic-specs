@@ -37,7 +37,7 @@ library WithdrawalVerifier {
         address _target,
         uint256 _value,
         uint256 _gasLimit,
-        bytes calldata _data
+        bytes memory _data
     ) internal pure returns (bytes32) {
         return keccak256(abi.encode(_nonce, _sender, _target, _value, _gasLimit, _data));
     }
@@ -79,7 +79,7 @@ library WithdrawalVerifier {
         bytes32 storageKey = keccak256(
             abi.encode(
                 _withdrawalHash,
-                uint256(1) // The withdrawals mapping is at the second slot in the layout.
+                uint256(0) // The withdrawals mapping is at the first slot in the layout.
             )
         );
 

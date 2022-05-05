@@ -58,6 +58,7 @@
     "eslint-plugin-promise": "^5.1.0",
     "ethereum-waffle": "^3.0.0",
     "ethers": "^5.0.0",
+    "excessively-safe-call": "git+https://github.com/nomad-xyz/ExcessivelySafeCall.git",
     "hardhat-deploy": "^0.11.4",
     "hardhat-gas-reporter": "^1.0.4",
     "prettier": "^2.3.2",

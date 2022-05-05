@@ -100,7 +100,9 @@ contract L2StandardBridge is IL2ERC20Bridge {
         bytes memory _data
     ) internal {
         // Send message up to L1 bridge
-        CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage{ value: _amount }(
+        CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage{
+            value: _amount
+        }(
             l1TokenBridge,
             abi.encodeWithSelector(
                 IL1StandardBridge.finalizeETHWithdrawal.selector,
@@ -152,6 +154,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
             ),
             _l1Gas
         );
+
         // slither-disable-next-line reentrancy-events
         emit WithdrawalInitiated(l1Token, _l2Token, msg.sender, _to, _amount, _data);
     }

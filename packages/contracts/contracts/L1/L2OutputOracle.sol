@@ -17,10 +17,18 @@ contract L2OutputOracle is Ownable {
      **********/
 
     /// @notice Emitted when an output is appended.
-    event l2OutputAppended(bytes32 indexed _l2Output, uint256 indexed _l1Timestamp, uint256 indexed _l2timestamp);
+    event l2OutputAppended(
+        bytes32 indexed _l2Output,
+        uint256 indexed _l1Timestamp,
+        uint256 indexed _l2timestamp
+    );
 
     /// @notice Emitted when an output is deleted.
-    event l2OutputDeleted(bytes32 indexed _l2Output, uint256 indexed _l1Timestamp, uint256 indexed _l2timestamp);
+    event l2OutputDeleted(
+        bytes32 indexed _l2Output,
+        uint256 indexed _l1Timestamp,
+        uint256 indexed _l2timestamp
+    );
 
     /**********************
      * Contract Variables *
@@ -78,10 +86,13 @@ contract L2OutputOracle is Ownable {
 
         SUBMISSION_INTERVAL = _submissionInterval;
         L2_BLOCK_TIME = _l2BlockTime;
-        l2Outputs[_startingBlockTimestamp] = OutputProposal(_genesisL2Output, block.timestamp); // solhint-disable not-rely-on-time
+        // solhint-disable-next-line not-rely-on-time
+        l2Outputs[_startingBlockTimestamp] = OutputProposal(_genesisL2Output, block.timestamp);
         HISTORICAL_TOTAL_BLOCKS = _historicalTotalBlocks;
-        latestBlockTimestamp = _startingBlockTimestamp; // solhint-disable not-rely-on-time
-        STARTING_BLOCK_TIMESTAMP = _startingBlockTimestamp; // solhint-disable not-rely-on-time
+        // solhint-disable-next-line not-rely-on-time
+        latestBlockTimestamp = _startingBlockTimestamp;
+        // solhint-disable-next-line not-rely-on-time
+        STARTING_BLOCK_TIMESTAMP = _startingBlockTimestamp;
 
         _transferOwnership(sequencer);
     }
@@ -138,7 +149,10 @@ contract L2OutputOracle is Ownable {
     function deleteL2Output(OutputProposal memory _proposal) external onlyOwner {
         OutputProposal memory outputToDelete = l2Outputs[latestBlockTimestamp];
 
-        require(_proposal.outputRoot == outputToDelete.outputRoot, "Can only delete the most recent output.");
+        require(
+            _proposal.outputRoot == outputToDelete.outputRoot,
+            "Can only delete the most recent output."
+        );
         require(_proposal.timestamp == outputToDelete.timestamp, "");
 
         emit l2OutputDeleted(
@@ -163,11 +177,7 @@ contract L2OutputOracle is Ownable {
      * found.
      * @param _l2Timestamp The L2 block timestamp of the target block.
      */
-    function getL2Output(uint256 _l2Timestamp)
-        external
-        view
-        returns (OutputProposal memory)
-    {
+    function getL2Output(uint256 _l2Timestamp) external view returns (OutputProposal memory) {
         return l2Outputs[_l2Timestamp];
     }
 

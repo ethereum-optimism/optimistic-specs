@@ -7,9 +7,6 @@ pragma solidity ^0.8.9;
 import {
     Lib_DefaultValues
 } from "@eth-optimism/contracts/libraries/constants/Lib_DefaultValues.sol";
-import {
-    Lib_CrossDomainUtils
-} from "@eth-optimism/contracts/libraries/bridge/Lib_CrossDomainUtils.sol";
 import { CrossDomainHashing } from "../libraries/Lib_CrossDomainHashing.sol";
 
 /* External Imports */
@@ -22,6 +19,7 @@ import {
 import {
     ReentrancyGuardUpgradeable
 } from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import { ExcessivelySafeCall } from "../libraries/ExcessivelySafeCall.sol";
 
 // solhint-enable max-line-length
 
@@ -46,19 +44,15 @@ abstract contract CrossDomainMessenger is
         uint256 gasLimit
     );
 
-    event RelayedMessage(
-        bytes32 indexed msgHash
-    );
+    event RelayedMessage(bytes32 indexed msgHash);
 
-    event FailedRelayedMessage(
-        bytes32 indexed msgHash
-    );
+    event FailedRelayedMessage(bytes32 indexed msgHash);
 
     /*************
      * Constants *
      *************/
 
-    uint16 constant HASH_VERSION = 1;
+    uint16 constant MESSAGE_VERSION = 1;
 
     /*************
      * Variables *
@@ -120,37 +114,36 @@ abstract contract CrossDomainMessenger is
      * @return Next message nonce with added hash version.
      */
     function messageNonce() public view returns (uint256) {
-        return CrossDomainHashing.addVersionToNonce(
-            msgNonce,
-            HASH_VERSION
-        );
+        return CrossDomainHashing.addVersionToNonce(msgNonce, MESSAGE_VERSION);
     }
 
     /**
      * @param _target Target contract address.
      * @param _message Message to send to the target.
-     * @param _gasLimit Gas limit for the provided message.
+     * @param _minGasLimit Gas limit for the provided message.
      */
     function sendMessage(
         address _target,
         bytes memory _message,
-        uint32 _gasLimit
+        uint32 _minGasLimit
     ) external payable {
+        // TODO: Enforce minimum gas limit.
+
         _sendMessage(
             otherMessenger,
-            address(this),
+            _minGasLimit, // TODO: Pad this value.
             msg.value,
-            uint64(_gasLimit),
-            false,
-            Lib_CrossDomainUtils.encodeXDomainCalldata(
-                _target,
+            CrossDomainHashing.getVersionedEncoding(
+                messageNonce(),
                 msg.sender,
-                _message,
-                messageNonce()
+                _target,
+                msg.value,
+                _minGasLimit,
+                _message
             )
         );
 
-        emit SentMessage(_target, msg.sender, _message, messageNonce(), _gasLimit);
+        emit SentMessage(_target, msg.sender, _message, messageNonce(), _minGasLimit);
 
         unchecked {
             ++msgNonce;
@@ -162,76 +155,73 @@ abstract contract CrossDomainMessenger is
         address _sender,
         address _target,
         uint256 _value,
-        uint256 _gasLimit,
-        bytes calldata _data,
-        bytes calldata _proof
-    ) external payable nonReentrant whenNotPaused {
-        require(
-            _verifyMessageProof(
-                _nonce,
-                _sender,
-                _target,
-                _value,
-                _gasLimit,
-                _data,
-                _proof
-            ),
-            "Message could not be authenticated."
-        );
-
-        _relayMessage(
-            _nonce,
-            _sender,
-            _target,
-            _value,
-            _gasLimit,
-            _data
-        );
-    }
-
-    function replayMessage(
-        uint256 _nonce,
-        address _sender,
-        address _target,
-        uint256 _value,
-        uint256 _gasLimit,
-        bytes calldata _data
+        uint256 _minGasLimit,
+        bytes calldata _message
     ) external payable nonReentrant whenNotPaused {
         bytes32 versionedHash = CrossDomainHashing.getVersionedHash(
             _nonce,
             _sender,
             _target,
             _value,
-            _gasLimit,
-            _data
+            _minGasLimit,
+            _message
         );
 
+        if (_isSystemMessageSender()) {
+            // Should never happen.
+            require(msg.value == _value, "Mismatched message value.");
+        } else {
+            require(receivedMessages[versionedHash], "Message cannot be replayed.");
+        }
+
+        // TODO: Should blocking happen on sending or receiving side?
+        // TODO: Should this just return with an event instead of reverting?
         require(
-            receivedMessages[versionedHash] == true,
-            "Message has not been received before."
+            blockedSystemAddresses[_target] == false,
+            "Cannot send message to blocked system address."
         );
 
-        _relayMessage(
-            _nonce,
-            _sender,
+        require(successfulMessages[versionedHash] == false, "Message has already been relayed.");
+
+        // TODO: Make sure this will always give us enough gas.
+        require(gasleft() >= _minGasLimit + 45000, "Insufficient gas to relay message.");
+
+        xDomainMsgSender = _sender;
+        (bool success, ) = ExcessivelySafeCall.excessivelySafeCall(
             _target,
+            gasleft() - 40000,
             _value,
-            _gasLimit,
-            _data
+            0,
+            _message
         );
+        xDomainMsgSender = Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER;
+
+        if (success == true) {
+            successfulMessages[versionedHash] = true;
+            emit RelayedMessage(versionedHash);
+        } else {
+            receivedMessages[versionedHash] = true;
+            emit FailedRelayedMessage(versionedHash);
+        }
     }
 
     /**********************
      * Internal Functions *
      **********************/
 
+    function _isSystemMessageSender() internal view virtual returns (bool);
+
+    function _sendMessage(
+        address _to,
+        uint64 _gasLimit,
+        uint256 _value,
+        bytes memory _data
+    ) internal virtual;
+
     /**
      * Initializes the contract.
      */
-    function _initialize(
-        address _otherMessenger,
-        address[] memory _blockedSystemAddresses
-    )
+    function _initialize(address _otherMessenger, address[] memory _blockedSystemAddresses)
         internal
         initializer
     {
@@ -249,66 +239,4 @@ abstract contract CrossDomainMessenger is
         __Pausable_init_unchained();
         __ReentrancyGuard_init_unchained();
     }
-
-    function _relayMessage(
-        uint256 _nonce,
-        address _sender,
-        address _target,
-        uint256 _value,
-        uint256 _gasLimit,
-        bytes calldata _data
-    ) internal {
-        bytes32 versionedHash = CrossDomainHashing.getVersionedHash(
-            _nonce,
-            _sender,
-            _target,
-            _value,
-            _gasLimit,
-            _data
-        );
-
-        require(
-            blockedSystemAddresses[_target] == false,
-            "Cannot send message to blocked system address."
-        );
-
-        require(
-            successfulMessages[versionedHash] == false,
-            "Message has already been relayed."
-        );
-
-        xDomainMsgSender = _sender;
-        (bool success, ) = _target.call{ value: _value, gas: _gasLimit }(_data);
-        xDomainMsgSender = Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER;
-
-        if (success == true) {
-            successfulMessages[versionedHash] = true;
-            emit RelayedMessage(versionedHash);
-        } else {
-            emit FailedRelayedMessage(versionedHash);
-        }
-
-        if (receivedMessages[versionedHash] == false) {
-            receivedMessages[versionedHash] = true;
-        }
-    }
-
-    function _verifyMessageProof(
-        uint256 _nonce,
-        address _sender,
-        address _target,
-        uint256 _value,
-        uint256 _gasLimit,
-        bytes calldata _data,
-        bytes calldata _proof
-    ) internal view virtual returns (bool);
-
-    function _sendMessage(
-        address _to,
-        address _from,
-        uint256 _value,
-        uint64 _gasLimit,
-        bool _isCreation,
-        bytes memory _data
-    ) internal virtual;
 }
