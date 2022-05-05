@@ -59,7 +59,7 @@ describe('Deposits', () => {
     })
   }).timeout(60_000)
 
-  it.skip('should deposit a contract creation', async () => {
+  it('should deposit a contract creation', async () => {
     const value = utils.parseEther('0.1')
     const factory = new ContractFactory(
       counterArtifact.abi,
