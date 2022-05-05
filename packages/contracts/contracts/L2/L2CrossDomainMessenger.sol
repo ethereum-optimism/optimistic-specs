@@ -14,12 +14,14 @@ import { IL2CrossDomainMessenger } from "../interfaces/IL2CrossDomainMessenger.s
 
 /* Interaction imports */
 import { Burner } from "./Burner.sol";
+
 // solhint-enable max-line-length
 
 /**
  * @title L2CrossDomainMessenger
- * @notice The L2CrossDomainMessenger contract facilitates sending both ETH value and data from L2 to L1.
- * It is predeployed in the L2 state at address 0x4200000000000000000000000000000000000016.
+ * @notice The L2CrossDomainMessenger contract facilitates sending both
+ * ETH value and data from L2 to L1.
+ * It is predeployed in the L2 state at address TODO.
  */
 contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
     /*************
@@ -89,10 +91,7 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
         bytes memory _message,
         uint32 _gasLimit
     ) external payable {
-        uint256 nonce = CrossDomainHashing.addVersionToNonce(
-            messageNonce,
-            HASH_VERSION
-        );
+        uint256 nonce = CrossDomainHashing.addVersionToNonce(messageNonce, HASH_VERSION);
 
         bytes32 versionedHash = CrossDomainHashing.getVersionedHash(
             nonce,
@@ -110,14 +109,7 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
         emit SentMessage(_target, msg.sender, _message, nonce, _gasLimit);
 
         // TODO(tynes): I don't think we need this event anymore
-        emit WithdrawalInitiated(
-            nonce,
-            msg.sender,
-            _target,
-            msg.value,
-            _gasLimit,
-            _message
-        );
+        emit WithdrawalInitiated(nonce, msg.sender, _target, msg.value, _gasLimit, _message);
         unchecked {
             ++messageNonce;
         }

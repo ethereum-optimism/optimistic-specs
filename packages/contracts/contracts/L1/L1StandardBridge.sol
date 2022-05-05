@@ -51,8 +51,13 @@ contract L1StandardBridge is IL1StandardBridge {
      * @param _l2TokenBridge L2 standard bridge address.
      */
     // slither-disable-next-line external-function
-    function initialize(L1CrossDomainMessenger _l1CrossDomainMessenger, address _l2TokenBridge) public {
-        require(address(_l1CrossDomainMessenger) == address(0), "Contract has already been initialized.");
+    function initialize(L1CrossDomainMessenger _l1CrossDomainMessenger, address _l2TokenBridge)
+        public
+    {
+        require(
+            address(_l1CrossDomainMessenger) == address(0),
+            "Contract has already been initialized."
+        );
         l1CrossDomainMessenger = _l1CrossDomainMessenger;
         l2TokenBridge = _l2TokenBridge;
     }

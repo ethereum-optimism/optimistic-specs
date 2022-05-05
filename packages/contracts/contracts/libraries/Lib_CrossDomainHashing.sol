@@ -16,11 +16,7 @@ library CrossDomainHashing {
         }
     }
 
-    function getVersionFromNonce(uint256 _nonce)
-        internal
-        pure
-        returns (uint16 version)
-    {
+    function getVersionFromNonce(uint256 _nonce) internal pure returns (uint16 version) {
         assembly {
             version := shr(240, _nonce)
         }
@@ -33,29 +29,13 @@ library CrossDomainHashing {
         uint256 _value,
         uint256 _gasLimit,
         bytes memory _data
-    )
-        internal
-        pure
-        returns (bytes32)
-    {
+    ) internal pure returns (bytes32) {
         uint16 version = getVersionFromNonce(_nonce);
 
         if (version == 0) {
-            return getHashV0(
-                _target,
-                _sender,
-                _data,
-                _nonce
-            );
+            return getHashV0(_target, _sender, _data, _nonce);
         } else if (version == 1) {
-            return getHashV1(
-                _nonce,
-                _sender,
-                _target,
-                _value,
-                _gasLimit,
-                _data
-            );
+            return getHashV1(_nonce, _sender, _target, _value, _gasLimit, _data);
         } else {
             require(false, "unknown version");
         }
@@ -66,11 +46,7 @@ library CrossDomainHashing {
         address _sender,
         bytes memory _data,
         uint256 _nonce
-    )
-        internal
-        pure
-        returns (bytes32)
-    {
+    ) internal pure returns (bytes32) {
         bytes memory xDomainCalldata = Lib_CrossDomainUtils.encodeXDomainCalldata(
             _target,
             _sender,
@@ -88,11 +64,7 @@ library CrossDomainHashing {
         uint256 _value,
         uint256 _gasLimit,
         bytes memory _data
-    )
-        internal
-        pure
-        returns (bytes32)
-    {
+    ) internal pure returns (bytes32) {
         return keccak256(abi.encode(_nonce, _sender, _target, _value, _gasLimit, _data));
     }
 }

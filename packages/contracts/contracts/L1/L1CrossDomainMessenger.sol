@@ -147,10 +147,7 @@ contract L1CrossDomainMessenger is
                 _target,
                 msg.sender,
                 _message,
-                CrossDomainHashing.addVersionToNonce(
-                    messageNonce,
-                    HASH_VERSION
-                )
+                CrossDomainHashing.addVersionToNonce(messageNonce, HASH_VERSION)
             )
         );
 
@@ -168,14 +165,7 @@ contract L1CrossDomainMessenger is
         bool _isCreation,
         bytes memory _data
     ) external payable {
-        _sendMessageRaw(
-            _to,
-            msg.sender,
-            _value,
-            _gasLimit,
-            _isCreation,
-            _data
-        );
+        _sendMessageRaw(_to, msg.sender, _value, _gasLimit, _isCreation, _data);
     }
 
     /**
@@ -194,7 +184,7 @@ contract L1CrossDomainMessenger is
         uint256 _l2Timestamp,
         WithdrawalVerifier.OutputRootProof calldata _outputRootProof,
         bytes calldata _withdrawalProof
-    ) external nonReentrant whenNotPaused payable {
+    ) external payable nonReentrant whenNotPaused {
         // Check that the timestamp is sufficiently finalized.
         // The timestamp corresponds to a particular L2 output,
         // so it is safe to be passed in by a user.
@@ -233,10 +223,7 @@ contract L1CrossDomainMessenger is
 
         require(successfulMessages[versionedHash] == false);
 
-        require(
-            _target != address(this),
-            "Cannot send L2->L1 messages to L1 system contracts."
-        );
+        require(_target != address(this), "Cannot send L2->L1 messages to L1 system contracts.");
 
         xDomainMsgSender = _sender;
         // Make the call.
@@ -278,5 +265,4 @@ contract L1CrossDomainMessenger is
         // end up in L2
         emit TransactionDeposited(_from, _to, msg.value, _value, _gasLimit, _isCreation, _data);
     }
-
 }
