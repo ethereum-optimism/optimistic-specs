@@ -19,19 +19,15 @@ import { WithdrawalVerifier } from "../libraries/Lib_WithdrawalVerifier.sol";
 
 /* Target contract dependencies */
 import { L2OutputOracle } from "../L1/L2OutputOracle.sol";
-import { OptimismPortal } from "../L1/OptimismPortal.sol";
 
 /* Target contract */
-import { L1CrossDomainMessenger } from "../L1/messaging/L1CrossDomainMessenger.sol";
-import { IDepositFeed } from "../L1/abstracts/IDepositFeed.sol";
+import { L1CrossDomainMessenger } from "../L1/L1CrossDomainMessenger.sol";
 
 import {
     ICrossDomainMessenger
 } from "@eth-optimism/contracts/libraries/bridge/ICrossDomainMessenger.sol";
 
 contract L1CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
-    // Dependencies
-    OptimismPortal op;
     // 'L2OutputOracle oracle' is declared in L2OutputOracle_Initializer
 
     event SentMessage(

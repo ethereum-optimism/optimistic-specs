@@ -13,11 +13,8 @@ import {
 import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 
 import { L2OutputOracle } from "../L1/L2OutputOracle.sol";
-import { OptimismPortal } from "../L1/OptimismPortal.sol";
-import { L2CrossDomainMessenger } from "../L2/messaging/L2CrossDomainMessenger.sol";
-import { L1CrossDomainMessenger } from "../L1/messaging/L1CrossDomainMessenger.sol";
-import { Withdrawer } from "../L2/Withdrawer.sol";
-import { IWithdrawer } from "../L2/IWithdrawer.sol";
+import { L2CrossDomainMessenger } from "../L2/L2CrossDomainMessenger.sol";
+import { L1CrossDomainMessenger } from "../L1/L1CrossDomainMessenger.sol";
 import { Lib_BedrockPredeployAddresses } from "../libraries/Lib_BedrockPredeployAddresses.sol";
 
 import {
@@ -28,10 +25,6 @@ import { console } from "forge-std/console.sol";
 
 contract L2CrossDomainMessenger_Test is CommonTest, L2OutputOracle_Initializer {
 
-    // Dependencies
-    OptimismPortal op;
-
-    IWithdrawer W;
     L1CrossDomainMessenger L1Messenger;
     L2CrossDomainMessenger L2Messenger;
 

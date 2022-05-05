@@ -2,7 +2,7 @@
 pragma solidity ^0.8.9;
 
 /* Interface Imports */
-import { ICrossDomainMessenger } from "../../ICrossDomainMessenger.sol";
+import { ICrossDomainMessenger } from "./ICrossDomainMessenger.sol";
 
 /**
  * @title IL2CrossDomainMessenger

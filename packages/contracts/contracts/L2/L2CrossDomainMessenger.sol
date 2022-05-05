@@ -5,31 +5,49 @@ pragma solidity ^0.8.9;
 /* Library Imports */
 import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 import {
-    Lib_CrossDomainUtils
-} from "@eth-optimism/contracts/libraries/bridge/Lib_CrossDomainUtils.sol";
-import {
     Lib_DefaultValues
 } from "@eth-optimism/contracts/libraries/constants/Lib_DefaultValues.sol";
-import { Lib_BedrockPredeployAddresses } from "../../libraries/Lib_BedrockPredeployAddresses.sol";
+import { CrossDomainHashing } from "../libraries/Lib_CrossDomainHashing.sol";
 
 /* Interface Imports */
-import { IL2CrossDomainMessenger } from "./IL2CrossDomainMessenger.sol";
+import { IL2CrossDomainMessenger } from "../interfaces/IL2CrossDomainMessenger.sol";
 
-import { Withdrawer } from "../Withdrawer.sol";
-import { WithdrawalVerifier } from "../../libraries/Lib_WithdrawalVerifier.sol";
-
+/* Interaction imports */
+import { Burner } from "./Burner.sol";
 // solhint-enable max-line-length
 
 /**
  * @title L2CrossDomainMessenger
- * @dev The L2 Cross Domain Messenger contract sends messages from L2 to L1, and is the entry point
- * for L2 messages sent via the L1 Cross Domain Messenger.
- *
+ * @notice The L2CrossDomainMessenger contract facilitates sending both ETH value and data from L2 to L1.
+ * It is predeployed in the L2 state at address 0x4200000000000000000000000000000000000016.
  */
 contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
     /*************
      * Variables *
      *************/
+
+    // TODO: this event is newly defined as part of bedrock, do we
+    // still need it?
+    /**
+     * @notice Emitted any time a withdrawal is initiated.
+     * @param nonce Unique value corresponding to each withdrawal.
+     * @param sender The L2 account address which initiated the withdrawal.
+     * @param target The L1 account address the call will be send to.
+     * @param value The ETH value submitted for withdrawal, to be forwarded to the target.
+     * @param gasLimit The minimum amount of gas that must be provided when withdrawing on L1.
+     * @param data The data to be forwarded to the target on L1.
+     */
+    event WithdrawalInitiated(
+        uint256 indexed nonce,
+        address indexed sender,
+        address indexed target,
+        uint256 value,
+        uint256 gasLimit,
+        bytes data
+    );
+
+    /// @notice Emitted when the balance of this contract is burned.
+    event WithdrawerBalanceBurnt(uint256 indexed amount);
 
     mapping(bytes32 => bool) public relayedMessages;
     mapping(bytes32 => bool) public successfulMessages;
@@ -71,12 +89,12 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
         bytes memory _message,
         uint32 _gasLimit
     ) external payable {
-        uint256 nonce = WithdrawalVerifier.addVersionToNonce(
+        uint256 nonce = CrossDomainHashing.addVersionToNonce(
             messageNonce,
             HASH_VERSION
         );
 
-        bytes32 versionedHash = WithdrawalVerifier.getVersionedHash(
+        bytes32 versionedHash = CrossDomainHashing.getVersionedHash(
             nonce,
             msg.sender,
             _target,
@@ -85,20 +103,24 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
             _message
         );
 
+        require(sentMessages[versionedHash] == false, "");
         sentMessages[versionedHash] = true;
 
         // Emit an event before we bump the nonce or the nonce will be off by one.
         emit SentMessage(_target, msg.sender, _message, nonce, _gasLimit);
-        unchecked {
-            ++messageNonce;
-        }
 
-        // Actually send the message.
-        Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
-            l1CrossDomainMessenger,
+        // TODO(tynes): I don't think we need this event anymore
+        emit WithdrawalInitiated(
+            nonce,
+            msg.sender,
+            _target,
+            msg.value,
             _gasLimit,
             _message
         );
+        unchecked {
+            ++messageNonce;
+        }
     }
 
     /**
@@ -120,7 +142,7 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
         );
 
         // the gasLimit is set to 0
-        bytes32 versionedHash = WithdrawalVerifier.getVersionedHash(
+        bytes32 versionedHash = CrossDomainHashing.getVersionedHash(
             _messageNonce,
             _sender,
             _target,
@@ -138,7 +160,9 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
         // an attacker to maliciously craft the _message to spoof
         // a call from any L2 account.
         // Todo: evaluate if this attack is still relevant
-        if (_target == Lib_BedrockPredeployAddresses.WITHDRAWER) {
+        // TODO: this could be imported via a library instead of
+        // address(this)
+        if (_target == address(this)) {
             // Write to the successfulMessages mapping and return immediately.
             successfulMessages[versionedHash] = true;
             return;
@@ -161,5 +185,17 @@ contract L2CrossDomainMessenger is IL2CrossDomainMessenger {
             // slither-disable-next-line reentrancy-events
             emit FailedRelayedMessage(versionedHash);
         }
+    }
+
+    /**
+     * @notice Removes all ETH held in this contract from the state, by deploying a contract which
+     * immediately self destructs.
+     * For simplicity, this call is not incentivized as it costs very little to run.
+     * Inspired by https://etherscan.io/address/0xb69fba56b2e67e7dda61c8aa057886a8d1468575#code
+     */
+    function burn() external {
+        uint256 balance = address(this).balance;
+        new Burner{ value: balance }();
+        emit WithdrawerBalanceBurnt(balance);
     }
 }

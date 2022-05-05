@@ -3,20 +3,19 @@ pragma solidity ^0.8.9;
 
 /* Interface Imports */
 import { IL1ERC20Bridge } from "@eth-optimism/contracts/L1/messaging/IL1ERC20Bridge.sol";
-import { IL2ERC20Bridge } from "./IL2ERC20Bridge.sol";
-import { IL1StandardBridge } from "../../L1/messaging/IL1StandardBridge.sol";
+import { IL2ERC20Bridge } from "../interfaces/IL2ERC20Bridge.sol";
+import { IL1StandardBridge } from "../interfaces/IL1StandardBridge.sol";
 
 /* Library Imports */
 import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import {
     Lib_PredeployAddresses
 } from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
-import { Lib_BedrockPredeployAddresses } from "../../libraries/Lib_BedrockPredeployAddresses.sol";
 import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
+import { IL1CrossDomainMessenger } from "../interfaces/IL1CrossDomainMessenger.sol";
 
 /* Contract Imports */
 import { IL2StandardERC20 } from "@eth-optimism/contracts/standards/IL2StandardERC20.sol";
-import { Withdrawer } from "../Withdrawer.sol";
 
 /**
  * @title L2StandardBridge
@@ -101,16 +100,16 @@ contract L2StandardBridge is IL2ERC20Bridge {
         bytes memory _data
     ) internal {
         // Send message up to L1 bridge
-        Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal{ value: _amount }(
+        IL1CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage{ value: _amount }(
             l1TokenBridge,
-            _l1Gas,
             abi.encodeWithSelector(
                 IL1StandardBridge.finalizeETHWithdrawal.selector,
                 _from,
                 _to,
                 _amount,
                 _data
-            )
+            ),
+            uint32(_l1Gas) // TODO(tynes): this isn't safe
         );
 
         emit WithdrawalInitiated(
@@ -140,9 +139,8 @@ contract L2StandardBridge is IL2ERC20Bridge {
         address l1Token = IL2StandardERC20(_l2Token).l1Token();
 
         // Send message up to L1 bridge
-        Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
+        IL1CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage(
             l1TokenBridge,
-            _l1Gas,
             abi.encodeWithSelector(
                 IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
                 l1Token,
@@ -151,7 +149,8 @@ contract L2StandardBridge is IL2ERC20Bridge {
                 _to,
                 _amount,
                 _data
-            )
+            ),
+            _l1Gas
         );
         // slither-disable-next-line reentrancy-events
         emit WithdrawalInitiated(l1Token, _l2Token, msg.sender, _to, _amount, _data);
@@ -258,23 +257,22 @@ contract L2StandardBridge is IL2ERC20Bridge {
             // Withdraw ETH in the case that the user submitted a bad ETH
             // deposit to prevent ETH from getting stuck
             if (_l1Token == address(0) && _l2Token == Lib_PredeployAddresses.OVM_ETH) {
-                Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal{
+                IL1CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage{
                     value: msg.value
                 }(
                     l1TokenBridge,
-                    0, // TODO: does a 0 gaslimit work here?
                     abi.encodeWithSelector(
                         IL1StandardBridge.finalizeETHWithdrawal.selector,
                         _to, // switch the _to and _from to send deposit back to the sender
                         _from,
                         msg.value,
                         _data
-                    )
+                    ),
+                    0 // TODO: does a 0 gaslimit work here?
                 );
             } else {
-                Withdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER).initiateWithdrawal(
+                IL1CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage(
                     l1TokenBridge,
-                    0, // TODO: does a 0 gaslimit work here?
                     abi.encodeWithSelector(
                         IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
                         _l1Token,
@@ -283,7 +281,8 @@ contract L2StandardBridge is IL2ERC20Bridge {
                         _from,
                         _amount,
                         _data
-                    )
+                    ),
+                    0 // TODO: does a 0 gaslimit work here?
                 );
             }
         }

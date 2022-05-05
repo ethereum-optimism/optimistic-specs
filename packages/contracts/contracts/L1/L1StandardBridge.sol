@@ -4,9 +4,9 @@ pragma solidity ^0.8.9;
 /* Interface Imports */
 import { IL2ERC20Bridge } from "@eth-optimism/contracts/L2/messaging/IL2ERC20Bridge.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { OptimismPortal } from "../OptimismPortal.sol";
-import { IL1StandardBridge } from "./IL1StandardBridge.sol";
-import { IL1ERC20Bridge } from "./IL1ERC20Bridge.sol";
+import { L1CrossDomainMessenger } from "./L1CrossDomainMessenger.sol";
+import { IL1StandardBridge } from "../interfaces/IL1StandardBridge.sol";
+import { IL1ERC20Bridge } from "../interfaces/IL1ERC20Bridge.sol";
 
 /* Library Imports */
 import {
@@ -29,7 +29,7 @@ contract L1StandardBridge is IL1StandardBridge {
      * External Contract References *
      ********************************/
 
-    OptimismPortal public optimismPortal;
+    L1CrossDomainMessenger public l1CrossDomainMessenger;
     address public l2TokenBridge;
 
     // Maps L1 token to L2 token to balance of the L1 token deposited
@@ -47,13 +47,13 @@ contract L1StandardBridge is IL1StandardBridge {
      ******************/
 
     /**
-     * @param _optimismPortal OptimismPortal address.
+     * @param _l1CrossDomainMessenger L1CrossDomainMessenger address.
      * @param _l2TokenBridge L2 standard bridge address.
      */
     // slither-disable-next-line external-function
-    function initialize(OptimismPortal _optimismPortal, address _l2TokenBridge) public {
-        require(address(optimismPortal) == address(0), "Contract has already been initialized.");
-        optimismPortal = _optimismPortal;
+    function initialize(L1CrossDomainMessenger _l1CrossDomainMessenger, address _l2TokenBridge) public {
+        require(address(_l1CrossDomainMessenger) == address(0), "Contract has already been initialized.");
+        l1CrossDomainMessenger = _l1CrossDomainMessenger;
         l2TokenBridge = _l2TokenBridge;
     }
 
@@ -118,11 +118,8 @@ contract L1StandardBridge is IL1StandardBridge {
         emit ETHDepositInitiated(_from, _to, _amount, _data);
 
         // Send calldata into L2
-        optimismPortal.depositTransaction{ value: _amount }(
+        l1CrossDomainMessenger.sendMessage{ value: _amount }(
             Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
-            _amount,
-            _l2Gas,
-            false,
             abi.encodeWithSelector(
                 IL2ERC20Bridge.finalizeDeposit.selector,
                 address(0),
@@ -131,7 +128,8 @@ contract L1StandardBridge is IL1StandardBridge {
                 _to,
                 _amount,
                 _data
-            )
+            ),
+            _l2Gas
         );
     }
 
@@ -191,17 +189,6 @@ contract L1StandardBridge is IL1StandardBridge {
         // slither-disable-next-line reentrancy-events, reentrancy-benign
         IERC20(_l1Token).safeTransferFrom(_from, address(this), _amount);
 
-        // Construct calldata for _l2Token.finalizeDeposit(_to, _amount)
-        bytes memory message = abi.encodeWithSelector(
-            IL2ERC20Bridge.finalizeDeposit.selector,
-            _l1Token,
-            _l2Token,
-            _from,
-            _to,
-            _amount,
-            _data
-        );
-
         // slither-disable-next-line reentrancy-benign
         deposits[_l1Token][_l2Token] = deposits[_l1Token][_l2Token] + _amount;
 
@@ -209,12 +196,18 @@ contract L1StandardBridge is IL1StandardBridge {
         emit ERC20DepositInitiated(_l1Token, _l2Token, _from, _to, _amount, _data);
 
         // Send calldata into L2
-        optimismPortal.depositTransaction(
+        l1CrossDomainMessenger.sendMessage(
             Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
-            0,
-            _l2Gas,
-            false,
-            message
+            abi.encodeWithSelector(
+                IL2ERC20Bridge.finalizeDeposit.selector,
+                _l1Token,
+                _l2Token,
+                _from,
+                _to,
+                _amount,
+                _data
+            ),
+            _l2Gas
         );
     }
 
@@ -228,11 +221,12 @@ contract L1StandardBridge is IL1StandardBridge {
      */
     modifier onlyL2Bridge() {
         require(
-            msg.sender == address(optimismPortal),
+            msg.sender == address(l1CrossDomainMessenger),
             "Messages must be relayed by first calling the Optimism Portal"
         );
         require(
-            optimismPortal.l2Sender() == l2TokenBridge,
+            // TODO(tynes): ensure this is correct
+            l1CrossDomainMessenger.xDomainMessageSender() == l2TokenBridge,
             "Message must be sent from the L2 Token Bridge"
         );
         _;

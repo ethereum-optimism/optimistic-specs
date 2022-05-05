@@ -2,7 +2,7 @@
 pragma solidity ^0.8.9;
 
 /* Contract Imports */
-import { L2StandardERC20 } from "../tokens/L2StandardERC20.sol";
+import { L2StandardERC20 } from "./L2StandardERC20.sol";
 import {
     Lib_PredeployAddresses
 } from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";

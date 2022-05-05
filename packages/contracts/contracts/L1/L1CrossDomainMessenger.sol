@@ -4,7 +4,6 @@ pragma solidity ^0.8.9;
 // solhint-disable max-line-length
 /* Library Imports */
 import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
-import { Lib_OVMCodec } from "@eth-optimism/contracts/libraries/codec/Lib_OVMCodec.sol";
 import {
     Lib_DefaultValues
 } from "@eth-optimism/contracts/libraries/constants/Lib_DefaultValues.sol";
@@ -16,10 +15,11 @@ import {
 } from "@eth-optimism/contracts/libraries/bridge/Lib_CrossDomainUtils.sol";
 
 /* Interface Imports */
-import { IL1CrossDomainMessenger } from "./IL1CrossDomainMessenger.sol";
-import { OptimismPortal } from "../OptimismPortal.sol";
-import { WithdrawalVerifier } from "../../libraries/Lib_WithdrawalVerifier.sol";
-import { L2OutputOracle } from "../L2OutputOracle.sol";
+import { IL1CrossDomainMessenger } from "../interfaces/IL1CrossDomainMessenger.sol";
+import { WithdrawalVerifier } from "../libraries/Lib_WithdrawalVerifier.sol";
+import { L2OutputOracle } from "./L2OutputOracle.sol";
+
+import { CrossDomainHashing } from "../libraries/Lib_CrossDomainHashing.sol";
 
 import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 
@@ -147,7 +147,7 @@ contract L1CrossDomainMessenger is
                 _target,
                 msg.sender,
                 _message,
-                WithdrawalVerifier.addVersionToNonce(
+                CrossDomainHashing.addVersionToNonce(
                     messageNonce,
                     HASH_VERSION
                 )
@@ -212,7 +212,7 @@ contract L1CrossDomainMessenger is
             }
         }
 
-        bytes32 versionedHash = WithdrawalVerifier.getVersionedHash(
+        bytes32 versionedHash = CrossDomainHashing.getVersionedHash(
             _nonce,
             _sender,
             _target,

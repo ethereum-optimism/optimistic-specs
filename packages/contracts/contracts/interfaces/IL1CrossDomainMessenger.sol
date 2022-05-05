@@ -5,8 +5,8 @@ pragma solidity ^0.8.9;
 import { Lib_OVMCodec } from "@eth-optimism/contracts/libraries/codec/Lib_OVMCodec.sol";
 
 /* Interface Imports */
-import { ICrossDomainMessenger } from "../../ICrossDomainMessenger.sol";
-import { WithdrawalVerifier } from "../../libraries/Lib_WithdrawalVerifier.sol";
+import { ICrossDomainMessenger } from "./ICrossDomainMessenger.sol";
+import { WithdrawalVerifier } from "../libraries/Lib_WithdrawalVerifier.sol";
 
 /**
  * @title IL1CrossDomainMessenger

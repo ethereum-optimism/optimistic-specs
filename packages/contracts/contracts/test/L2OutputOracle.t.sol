@@ -10,17 +10,6 @@ import {
 
 import { Lib_BedrockPredeployAddresses } from "../libraries/Lib_BedrockPredeployAddresses.sol";
 import { L2OutputOracle } from "../L1/L2OutputOracle.sol";
-import { OptimismPortal } from "../L1/OptimismPortal.sol";
-import { IWithdrawer } from "../L2/IWithdrawer.sol";
-import { L2StandardBridge } from "../L2/messaging/L2StandardBridge.sol";
-
-import { IL2StandardBridge } from "../L2/messaging/IL2StandardBridge.sol";
-
-import { L1StandardBridge } from "../L1/messaging/L1StandardBridge.sol";
-import { L2StandardTokenFactory } from "../L2/messaging/L2StandardTokenFactory.sol";
-import { IL2StandardTokenFactory } from "../L2/messaging/IL2StandardTokenFactory.sol";
-import { IL2StandardERC20 } from "../L2/tokens/IL2StandardERC20.sol";
-import { Withdrawer } from "../L2/Withdrawer.sol";
 import { LibRLP } from "./Lib_RLP.t.sol";
 
 import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -59,115 +48,6 @@ contract L2OutputOracle_Initializer is CommonTest {
         );
         startingBlockTimestamp = block.timestamp;
     }
-}
-
-// TODO: move this to its own file
-contract BridgeInitializer is L2OutputOracle_Initializer {
-    OptimismPortal op;
-
-    IWithdrawer W;
-    L1StandardBridge L1Bridge;
-    IL2StandardBridge L2Bridge;
-    IL2StandardTokenFactory L2TokenFactory;
-    IL2StandardERC20 L2Token;
-    ERC20 token;
-
-    event ETHDepositInitiated(
-        address indexed _from,
-        address indexed _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    event ETHWithdrawalFinalized(
-        address indexed _from,
-        address indexed _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    event ERC20DepositInitiated(
-        address indexed _l1Token,
-        address indexed _l2Token,
-        address indexed _from,
-        address _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    event ERC20WithdrawalFinalized(
-        address indexed _l1Token,
-        address indexed _l2Token,
-        address indexed _from,
-        address _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    event WithdrawalInitiated(
-        address indexed _l1Token,
-        address indexed _l2Token,
-        address indexed _from,
-        address _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    event DepositFinalized(
-        address indexed _l1Token,
-        address indexed _l2Token,
-        address indexed _from,
-        address _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    event DepositFailed(
-        address indexed _l1Token,
-        address indexed _l2Token,
-        address indexed _from,
-        address _to,
-        uint256 _amount,
-        bytes _data
-    );
-
-    constructor() {
-        vm.deal(alice, 1 << 16);
-
-        L1Bridge = new L1StandardBridge();
-        L2StandardBridge l2Bridge = new L2StandardBridge(address(L1Bridge));
-        vm.etch(Lib_PredeployAddresses.L2_STANDARD_BRIDGE, address(l2Bridge).code);
-
-        L2Bridge = IL2StandardBridge(Lib_PredeployAddresses.L2_STANDARD_BRIDGE);
-        // Set the storage slot that holds the L1 bridge address passed in via
-        // the constructor args
-        vm.store(address(L2Bridge), bytes32(0), bytes32(uint256(uint160(address(L1Bridge)))));
-
-        op = new OptimismPortal(oracle, 100);
-        L1Bridge.initialize(op, address(L2Bridge));
-
-        Withdrawer w = new Withdrawer();
-        vm.etch(Lib_BedrockPredeployAddresses.WITHDRAWER, address(w).code);
-        W = IWithdrawer(Lib_BedrockPredeployAddresses.WITHDRAWER);
-
-        L2StandardTokenFactory factory = new L2StandardTokenFactory();
-        vm.etch(Lib_PredeployAddresses.L2_STANDARD_TOKEN_FACTORY, address(factory).code);
-        L2TokenFactory = IL2StandardTokenFactory(Lib_PredeployAddresses.L2_STANDARD_TOKEN_FACTORY);
-
-        token = new ERC20("Test Token", "TT");
-
-        // Deploy the L2 ERC20 now
-        L2TokenFactory.createStandardL2Token(
-            address(token),
-            string(abi.encodePacked("L2-", token.name())),
-            string(abi.encodePacked("L2-", token.symbol()))
-        );
-
-        L2Token = IL2StandardERC20(
-            LibRLP.computeAddress(address(L2TokenFactory), 0)
-        );
-    }
-
 }
 
 // Define this test in a standalone contract to ensure it runs immediately after the constructor.
