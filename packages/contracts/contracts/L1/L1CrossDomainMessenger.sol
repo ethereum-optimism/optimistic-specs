@@ -19,9 +19,7 @@ import { IL1CrossDomainMessenger } from "../interfaces/IL1CrossDomainMessenger.s
 import { WithdrawalVerifier } from "../libraries/Lib_WithdrawalVerifier.sol";
 import { L2OutputOracle } from "./L2OutputOracle.sol";
 
-import { CrossDomainHashing } from "../libraries/Lib_CrossDomainHashing.sol";
-
-import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
+import { CrossDomainMessenger } from "../universal/CrossDomainMessenger.sol";
 
 /* External Imports */
 import {
@@ -42,123 +40,47 @@ import {
  * from L2 onto L1.
  */
 contract L1CrossDomainMessenger is
-    IL1CrossDomainMessenger,
-    OwnableUpgradeable,
-    PausableUpgradeable,
-    ReentrancyGuardUpgradeable
+    CrossDomainMessenger
 {
-    uint16 constant HASH_VERSION = 1;
+    /**********
+     * Events *
+     **********/
 
-    /// @notice Error emitted when attempting to finalize a withdrawal too early.
-    error NotYetFinal();
+    event TransactionDeposited(
+        address indexed from,
+        address indexed to,
+        uint256 mint,
+        uint256 value,
+        uint64 gasLimit,
+        bool isCreation,
+        bytes data
+    );
 
-    /// @notice Error emitted when the output root proof is invalid.
-    error InvalidOutputRootProof();
-
-    /// @notice Error emitted when the withdrawal inclusion proof is invalid.
-    error InvalidWithdrawalInclusionProof();
-
-    /// @notice Error emitted when a withdrawal has already been finalized.
-    error WithdrawalAlreadyFinalized();
-
-    /**********************
-     * Contract Variables *
-     **********************/
-
-    // TODO: blockedMessages is no longer in use
-    mapping(bytes32 => bool) public blockedMessages;
-    // TODO: removing this, can update to using it later
-    mapping(bytes32 => bool) public relayedMessages;
-    mapping(bytes32 => bool) public successfulMessages;
-
-    // This must be set in the initialize function
-    address internal xDomainMsgSender;
-
-    // Bedrock upgrade note: the nonce must be initialized to greater than the last value of
-    // CanonicalTransactionChain.queueElements.length. Otherwise it will be possible to have
-    // messages which cannot be relayed on L2.
-    uint256 public messageNonce;
-
-    // TODO: ideally these are immutable but cannot be immutable
-    // because this is behind a proxy
+    /*************
+     * Variables *
+     *************/
 
     /// @notice Address of the L2OutputOracle.
-    L2OutputOracle public L2_ORACLE;
+    L2OutputOracle public l2OutputOracle;
+
     /// @notice Minimum time that must elapse before a withdrawal can be finalized.
-    uint256 public FINALIZATION_PERIOD;
+    uint256 public finalizationPeriodSeconds;
 
     /********************
      * Public Functions *
      ********************/
 
-    function initialize(L2OutputOracle _l2Oracle, uint256 _finalizationPeriod)
+    function initialize(
+        L2OutputOracle _l2OutputOracle,
+        uint256 _finalizationPeriodSeconds
+    )
         external
         initializer
     {
-        xDomainMsgSender = Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER;
-        L2_ORACLE = _l2Oracle;
-        FINALIZATION_PERIOD = _finalizationPeriod;
+        l2OutputOracle = _l2OutputOracle;
+        finalizationPeriodSeconds = _finalizationPeriodSeconds;
 
-        // TODO: ensure we know what these are doing and why they are here
-        // Initialize upgradable OZ contracts
-        __Context_init_unchained(); // Context is a dependency for both Ownable and Pausable
-        __Ownable_init_unchained();
-        __Pausable_init_unchained();
-        __ReentrancyGuard_init_unchained();
-    }
-
-    /**
-     * Pause relaying.
-     */
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    /**
-     * Get the xDomainMessageSender
-     */
-    function xDomainMessageSender() external view returns (address) {
-        require(
-            xDomainMsgSender != Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER,
-            "xDomainMessageSender is not set"
-        );
-        return xDomainMsgSender;
-    }
-
-    /**
-     * Sends a cross domain message to the target messenger.
-     * This function faciliates L1 to L2 communication.
-     * @param _target Target contract address.
-     * @param _message Message to send to the target.
-     * @param _gasLimit Gas limit for the provided message.
-     */
-    function sendMessage(
-        address _target,
-        bytes memory _message,
-        uint32 _gasLimit
-    ) external payable {
-        _sendMessageRaw(
-            Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER,
-            address(this),
-            msg.value,
-            uint64(_gasLimit),
-            false,
-            Lib_CrossDomainUtils.encodeXDomainCalldata(
-                _target,
-                msg.sender,
-                _message,
-                CrossDomainHashing.addVersionToNonce(
-                    messageNonce,
-                    HASH_VERSION
-                )
-            )
-        );
-
-        emit SentMessage(_target, msg.sender, _message, messageNonce, _gasLimit);
-
-        unchecked {
-            ++messageNonce;
-        }
+        _initialize(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER);
     }
 
     function sendMessageRaw(
@@ -168,7 +90,7 @@ contract L1CrossDomainMessenger is
         bool _isCreation,
         bytes memory _data
     ) external payable {
-        _sendMessageRaw(
+        _sendMessage(
             _to,
             msg.sender,
             _value,
@@ -178,105 +100,41 @@ contract L1CrossDomainMessenger is
         );
     }
 
-    /**
-     * Relays a cross domain message to a contract.
-     * This function faciliates L2 to L1 communication.
-     * Calls WithdrawalsRelay.finalizeWithdrawalTransaction
-     * @inheritdoc IL1CrossDomainMessenger
-     */
-    function relayMessage(
+    /**********************
+     * Internal Functions *
+     **********************/
+
+    function _verifyMessageProof(
+        bytes32 _versionedHash,
         uint256 _nonce,
         address _sender,
         address _target,
         uint256 _value,
         uint256 _gasLimit,
         bytes calldata _data,
-        uint256 _l2Timestamp,
-        WithdrawalVerifier.OutputRootProof calldata _outputRootProof,
-        bytes calldata _withdrawalProof
-    ) external nonReentrant whenNotPaused payable {
-        // Check that the timestamp is sufficiently finalized.
-        // The timestamp corresponds to a particular L2 output,
-        // so it is safe to be passed in by a user.
-
-        // Get the output root.
-        bytes32 outputRoot = WithdrawalVerifier._deriveOutputRoot(_outputRootProof);
-        L2OutputOracle.OutputProposal memory outputProposal = L2_ORACLE.getL2Output(_l2Timestamp);
-        require(outputProposal.outputRoot == outputRoot);
-
-        // Sequencer can steal funds if they wait 1 week before submitting
-        // the L2 output commitment
-        unchecked {
-            if (block.timestamp < outputProposal.timestamp + FINALIZATION_PERIOD) {
-                revert NotYetFinal();
-            }
-        }
-
-        bytes32 versionedHash = CrossDomainHashing.getVersionedHash(
-            _nonce,
-            _sender,
-            _target,
-            _value,
-            _gasLimit,
-            _data
-        );
-
-        if (
-            WithdrawalVerifier._verifyWithdrawalInclusion(
-                versionedHash,
-                _outputRootProof.withdrawerStorageRoot,
-                _withdrawalProof
-            ) == false
-        ) {
-            revert InvalidWithdrawalInclusionProof();
-        }
-
-        require(successfulMessages[versionedHash] == false);
-
-        require(
-            _target != address(this),
-            "Cannot send L2->L1 messages to L1 system contracts."
-        );
-
-        xDomainMsgSender = _sender;
-        // Make the call.
-        (bool success, ) = _target.call{ value: _value, gas: _gasLimit }(_data);
-        xDomainMsgSender = Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER;
-
-        // Mark the message as received if the call was successful. Ensures that a message can be
-        // relayed multiple times in the case that the call reverted.
-        if (success == true) {
-            // slither-disable-next-line reentrancy-no-eth
-            successfulMessages[versionedHash] = true;
-            // slither-disable-next-line reentrancy-events
-            emit RelayedMessage(versionedHash);
-            // TODO:
-            // relayedMessages is no longer used because it was not originally
-            // secure in the first place
-        } else {
-            // slither-disable-next-line reentrancy-events
-            emit FailedRelayedMessage(versionedHash);
-        }
+        bytes calldata _proof
+    ) internal view override returns (bool) {
+        // TODO
     }
 
-    // TODO: internal functions
-    function _sendMessageRaw(
+    function _sendMessage(
         address _to,
         address _from,
         uint256 _value,
         uint64 _gasLimit,
         bool _isCreation,
         bytes memory _data
-    ) internal {
-        require(!_isCreation || _to == address(0), "");
+    ) internal override {
+        require(
+            !_isCreation || _to == address(0),
+            "Contract creations must have the zero address as the target."
+        );
 
         // Transform the from-address to its alias if the caller is a contract.
         if (_from != tx.origin) {
             _from = AddressAliasHelper.applyL1ToL2Alias(msg.sender);
         }
-        // emit TransactionDeposited which causes the message to actually
-        // end up in L2
+
         emit TransactionDeposited(_from, _to, msg.value, _value, _gasLimit, _isCreation, _data);
     }
-
 }
