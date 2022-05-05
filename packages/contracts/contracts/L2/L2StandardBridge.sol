@@ -12,10 +12,10 @@ import {
     Lib_PredeployAddresses
 } from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
 import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
-import { IL1CrossDomainMessenger } from "../interfaces/IL1CrossDomainMessenger.sol";
 
 /* Contract Imports */
 import { IL2StandardERC20 } from "@eth-optimism/contracts/standards/IL2StandardERC20.sol";
+import { CrossDomainMessenger } from "../universal/CrossDomainMessenger.sol";
 
 /**
  * @title L2StandardBridge
@@ -100,7 +100,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
         bytes memory _data
     ) internal {
         // Send message up to L1 bridge
-        IL1CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage{ value: _amount }(
+        CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage{ value: _amount }(
             l1TokenBridge,
             abi.encodeWithSelector(
                 IL1StandardBridge.finalizeETHWithdrawal.selector,
@@ -139,7 +139,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
         address l1Token = IL2StandardERC20(_l2Token).l1Token();
 
         // Send message up to L1 bridge
-        IL1CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage(
+        CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage(
             l1TokenBridge,
             abi.encodeWithSelector(
                 IL1ERC20Bridge.finalizeERC20Withdrawal.selector,
@@ -257,7 +257,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
             // Withdraw ETH in the case that the user submitted a bad ETH
             // deposit to prevent ETH from getting stuck
             if (_l1Token == address(0) && _l2Token == Lib_PredeployAddresses.OVM_ETH) {
-                IL1CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage{
+                CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage{
                     value: msg.value
                 }(
                     l1TokenBridge,
@@ -271,7 +271,7 @@ contract L2StandardBridge is IL2ERC20Bridge {
                     0 // TODO: does a 0 gaslimit work here?
                 );
             } else {
-                IL1CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage(
+                CrossDomainMessenger(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER).sendMessage(
                     l1TokenBridge,
                     abi.encodeWithSelector(
                         IL1ERC20Bridge.finalizeERC20Withdrawal.selector,

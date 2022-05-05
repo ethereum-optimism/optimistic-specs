@@ -7,10 +7,10 @@ import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAli
 import {
     Lib_DefaultValues
 } from "@eth-optimism/contracts/libraries/constants/Lib_DefaultValues.sol";
+import {
+    Lib_PredeployAddresses
+} from "@eth-optimism/contracts/libraries/constants/Lib_PredeployAddresses.sol";
 import { CrossDomainHashing } from "../libraries/Lib_CrossDomainHashing.sol";
-
-/* Interface Imports */
-import { IL2CrossDomainMessenger } from "../interfaces/IL2CrossDomainMessenger.sol";
 
 /* Interaction imports */
 import { Burner } from "./Burner.sol";
@@ -42,7 +42,14 @@ contract L2CrossDomainMessenger is
         external
         initializer
     {
-        _initialize(_l1CrossDomainMessenger);
+        address[] memory blockedSystemAddresses = new address[](2);
+        blockedSystemAddresses[0] = address(this);
+        blockedSystemAddresses[1] = Lib_PredeployAddresses.L2_TO_L1_MESSAGE_PASSER;
+
+        _initialize(
+            _l1CrossDomainMessenger,
+            blockedSystemAddresses
+        );
     }
 
     /**
@@ -62,7 +69,6 @@ contract L2CrossDomainMessenger is
      **********************/
 
     function _verifyMessageProof(
-        bytes32 _versionedHash,
         uint256 _nonce,
         address _sender,
         address _target,
@@ -83,7 +89,7 @@ contract L2CrossDomainMessenger is
         bytes memory _data
     ) internal override {
         require(
-            !_isCreation,
+            _isCreation == false,
             "Contract creations not allowed for L2 to L1 messages."
         );
 

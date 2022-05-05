@@ -47,7 +47,7 @@ library WithdrawalVerifier {
      * @param _outputRootProof The elements which were hashed together to generate the output root.
      * @return Whether or not the output root matches the hashed output of the proof.
      */
-    function _deriveOutputRoot(OutputRootProof calldata _outputRootProof)
+    function _deriveOutputRoot(OutputRootProof memory _outputRootProof)
         internal
         pure
         returns (bytes32)
@@ -74,7 +74,7 @@ library WithdrawalVerifier {
     function _verifyWithdrawalInclusion(
         bytes32 _withdrawalHash,
         bytes32 _withdrawerStorageRoot,
-        bytes calldata _withdrawalProof
+        bytes memory _withdrawalProof
     ) internal pure returns (bool) {
         bytes32 storageKey = keccak256(
             abi.encode(

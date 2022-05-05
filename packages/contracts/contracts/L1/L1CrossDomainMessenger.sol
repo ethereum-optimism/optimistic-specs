@@ -15,10 +15,9 @@ import {
 } from "@eth-optimism/contracts/libraries/bridge/Lib_CrossDomainUtils.sol";
 
 /* Interface Imports */
-import { IL1CrossDomainMessenger } from "../interfaces/IL1CrossDomainMessenger.sol";
 import { WithdrawalVerifier } from "../libraries/Lib_WithdrawalVerifier.sol";
+import { CrossDomainHashing } from "../libraries/Lib_CrossDomainHashing.sol";
 import { L2OutputOracle } from "./L2OutputOracle.sol";
-
 import { CrossDomainMessenger } from "../universal/CrossDomainMessenger.sol";
 
 /* External Imports */
@@ -80,7 +79,13 @@ contract L1CrossDomainMessenger is
         l2OutputOracle = _l2OutputOracle;
         finalizationPeriodSeconds = _finalizationPeriodSeconds;
 
-        _initialize(Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER);
+        address[] memory blockedSystemAddresses = new address[](1);
+        blockedSystemAddresses[0] = address(this);
+
+        _initialize(
+            Lib_PredeployAddresses.L2_CROSS_DOMAIN_MESSENGER,
+            blockedSystemAddresses
+        );
     }
 
     function sendMessageRaw(
@@ -105,7 +110,6 @@ contract L1CrossDomainMessenger is
      **********************/
 
     function _verifyMessageProof(
-        bytes32 _versionedHash,
         uint256 _nonce,
         address _sender,
         address _target,
@@ -114,7 +118,50 @@ contract L1CrossDomainMessenger is
         bytes calldata _data,
         bytes calldata _proof
     ) internal view override returns (bool) {
-        // TODO
+        (
+            uint256 l2Timestamp,
+            WithdrawalVerifier.OutputRootProof memory outputRootProof,
+            bytes memory withdrawalProof
+        ) = abi.decode(
+            _proof,
+            (
+                uint256,
+                WithdrawalVerifier.OutputRootProof,
+                bytes
+            )
+        );
+
+        L2OutputOracle.OutputProposal memory proposal = l2OutputOracle.getL2Output(
+            l2Timestamp
+        );
+
+        require(
+            proposal.outputRoot == WithdrawalVerifier._deriveOutputRoot(outputRootProof),
+            "Proposed root does not match given root."
+        );
+
+        require(
+            block.timestamp < proposal.timestamp + finalizationPeriodSeconds,
+            "Proposal is not yet finalized."
+        );
+
+        require(
+            WithdrawalVerifier._verifyWithdrawalInclusion(
+                CrossDomainHashing.getVersionedHash(
+                    _nonce,
+                    _sender,
+                    _target,
+                    _value,
+                    _gasLimit,
+                    _data
+                ),
+                outputRootProof.withdrawerStorageRoot,
+                withdrawalProof
+            ),
+            "Invalid withdrawal inclusion proof."
+        );
+
+        return true;
     }
 
     function _sendMessage(

@@ -82,6 +82,12 @@ abstract contract CrossDomainMessenger is
     /// @notice Address of the CrossDomainMessenger on the other chain.
     address public otherMessenger;
 
+    /// @notice Mapping of message hash to boolean receipt value.
+    mapping(bytes32 => bool) public receivedMessages;
+
+    /// @notice Blocked system addresses that cannot be called (for security reasons).
+    mapping(address => bool) public blockedSystemAddresses;
+
     /********************
      * Public Functions *
      ********************/
@@ -121,7 +127,6 @@ abstract contract CrossDomainMessenger is
     }
 
     /**
-     *
      * @param _target Target contract address.
      * @param _message Message to send to the target.
      * @param _gasLimit Gas limit for the provided message.
@@ -160,7 +165,38 @@ abstract contract CrossDomainMessenger is
         uint256 _gasLimit,
         bytes calldata _data,
         bytes calldata _proof
-    ) external nonReentrant whenNotPaused payable {
+    ) external payable nonReentrant whenNotPaused {
+        require(
+            _verifyMessageProof(
+                _nonce,
+                _sender,
+                _target,
+                _value,
+                _gasLimit,
+                _data,
+                _proof
+            ),
+            "Message could not be authenticated."
+        );
+
+        _relayMessage(
+            _nonce,
+            _sender,
+            _target,
+            _value,
+            _gasLimit,
+            _data
+        );
+    }
+
+    function replayMessage(
+        uint256 _nonce,
+        address _sender,
+        address _target,
+        uint256 _value,
+        uint256 _gasLimit,
+        bytes calldata _data
+    ) external payable nonReentrant whenNotPaused {
         bytes32 versionedHash = CrossDomainHashing.getVersionedHash(
             _nonce,
             _sender,
@@ -171,27 +207,74 @@ abstract contract CrossDomainMessenger is
         );
 
         require(
-            _target != address(this),
-            "Cannot send messages to self."
+            receivedMessages[versionedHash] == true,
+            "Message has not been received before."
+        );
+
+        _relayMessage(
+            _nonce,
+            _sender,
+            _target,
+            _value,
+            _gasLimit,
+            _data
+        );
+    }
+
+    /**********************
+     * Internal Functions *
+     **********************/
+
+    /**
+     * Initializes the contract.
+     */
+    function _initialize(
+        address _otherMessenger,
+        address[] memory _blockedSystemAddresses
+    )
+        internal
+        initializer
+    {
+        xDomainMsgSender = Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER;
+        otherMessenger = _otherMessenger;
+
+        for (uint256 i = 0; i < _blockedSystemAddresses.length; i++) {
+            blockedSystemAddresses[_blockedSystemAddresses[i]] = true;
+        }
+
+        // TODO: ensure we know what these are doing and why they are here
+        // Initialize upgradable OZ contracts
+        __Context_init_unchained();
+        __Ownable_init_unchained();
+        __Pausable_init_unchained();
+        __ReentrancyGuard_init_unchained();
+    }
+
+    function _relayMessage(
+        uint256 _nonce,
+        address _sender,
+        address _target,
+        uint256 _value,
+        uint256 _gasLimit,
+        bytes calldata _data
+    ) internal {
+        bytes32 versionedHash = CrossDomainHashing.getVersionedHash(
+            _nonce,
+            _sender,
+            _target,
+            _value,
+            _gasLimit,
+            _data
+        );
+
+        require(
+            blockedSystemAddresses[_target] == false,
+            "Cannot send message to blocked system address."
         );
 
         require(
             successfulMessages[versionedHash] == false,
             "Message has already been relayed."
-        );
-
-        require(
-            _verifyMessageProof(
-                versionedHash,
-                _nonce,
-                _sender,
-                _target,
-                _value,
-                _gasLimit,
-                _data,
-                _proof
-            ),
-            "Message could not be authenticated."
         );
 
         xDomainMsgSender = _sender;
@@ -204,34 +287,13 @@ abstract contract CrossDomainMessenger is
         } else {
             emit FailedRelayedMessage(versionedHash);
         }
-    }
 
-    /**********************
-     * Internal Functions *
-     **********************/
-
-    /**
-     * Initializes the contract.
-     */
-    function _initialize(
-        address _otherMessenger
-    )
-        internal
-        initializer
-    {
-        xDomainMsgSender = Lib_DefaultValues.DEFAULT_XDOMAIN_SENDER;
-        otherMessenger = _otherMessenger;
-
-        // TODO: ensure we know what these are doing and why they are here
-        // Initialize upgradable OZ contracts
-        __Context_init_unchained();
-        __Ownable_init_unchained();
-        __Pausable_init_unchained();
-        __ReentrancyGuard_init_unchained();
+        if (receivedMessages[versionedHash] == false) {
+            receivedMessages[versionedHash] = true;
+        }
     }
 
     function _verifyMessageProof(
-        bytes32 _versionedHash,
         uint256 _nonce,
         address _sender,
         address _target,
