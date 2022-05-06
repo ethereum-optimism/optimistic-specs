@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"embed"
 	"encoding/json"
+	"errors"
 	"flag"
 	"io"
 	"io/fs"
@@ -101,10 +102,6 @@ func main() {
 		}
 
 		entries[entry.EngineAddr] = append(entries[entry.EngineAddr], entry)
-
-		ee := entry
-		ee.EngineAddr = ee.EngineAddr + "__2"
-		entries[entry.EngineAddr+"__2"] = append(entries[entry.EngineAddr+"__2"], ee) // TODO: debugme
 	}
 	if err := scanner.Err(); err != nil {
 		log.Crit("failed to scan snapshot file", "message", err)
@@ -130,7 +127,9 @@ func runServer() {
 	mux.HandleFunc("/logs", makeGzipHandler(logsHandler))
 
 	log.Info("running webserver...")
-	http.Serve(l, mux)
+	if err := http.Serve(l, mux); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Crit("http server failed", "message", err)
+	}
 }
 
 type gzipResponseWriter struct {

@@ -62,7 +62,6 @@ func (h *bufHandler) Log(r *log.Record) error {
 
 // Logger returns a logger which logs to the unit test log of t.
 func Logger(t *testing.T, level log.Lvl) log.Logger {
-	level = log.LvlDebug // TODO: debugme
 	l := &logger{
 		t:  t,
 		l:  log.New(),
