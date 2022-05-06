@@ -54,22 +54,34 @@ async function pageTable() {
                             <th scope="col">L2Head</th>
                             <th scope="col">L2SafeHead</th>
                             <th scope="col">L2FinalizedHead</th>
+                            <th scope="col">L1WindowBuf</th>
                         </tr>
                     </thead>
                         `;
                 html += "<tbody>";
+
+                // TODO: it'll also be useful to indicate which rollup driver updated its state for the given timestamp
                 for (const record of data) {
                     const e = record[i];
                     if (e === undefined) {
                         // this column has reached its end
                         break
                     }
-                    // TODO: it'll also be useful to indicate which rollup driver updated its state for the given timestamp
-                    html += `<tr><td title="${e.event}" data-toggle="tooltip">${e.t}</td>`
-                        + `<td title=${JSON.stringify(e.l1Head)} data-toggle="tooltip" style="background-color:${colorCode(e.l1Head.hash)};">${prettyHex(e.l1Head.hash)}</td>`
-                        + `<td title=${JSON.stringify(e.l2Head)} data-toggle="tooltip" style="background-color:${colorCode(e.l2Head.hash)};">${prettyHex(e.l2Head.hash)}</td>`
-                        + `<td title=${JSON.stringify(e.l2SafeHead)} data-toggle="tooltip" style="background-color:${colorCode(e.l2SafeHead.hash)};">${prettyHex(e.l2SafeHead.hash)}</td>`
-                        + `<td title=${JSON.stringify(e.l2FinalizedHead)} data-toggle="tooltip" style="background-color:${colorCode(e.l2FinalizedHead.hash)};">${prettyHex(e.l2FinalizedHead.hash)}</td></tr>`;
+
+                    let windowBufEl = `<ul style="list-style-type:none">`
+                    e.l1WindowBuf.forEach((x) => {
+                        windowBufEl += `<li title=${JSON.stringify(x)} data-toggle="tooltip" style="background-color:${colorCode(x.hash)};">${prettyHex(x.hash)}</li>`
+                    })
+                    windowBufEl += "</ul>"
+
+                    html += `<tr>
+                        <td title="${e.event}" data-toggle="tooltip">${e.t}</td>
+                        <td title=${JSON.stringify(e.l1Head)} data-toggle="tooltip" style="background-color:${colorCode(e.l1Head.hash)};">${prettyHex(e.l1Head.hash)}</td>
+                        <td title=${JSON.stringify(e.l2Head)} data-toggle="tooltip" style="background-color:${colorCode(e.l2Head.hash)};">${prettyHex(e.l2Head.hash)}</td>
+                        <td title=${JSON.stringify(e.l2SafeHead)} data-toggle="tooltip" style="background-color:${colorCode(e.l2SafeHead.hash)};">${prettyHex(e.l2SafeHead.hash)}</td>
+                        <td title=${JSON.stringify(e.l2FinalizedHead)} data-toggle="tooltip" style="background-color:${colorCode(e.l2FinalizedHead.hash)};">${prettyHex(e.l2FinalizedHead.hash)}</td>
+                        <td>${windowBufEl}</td>
+                    </tr>`;
                 }
                 html += "</tbody>";
                 html += "</table></div>";

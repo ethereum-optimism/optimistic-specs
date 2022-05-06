@@ -37,7 +37,7 @@ type SnapshotState struct {
 	L2Head          eth.L2BlockRef `json:"l2Head"`
 	L2SafeHead      eth.L2BlockRef `json:"l2SafeHead"`
 	L2FinalizedHead eth.BlockID    `json:"l2FinalizedHead"`
-	//L1WindowBuf []string `json:"l1WindowBuf"`
+	L1WindowBuf     []eth.BlockID  `json:"l1WindowBuf"`
 }
 
 func (e *SnapshotState) UnmarshalJSON(data []byte) error {
@@ -49,6 +49,7 @@ func (e *SnapshotState) UnmarshalJSON(data []byte) error {
 		L2Head          json.RawMessage `json:"l2Head"`
 		L2SafeHead      json.RawMessage `json:"l2SafeHead"`
 		L2FinalizedHead json.RawMessage `json:"l2FinalizedHead"`
+		L1WindowBuf     json.RawMessage `json:"l1WindowBuf"`
 	}{}
 	if err := json.Unmarshal(data, &t); err != nil {
 		return err
@@ -73,6 +74,12 @@ func (e *SnapshotState) UnmarshalJSON(data []byte) error {
 	}
 	if err := json.Unmarshal(unquote(t.L2FinalizedHead), &e.L2FinalizedHead); err != nil {
 		return err
+	}
+	if err := json.Unmarshal(unquote(t.L1WindowBuf), &e.L1WindowBuf); err != nil {
+		return err
+	}
+	if e.L1WindowBuf == nil {
+		e.L1WindowBuf = make([]eth.BlockID, 0)
 	}
 	return nil
 }

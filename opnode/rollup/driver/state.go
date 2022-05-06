@@ -419,6 +419,7 @@ func (s *state) snapshot(event string) {
 	l2HeadJSON, _ := json.Marshal(s.l2Head)
 	l2SafeHeadJSON, _ := json.Marshal(s.l2SafeHead)
 	l2FinalizedHeadJSON, _ := json.Marshal(s.l2Finalized)
+	l1WindowBufJSON, _ := json.Marshal(s.l1WindowBuf)
 
 	s.snapshotLog.Info("Rollup State Snapshot",
 		"event", event,
@@ -426,5 +427,5 @@ func (s *state) snapshot(event string) {
 		"l2Head", string(l2HeadJSON),
 		"l2SafeHead", string(l2SafeHeadJSON),
 		"l2FinalizedHead", string(l2FinalizedHeadJSON),
-		"l1WindowBuf", s.l1WindowBuf)
+		"l1WindowBuf", string(l1WindowBufJSON))
 }
