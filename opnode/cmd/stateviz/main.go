@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -14,6 +15,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 	"github.com/ethereum/go-ethereum/log"
@@ -22,10 +25,13 @@ import (
 var (
 	snapshot   = flag.String("snapshot", "", "path to snapshot log")
 	listenAddr = flag.String("addr", "", "listen address of webserver")
+	refresh    = flag.Duration("refresh", 10*time.Second, "snapshot refresh rate")
 )
 
 var (
-	entries map[string][]SnapshotState
+	entries      map[string][]SnapshotState
+	entriesMutex sync.Mutex
+
 	assetFS fs.FS
 )
 
@@ -94,24 +100,8 @@ func main() {
 		log.LvlFilterHandler(log.LvlDebug, log.StreamHandler(os.Stdout, log.TerminalFormat(true))),
 	)
 
-	file, err := os.Open(*snapshot)
-	if err != nil {
-		log.Crit("Failed to open snapshot file", "message", err)
-	}
-	defer file.Close()
-
-	entries = make(map[string][]SnapshotState)
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		var entry SnapshotState
-		if err := json.Unmarshal([]byte(scanner.Text()), &entry); err != nil {
-			log.Crit("Failed to decode snapshot log", "message", err)
-		}
-
-		entries[entry.EngineAddr] = append(entries[entry.EngineAddr], entry)
-	}
-	if err := scanner.Err(); err != nil {
-		log.Crit("failed to scan snapshot file", "message", err)
+	if *snapshot == "" {
+		log.Crit("missing required -snapshot flag")
 	}
 
 	sub, err := fs.Sub(embeddedAssets, "assets")
@@ -120,7 +110,50 @@ func main() {
 	}
 	assetFS = sub
 
+	go func() {
+		ticker := time.NewTicker(*refresh)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				// TODO: incremental load
+				log.Info("loading snapshot...")
+				if err := loadSnapshot(); err != nil {
+					log.Error("failed to load snapshot", "err", err)
+				}
+			}
+		}
+	}()
+
 	runServer()
+}
+
+func loadSnapshot() error {
+	file, err := os.Open(*snapshot)
+	if err != nil {
+		return fmt.Errorf("%w: failed to open snapshot file", err)
+	}
+	defer file.Close()
+
+	tempEntries := make(map[string][]SnapshotState)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var entry SnapshotState
+		if err := json.Unmarshal([]byte(scanner.Text()), &entry); err != nil {
+			return fmt.Errorf("%w: failed to decode snapshot log", err)
+		}
+
+		tempEntries[entry.EngineAddr] = append(tempEntries[entry.EngineAddr], entry)
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("%w: failed to scan snapshot file", err)
+	}
+
+	entriesMutex.Lock()
+	entries = tempEntries
+	entriesMutex.Unlock()
+
+	return nil
 }
 
 func runServer() {
@@ -165,14 +198,17 @@ func makeGzipHandler(fn http.HandlerFunc) http.HandlerFunc {
 func logsHandler(w http.ResponseWriter, r *http.Request) {
 	var output [][]SnapshotState
 
+	entriesMutex.Lock()
 	// shallow copy so we can update the SnapshotState slice head
 	entriesCopy := make(map[string][]SnapshotState)
 	for k, v := range entries {
 		entriesCopy[k] = v
 	}
+	entriesMutex.Unlock()
 
 	// sort log entries and zip em up
 	// Each record/row contains SnapshotStates for each rollup driver
+	// Note that we assume each SnapshotState slice is sorted by the timestamp
 	for {
 		var min *SnapshotState
 		var minKey string

@@ -74,6 +74,7 @@ async function pageTable() {
                     })
                     windowBufEl += "</ul>"
 
+                    // TODO: click to copy full hash
                     html += `<tr>
                         <td title="${e.event}" data-toggle="tooltip">${e.t}</td>
                         <td title=${JSON.stringify(e.l1Head)} data-toggle="tooltip" style="background-color:${colorCode(e.l1Head.hash)};">${prettyHex(e.l1Head.hash)}</td>

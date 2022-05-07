@@ -7,6 +7,8 @@ version: '3.4'
 volumes:
   l1_data:
   l2_data:
+  op_log:
+
 
 services:
   l1:
@@ -46,12 +48,13 @@ services:
       - --l2.eth=http://l2:8545
       - --rpc.addr=0.0.0.0
       - --rpc.port=8545
-     #- --snapshotlog.file=/snapshot.log
+      - --snapshotlog.file=/op_log/snapshot.log
     ports:
-        - "7545:8545"
+      - "7545:8545"
     volumes:
       - ${PWD}/bss-key.txt:/config/bss-key.txt
       - ${PWD}/../.devnet/rollup.json:/rollup.json
+      - op_log:/op_log
 
   l2os:
     depends_on:
@@ -98,3 +101,17 @@ services:
       BATCH_SUBMITTER_SEQUENCER_GENESIS_HASH: "${SEQUENCER_GENESIS_HASH}"
       BATCH_SUBMITTER_SEQUENCER_BATCH_INBOX_ADDRESS: "${SEQUENCER_BATCH_INBOX_ADDRESS}"
       BATCH_SUBMITTER_LOG_TERMINAL: "true"
+
+  stateviz:
+    build:
+      context: ../
+      dockerfile: ./ops/Dockerfile.stateviz
+    command:
+      - stateviz
+      - -addr=0.0.0.0:8080
+      - -snapshot=/op_log/snapshot.log
+      - -refresh=10s
+    ports:
+      - "9090:8080"
+    volumes:
+      - op_log:/op_log:ro
