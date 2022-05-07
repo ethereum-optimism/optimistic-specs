@@ -76,11 +76,21 @@ async function pageTable() {
 
                     // TODO: click to copy full hash
                     html += `<tr>
-                        <td title="${e.event}" data-toggle="tooltip">${e.t}</td>
-                        <td title=${JSON.stringify(e.l1Head)} data-toggle="tooltip" style="background-color:${colorCode(e.l1Head.hash)};">${prettyHex(e.l1Head.hash)}</td>
-                        <td title=${JSON.stringify(e.l2Head)} data-toggle="tooltip" style="background-color:${colorCode(e.l2Head.hash)};">${prettyHex(e.l2Head.hash)}</td>
-                        <td title=${JSON.stringify(e.l2SafeHead)} data-toggle="tooltip" style="background-color:${colorCode(e.l2SafeHead.hash)};">${prettyHex(e.l2SafeHead.hash)}</td>
-                        <td title=${JSON.stringify(e.l2FinalizedHead)} data-toggle="tooltip" style="background-color:${colorCode(e.l2FinalizedHead.hash)};">${prettyHex(e.l2FinalizedHead.hash)}</td>
+                        <td title="${e.event}" data-toggle="tooltip">
+                            ${e.t}
+                        </td>
+                        <td title=${JSON.stringify(e.l1Head)} data-toggle="tooltip" style="background-color:${colorCode(e.l1Head.hash)};">
+                            ${prettyHex(e.l1Head.hash)}
+                        </td>
+                        <td title=${JSON.stringify(e.l2Head)} data-toggle="tooltip" style="background-color:${colorCode(e.l2Head.hash)};">
+                            ${prettyHex(e.l2Head.hash)}
+                        </td>
+                        <td title=${JSON.stringify(e.l2SafeHead)} data-toggle="tooltip" style="background-color:${colorCode(e.l2SafeHead.hash)};">
+                            ${prettyHex(e.l2SafeHead.hash)}
+                        </td>
+                        <td title=${JSON.stringify(e.l2FinalizedHead)} data-toggle="tooltip" style="background-color:${colorCode(e.l2FinalizedHead.hash)};">
+                            ${prettyHex(e.l2FinalizedHead.hash)}
+                        </td>
                         <td>${windowBufEl}</td>
                     </tr>`;
                 }
