@@ -91,7 +91,44 @@ burn(gas_cost) OR pay_to_contract(gas_cost) # Depends if payable or non-payable 
 pack_and_store(curr_basefee, curr_number, curr_bought_gas)
 ```
 
-TODO: Python pseudo-code
+```python
+BASE_FEE_MAX_CHANGE_DENOMINATOR = 8
+
+prev_basefee, prev_num, prev_bought_gas = load_and_unpack_storage()
+
+gas_target_limit, gas_sanity_limit = load_and_unpack_storage2()
+
+
+gas_cost = requested_gas * prev_basefee
+
+now_basefee = prev_basefee
+now_num = block.number
+now_bought_gas = prev_bought_gas + requested_gas
+# update only if we are in a new block
+if now_num != prev_num:
+  now_bought_gas = requested_gas
+  # update basefee if we are using more or less than the target
+  if prev_bought_gas < gas_target:
+      gas_used_delta = prev_bought_gas - gas_target
+      base_fee_per_gas_delta = max(prev_basefee * gas_used_delta // gas_target // BASE_FEE_MAX_CHANGE_DENOMINATOR, 1)
+      now_basefee = prev_basefee + base_fee_per_gas_delta
+  elif prev_bought_gas > gas_target:
+      gas_used_delta = gas_target - prev_bought_gas
+      base_fee_per_gas_delta = prev_basefee * gas_used_delta // gas_target // BASE_FEE_MAX_CHANGE_DENOMINATOR
+      now_basefee = prev_basefee - base_fee_per_gas_delta
+
+  # TODO: we can reduce now_basefee if now_num > prev_num by multiple blocks,
+  #   since that means we had some rest on L2
+  
+  # optional: maybe reduce gas cost a little bit for spending gas on above math work
+
+require(now_bought_gas < gas_sanity_limit)  # limit how much can be bought per L1 block
+
+required_lockup = mint + (requested_gas * now_basefee)
+require(msg.value >= required_lockup)
+
+pack_and_store(now_basefee, now_num, now_bought_gas)
+```
 
 ## Rationale for burning L1 Gas
 
