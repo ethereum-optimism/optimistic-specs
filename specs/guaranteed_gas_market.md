@@ -4,25 +4,16 @@
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 **Table of Contents**
 
-- [Deposits on L1](#deposits-on-l1)
-  - [Guaranteed Gas](#guaranteed-gas)
-  - [Gas Stipend](#gas-stipend)
-  - [Additional Gas](#additional-gas)
-  - [Limiting Guaranteed Gas](#limiting-guaranteed-gas)
-  - [Rationale for Guaranteed vs Additional Gas](#rationale-for-guaranteed-vs-additional-gas)
-  - [Rationale for burning L1 Gas](#rationale-for-burning-l1-gas)
-- [Deposits on L2](#deposits-on-l2)
-  - [Guaranteed Gas On L2](#guaranteed-gas-on-l2)
-  - [Additional Gas On L2](#additional-gas-on-l2)
+- [Gas Stipend](#gas-stipend)
+- [1559 Fee Market](#1559-fee-market)
+- [Rationale for burning L1 Gas](#rationale-for-burning-l1-gas)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
-
 
 Deposited transactions (TODO: LINK) are transactions on L2 that are initiated on L1. The
 gas that they use on L2 is bought on L1 via a gas burn or a direct payment. We maintain
 a fee market and hard cap on the amount of gas provided to all deposits in a single L1
 block.
-
 
 The gas provided to deposited transactions is sometimes called "guaranteed gas". The
 gas provided to deposited transactions is unqiue in the regards that it is not
@@ -32,7 +23,6 @@ ETH to refund to it.
 The **guaranteed gas** is composed of a gas stipend, and of any guaranteed gas the user
 would like to purchase (on L1) on top of that.
 
-
 ## Gas Stipend
 
 Because there is some cost to submitting the transaction and updating the basefee,
@@ -41,7 +31,6 @@ we provide transactions with a small amount of free gas.
 If the user requests more `guaranteedGas` than the `gasStipend`, that gas will
 be bought with L1 ETH via a gas burn or by buying it directly.
 It is not refundable if the transaction uses less gas than the gas limit.
-
 
 Can also provide a stipend to the guaranteed gas of every transaction.
 The stipend is bought with gas that was spent executing the deposit logic;
@@ -53,10 +42,9 @@ TODO: How much / do we actually need this?
 If a gas stipend is provided, the user is only required to buy the amount of
 guaranteed gas in excess of the gas stipend.
 
+## 1559 Fee Market
 
-## Guaranteed Gas Fee Market
-
-When 
+When
 
 The deposit feed contract must limit the total amount of guaranteed gas in a
 single L1 block. This is to limit the amount of gas that is used on L2.
@@ -107,10 +95,8 @@ pack_and_store(curr_basefee, curr_number, curr_bought_gas)
 
 TODO: Python pseudo-code
 
-
-### Rationale for burning L1 Gas
+## Rationale for burning L1 Gas
 
 If we burn ETH (or collect it), we need to add the payable selector everywhere.
 Adding it everywhere is not feasible and really bad UX.
 We will have a payable version and offere a discout against the gas burning version.
-
