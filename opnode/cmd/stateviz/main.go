@@ -113,14 +113,11 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(*refresh)
 		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				// TODO: incremental load
-				log.Info("loading snapshot...")
-				if err := loadSnapshot(); err != nil {
-					log.Error("failed to load snapshot", "err", err)
-				}
+		for range ticker.C {
+			// TODO: incremental load
+			log.Info("loading snapshot...")
+			if err := loadSnapshot(); err != nil {
+				log.Error("failed to load snapshot", "err", err)
 			}
 		}
 	}()
