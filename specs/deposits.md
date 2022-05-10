@@ -77,6 +77,9 @@ Picking a high identifier minimizes the risk that the identifier will be used be
 transaction type on the L1 chain in the future. We don't pick `0x7F` itself in case it becomes used
 for a variable-length encoding scheme.
 
+We chose to add a version field to the deposit transaction to enable the protocol to upgrade the deposit
+transaction type without having to take another [EIP-2718] transaction type selector.
+
 ### Source hash computation
 
 The `sourceHash` of a deposit transaction is computed based on the origin:
