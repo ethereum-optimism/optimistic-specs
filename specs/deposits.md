@@ -143,7 +143,8 @@ follows:
 - `context.gas` set to `gasLimit`
 - `context.value` set to `sendValue`
 
-No gas is bought on L2 and no refund is provided.
+No gas is bought on L2 and no refund is provided. TODO: The gas used for the deposit **is**
+subtracted from the gas pool.
 
 #### Nonce Handling
 
