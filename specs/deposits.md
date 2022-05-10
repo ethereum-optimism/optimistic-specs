@@ -52,9 +52,9 @@ transaction types:
    for the rationale).
 3. They buy their L2 gas on L1 and as such, the L2 gas is not refundable.
 
-We define a new [EIP-2718] compatible transaction type with the prefix `0x7E`, and the following
-fields (rlp encoded in the order they appear here):
-TODO: Add a sub-type to this (i.e. two byte prefix and then have the following RLP)
+We define a new [EIP-2718] compatible transaction type with the prefix `0x7E`, and then a versioned
+byte sequence. The first version has `0x00` as the version byte and then ahs the following fields
+(rlp encoded in the order they appear here):
 
 [EIP-2718]: https://eips.ethereum.org/EIPS/eip-2718
 
