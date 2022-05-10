@@ -48,7 +48,7 @@ TODO - check that this is the actual plan.
 
 ## 1559 Fee Market
 
-To reduce Priority Gas Auctions (PGAS - TODO LINK/DEFINITION) and accurately price gas, we implement a 1559
+To reduce [Priority Gas Auction](./glossary.md#priority-gas-auction) and accurately price gas, we implement a 1559
 style fee market on L1 with the following pseudocode. We also use this opporunity to
 place a hard limit on the amount of guaranteed gas that is provided.
 
