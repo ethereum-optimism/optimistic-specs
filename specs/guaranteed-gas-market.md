@@ -33,6 +33,9 @@ If the user requests more `guaranteedGas` than the `gasStipend`, that gas will
 be bought with L1 ETH via a gas burn or by buying it directly. If they request
 less gas than the stipend, they will not be charged.
 
+We provide XX,XXX amount of gas in the stipend. TODO - should this be price
+rather than gas based??
+
 ## Limiting Guaranteed Gas
 
 The total amount of guaranteed gas that can be bought in a single L1 block must
