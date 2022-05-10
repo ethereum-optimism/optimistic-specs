@@ -11,20 +11,18 @@
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-Deposited transactions (TODO: LINK) are transactions on L2 that are initiated on L1. The
-gas that they use on L2 is bought on L1 via a gas burn or a direct payment. We maintain
-a fee market and hard cap on the amount of gas provided to all deposits in a single L1
-block.
+[Deposited transaction](./glossary.md#deposited-transaction) are transactions on L2
+that are initiated on L1. The gas that they use on L2 is bought on L1 via a gas burn
+or a direct payment. We maintain a fee market and hard cap on the amount of gas provided
+to all deposits in a single L1 block.
 
 The gas provided to deposited transactions is sometimes called "guaranteed gas". The
-gas provided to deposited transactions is unqiue in the regards that it is not
-refundable as it is sometimes paid for with a gas burn and there may not be any
-ETH to refund to it.
+gas provided to deposited transactions is unique in the regard that it is not
+refundable. It cannot be refunded as it is sometimes paid for with a gas burn and
+there may not be any ETH left to refund.
 
 The **guaranteed gas** is composed of a gas stipend, and of any guaranteed gas the user
 would like to purchase (on L1) on top of that.
-
-The price of L2 gas for deposits is set by a fee market on L1.
 
 ## Gas Stipend
 
@@ -40,6 +38,10 @@ less gas than the stipend, they will not be charged.
 The total amount of guaranteed gas that can be bought in a single L1 block must
 be limited to prevent a denial of service attack against L2 as well as allow the
 total amount of guaranteed gas to be below the L2 block gas limit.
+
+We set limit the total amount of gas buyable via a contract method. It will initially
+be controlled by the Optimism Multisig before being handed over to governance.
+TODO - check that this is the actual plan.
 
 ## 1559 Fee Market
 
