@@ -1,4 +1,4 @@
-# Deposit Fee Spec
+# Guaranteed Gas Fee Market
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
@@ -17,27 +17,31 @@
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-## Deposits on L1
 
-L1 Deposits are augmented with the following fields:
+Deposited transactions (TODO: LINK) are transactions on L2 that are initiated on L1. The
+gas that they use on L2 is bought on L1 via a gas burn or a direct payment. We maintain
+a fee market and hard cap on the amount of gas provided to all deposits in a single L1
+block.
 
-- `guaranteedGas`
-- `gasPrice`
-- `additionalGas`
 
-`guaranteedGas` and `additionalGas` must fit into a 64 bit unsigned integer.  
-`gasPrice` must fit into a 256 bit unsigned integer.
+The gas provided to deposited transactions is sometimes called "guaranteed gas". The
+gas provided to deposited transactions is unqiue in the regards that it is not
+refundable as it is sometimes paid for with a gas burn and there may not be any
+ETH to refund to it.
 
-### Guaranteed Gas
+The **guaranteed gas** is composed of a gas stipend, and of any guaranteed gas the user
+would like to purchase (on L1) on top of that.
 
-The **guaranteed gas** is composed of a gas stipend and any additional guaranteed
-gas the user would like to buy on L1.
+
+## Gas Stipend
+
+Because there is some cost to submitting the transaction and updating the basefee,
+we provide transactions with a small amount of free gas.
 
 If the user requests more `guaranteedGas` than the `gasStipend`, that gas will
-be bought with L1 Eth via a gas burn or by buying it directly.
+be bought with L1 ETH via a gas burn or by buying it directly.
 It is not refundable if the transaction uses less gas than the gas limit.
 
-### Gas Stipend
 
 Can also provide a stipend to the guaranteed gas of every transaction.
 The stipend is bought with gas that was spent executing the deposit logic;
@@ -46,32 +50,19 @@ guaranteed gas.
 
 TODO: How much / do we actually need this?
 
-If a gas stipend is provided, we only buy the amount of guaranteed gas
-in excess of the gas stipend.
+If a gas stipend is provided, the user is only required to buy the amount of
+guaranteed gas in excess of the gas stipend.
 
-### Additional Gas
 
-Users can request additional gas for their L2 transaction. This gas is
-refundable is less than the gas limit is used. However, if there is not
-enough available gas on L2 or the gas price not high enough, the additional
-gas will not be provided on L2.
+## Guaranteed Gas Fee Market
 
-Additional gas is bought with the following:
-
-- `gasPrice`: L2 gas price to buy.
-- `additionalGas`: Amount of additional gas requested
-
-The additional gas will be bought with the `from` account's balance. We do
-not require that the user mint enough L2 eth to cover the additional gas fee,
-but do suggest that tooling checks that the user has enough balance for it.
-
-### Limiting Guaranteed Gas
+When 
 
 The deposit feed contract must limit the total amount of guaranteed gas in a
 single L1 block. This is to limit the amount of gas that is used on L2.
 
 This is done with a hard limit on the amount of guaranteed gas that can be
-bought. To reduce PGAs if the deposit mechanism is congested, we also implement
+bought. To reduce PGAs (TODO: LINK TO DEFINITION) if the deposit mechanism is congested, we also implement
 an EIP-1559 style fee market with the following pseudo code:
 
 ```text
@@ -109,45 +100,17 @@ require(curr_bought_gas <= GUARANTEED_GAS_LIMIT)
 require(curr_bought_gas <= SANITY_GAS_LIMIT)
 gas_cost = requested_gas * curr_basefee
 
-burn(gas_cost) # Via gas or eth.
+burn(gas_cost) # Via gas or ETH.
 
 pack_and_store(curr_basefee, curr_number, curr_bought_gas)
 ```
 
-### Rationale for Guaranteed vs Additional Gas
+TODO: Python pseudo-code
 
-Need to have this additional gas mechanism to enable gas refunds.  
-Guaranteed gas cannot be refunded without opening up a DOS vector.
 
 ### Rationale for burning L1 Gas
 
-If we burn Eth (or collect it), we need to add the payable selector everywhere.
+If we burn ETH (or collect it), we need to add the payable selector everywhere.
 Adding it everywhere is not feasible and really bad UX.
+We will have a payable version and offere a discout against the gas burning version.
 
-## Deposits on L2
-
-### Guaranteed Gas On L2
-
-When processing L2 blocks, do the following:
-
-1. Sum up all guaranteed gas in deposits.
-2. Subtract the guaranteed gas from the gas pool.
-3. Don't later subtract guaranteed gas when processing deposits individually.
-
-The reason for subtracting out guaranteed gas at the start is to ensure that we have
-enough gas for all deposits in the presence of additional gas.
-
-### Additional Gas On L2
-
-Additional gas is only bought given the following conditions:
-
-- `gasPrice` >= the L2 gas price (however it is set)
-- There is enough `additionalGas` remaining in the gas pool
-- The account has enough balance to cover `gasPrice * additionalGas`
-
-If `additionalGas` is bought, the `gasLimit` of the transaction is
-`guaranteedGas + additionalGas` else it is `guaranteedGas`
-
-When the transaction is done, if `gasUsed > guaranteedGas` a refund of
-`(gasLimit - (gasUsed - guaranteedGas)) * gasPrice` is sent to
-`from`. It is important to not refund any `guaranteedGas`

@@ -50,9 +50,11 @@ transaction types:
 1. They are derived from Layer 1 blocks, and must be included as part of the protocol.
 2. They do not include signature validation (see [User-Deposited Transactions][user-deposited]
    for the rationale).
+3. They buy their L2 gas on L1 and as such, the L2 gas is not refundable.
 
 We define a new [EIP-2718] compatible transaction type with the prefix `0x7E`, and the following
 fields (rlp encoded in the order they appear here):
+TODO: Add a sub-type to this (i.e. two byte prefix and then have the following RLP)
 
 [EIP-2718]: https://eips.ethereum.org/EIPS/eip-2718
 
@@ -138,6 +140,8 @@ follows:
 - `context.gas` set to `gasLimit`
 - `context.value` set to `sendValue`
 
+No gas is bought on L2 and no refund is provided.
+
 #### Nonce Handling
 
 Despite the lack of signature validation, we still increment the nonce of the `from` account when a
@@ -163,7 +167,7 @@ This transaction MUST have the following values:
    contract][predeploy]).
 3. `mint` is `0`
 4. `value` is `0`
-5. `gasLimit` is set to the maximum available.
+5. `gasLimit` is set to TODO VALUE. PROBABLY SHOULD NOT BE THE MAX.
 6. `data` is an [ABI] encoded call to the [L1 attributes predeployed contract][predeploy]'s
    `setL1BlockValues()` function with correct values associated with the corresponding L1 block (cf.
    [reference implementation][l1-attr-ref-implem]).
@@ -239,6 +243,10 @@ feed contract][deposit-feed-contract] on L1.
 
 The deposit contract is deployed to L1. Deposited transactions are derived from the values in
 the `TransactionDeposited` event(s) emitted by the deposit contract.
+
+The deposit contract is responsible for maintaing the guaranteed gas market LINK here,
+charging deposits for gas to be used on L2, and ensuring that the total amount of guaranted
+gas in a single L1 block does not exceed the L2 block gas limit.
 
 The deposit contract handles two special cases:
 
