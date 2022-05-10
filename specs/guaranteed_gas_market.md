@@ -5,6 +5,7 @@
 **Table of Contents**
 
 - [Gas Stipend](#gas-stipend)
+- [Limiting Guaranteed Gas](#limiting-guaranteed-gas)
 - [1559 Fee Market](#1559-fee-market)
 - [Rationale for burning L1 Gas](#rationale-for-burning-l1-gas)
 
@@ -23,35 +24,28 @@ ETH to refund to it.
 The **guaranteed gas** is composed of a gas stipend, and of any guaranteed gas the user
 would like to purchase (on L1) on top of that.
 
+The price of L2 gas for deposits is set by a fee market on L1.
+
 ## Gas Stipend
 
 Because there is some cost to submitting the transaction and updating the basefee,
 we provide transactions with a small amount of free gas.
 
 If the user requests more `guaranteedGas` than the `gasStipend`, that gas will
-be bought with L1 ETH via a gas burn or by buying it directly.
-It is not refundable if the transaction uses less gas than the gas limit.
+be bought with L1 ETH via a gas burn or by buying it directly. If they request
+less gas than the stipend, they will not be charged.
 
-Can also provide a stipend to the guaranteed gas of every transaction.
-The stipend is bought with gas that was spent executing the deposit logic;
-however, the stipend still needs to be included in the sum of bought
-guaranteed gas.
+## Limiting Guaranteed Gas
 
-TODO: How much / do we actually need this?
-
-If a gas stipend is provided, the user is only required to buy the amount of
-guaranteed gas in excess of the gas stipend.
+The total amount of guaranteed gas that can be bought in a single L1 block must
+be limited to prevent a denial of service attack against L2 as well as allow the
+total amount of guaranteed gas to be below the L2 block gas limit.
 
 ## 1559 Fee Market
 
-When
-
-The deposit feed contract must limit the total amount of guaranteed gas in a
-single L1 block. This is to limit the amount of gas that is used on L2.
-
-This is done with a hard limit on the amount of guaranteed gas that can be
-bought. To reduce PGAs (TODO: LINK TO DEFINITION) if the deposit mechanism is congested, we also implement
-an EIP-1559 style fee market with the following pseudo code:
+To reduce Priority Gas Auctions (PGAS - TODO LINK/DEFINITION) and accurately price gas, we implement a 1559
+style fee market on L1 with the following pseudocode. We also use this opporunity to
+place a hard limit on the amount of guaranteed gas that is provided.
 
 ```text
 BASE_FEE_MAX_CHANGE_DENOMINATOR = 8
@@ -74,7 +68,7 @@ if curr_num != block.number {
     } else {
         gas_delta     := gas_target - curr_bought_gas
         basefee_delta := gas_delta * curr_basefee // gas_target // BASE_FEE_MAX_CHANGE_DENOMINATOR
-        // Fun fact, geth doesn't let the new_basefee get below 0 and while not in the EIP spec, we should add this as well.
+    # Fun fact, geth doesn't let the new_basefee get below 0 and while not in the EIP spec, we should add this as well.
         new_basefee   := curr_basefee - basefee_delta
     }
     curr_basefee := new_basefee
@@ -84,11 +78,10 @@ if curr_num != block.number {
 }
 
 curr_bought_gas += required_gas
-require(curr_bought_gas <= GUARANTEED_GAS_LIMIT)
-require(curr_bought_gas <= SANITY_GAS_LIMIT)
+require(curr_bought_gas <= min(GUARANTEED_GAS_LIMIT, SANITY_GAS_LIMIT)
 gas_cost = requested_gas * curr_basefee
 
-burn(gas_cost) # Via gas or ETH.
+burn(gas_cost) OR pay_to_contract(gas_cost) # Depends if payable or non-payable version
 
 pack_and_store(curr_basefee, curr_number, curr_bought_gas)
 ```
@@ -97,6 +90,12 @@ TODO: Python pseudo-code
 
 ## Rationale for burning L1 Gas
 
-If we burn ETH (or collect it), we need to add the payable selector everywhere.
-Adding it everywhere is not feasible and really bad UX.
-We will have a payable version and offere a discout against the gas burning version.
+If we collect ETH directly we need to add the payable selector. Some projects are not
+able to do this. The alternative is to burn L1 gas. Unfortunately this is quite wastefull.
+As such, we provide two options to buy L2 gas:
+
+1. Burn L1 Gas
+2. Send ETH to the Optimism Portal
+
+The payable version (Option 2) will have a TODO discout applied to it (or conversly, #1 has a premium
+applied to it).
