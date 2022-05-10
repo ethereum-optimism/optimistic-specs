@@ -5,7 +5,7 @@ OPTIMISM_PORTAL := ../../packages/contracts/contracts/L1/OptimismPortal.sol
 L1_BLOCK_INFO := ../../packages/contracts/contracts/L2/L1Block.sol
 
 
-bindings: bindings-l1-block-info bindings-optimism-portal deployed-bin-l1-block-info
+bindings: bindings-l1-block-info bindings-optimism-portal deployed-bin-l1-block-info deployed-bin-optimism-portal
 
 
 # Split up b/c I don't know how to include this step in the L1 Block Info Bindings
@@ -18,32 +18,44 @@ deployed-bin-l1-block-info: bindings-l1-block-info
 	echo "var L1blockDeployedBin = \"$(deployedBytecode)\""  >> l1block/l1_block_info_deployed.go
 	gofmt -s -w l1block/l1_block_info_deployed.go
 
+# Split up b/c I don't know how to include this step in the L1 Block Info Bindings
+# What is occuring is that the `temp` variable is hard to pull into the `eval`
+deployed-bin-optimism-portal: bindings-optimism-portal
+	$(eval deployedBytecode := $(shell cat bin/portal_deployed.hex))
+	echo "// Code generated - DO NOT EDIT." > deposit/optimism_portal_deployed.go
+	echo "// This file is a generated binding and any manual changes will be lost." >> deposit/optimism_portal_deployed.go
+	echo "package deposit" >> deposit/optimism_portal_deployed.go
+	echo "var OptimismPortalDeployedBin = \"$(deployedBytecode)\""  >> deposit/optimism_portal_deployed.go
+	gofmt -s -w deposit/optimism_portal_deployed.go
+
 bindings-l1-block-info:
 	$(eval temp := $(shell mktemp -d))
-	solc \
-		--abi $(L1_BLOCK_INFO) \
-		--bin $(L1_BLOCK_INFO) \
-		--combined-json  abi,bin,bin-runtime \
-		--allow-paths $(CONTRACTS_PATH) \
-		-o $(temp)
+	$(eval cwd := $(shell pwd))
+	mkdir -p bin
+	cd ../../packages/contracts; \
+		forge build \
+		&& forge inspect L1Block abi > $(temp)/L1Block.abi \
+		&& forge inspect L1Block bytecode > $(temp)/L1Block.bin \
+		&& forge inspect L1Block deployedBytecode > $(cwd)/bin/l1block_deployed.hex
 	abigen \
-		--combined-json $(temp)/combined.json \
+		--abi $(temp)/L1Block.abi \
+		--bin $(temp)/L1Block.bin \
 		--pkg l1block \
-		--type l1block \
+		--type L1Block \
 		--out ./l1block/l1_block_info_raw.go
-	cat $(temp)/combined.json | jq -r ".contracts | with_entries(select(.key | match(\"L1Block\")))[] | .\"bin-runtime\"" > bin/l1block_deployed.hex
-
 
 bindings-optimism-portal:
 	$(eval temp := $(shell mktemp -d))
-	solc \
-		--abi $(OPTIMISM_PORTAL) \
-		--bin $(OPTIMISM_PORTAL) \
-		--combined-json  abi,bin,bin-runtime \
-		--allow-paths $(CONTRACTS_PATH) \
-		-o $(temp)
+	$(eval cwd := $(shell pwd))
+	mkdir -p bin
+	cd ../../packages/contracts; \
+		forge build \
+		&& forge inspect OptimismPortal abi > $(temp)/OptimismPortal.abi \
+		&& forge inspect OptimismPortal bytecode > $(temp)/OptimismPortal.bin \
+		&& forge inspect OptimismPortal deployedBytecode > $(cwd)/bin/portal_deployed.hex
 	abigen \
-		--combined-json $(temp)/combined.json \
+		--abi $(temp)/OptimismPortal.abi \
+		--bin $(temp)/OptimismPortal.bin \
 		--pkg deposit \
-		--type deposit \
+		--type OptimismPortal \
 		--out ./deposit/deposit_feed_raw.go

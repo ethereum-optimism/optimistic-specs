@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
+
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup/derive"
@@ -23,10 +25,10 @@ type Source struct {
 	log     log.Logger
 }
 
-func NewSource(ll2Node *rpc.Client, genesis *rollup.Genesis, log log.Logger) (*Source, error) {
+func NewSource(l2Node *rpc.Client, genesis *rollup.Genesis, log log.Logger) (*Source, error) {
 	return &Source{
-		rpc:     ll2Node,
-		client:  ethclient.NewClient(ll2Node),
+		rpc:     l2Node,
+		client:  ethclient.NewClient(l2Node),
 		genesis: genesis,
 		log:     log,
 	}, nil
@@ -141,7 +143,7 @@ func (s *Source) GetPayload(ctx context.Context, payloadId PayloadID) (*Executio
 	var result ExecutionPayload
 	err := s.rpc.CallContext(ctx, &result, "engine_getPayloadV1", payloadId)
 	if err != nil {
-		e = log.New("payload_id", "err", err)
+		e = e.New("payload_id", "err", err)
 		if rpcErr, ok := err.(rpc.Error); ok {
 			code := ErrorCode(rpcErr.ErrorCode())
 			if code != UnavailablePayload {
@@ -182,11 +184,13 @@ func (s *Source) L2BlockRefByHash(ctx context.Context, l2Hash common.Hash) (eth.
 // falling back to genesis information if necessary.
 func blockToBlockRef(block *types.Block, genesis *rollup.Genesis) (eth.L2BlockRef, error) {
 	var l1Origin eth.BlockID
+	var sequenceNumber uint64
 	if block.NumberU64() == genesis.L2.Number {
 		if block.Hash() != genesis.L2.Hash {
 			return eth.L2BlockRef{}, fmt.Errorf("expected L2 genesis hash to match L2 block at genesis block number %d: %s <> %s", genesis.L2.Number, block.Hash(), genesis.L2.Hash)
 		}
 		l1Origin = genesis.L1
+		sequenceNumber = 0
 	} else {
 		txs := block.Transactions()
 		if len(txs) == 0 {
@@ -196,18 +200,20 @@ func blockToBlockRef(block *types.Block, genesis *rollup.Genesis) (eth.L2BlockRe
 		if tx.Type() != types.DepositTxType {
 			return eth.L2BlockRef{}, fmt.Errorf("first block tx has unexpected tx type: %d", tx.Type())
 		}
-		l1Number, _, _, l1Hash, err := derive.L1InfoDepositTxData(tx.Data())
+		info, err := derive.L1InfoDepositTxData(tx.Data())
 		if err != nil {
 			return eth.L2BlockRef{}, fmt.Errorf("failed to parse L1 info deposit tx from L2 block: %v", err)
 		}
-		l1Origin = eth.BlockID{Hash: l1Hash, Number: l1Number}
+		l1Origin = eth.BlockID{Hash: info.BlockHash, Number: info.Number}
+		sequenceNumber = info.SequenceNumber
 	}
 	return eth.L2BlockRef{
-		Hash:       block.Hash(),
-		Number:     block.NumberU64(),
-		ParentHash: block.ParentHash(),
-		Time:       block.Time(),
-		L1Origin:   l1Origin,
+		Hash:           block.Hash(),
+		Number:         block.NumberU64(),
+		ParentHash:     block.ParentHash(),
+		Time:           block.Time(),
+		L1Origin:       l1Origin,
+		SequenceNumber: sequenceNumber,
 	}, nil
 }
 
@@ -215,11 +221,13 @@ func blockToBlockRef(block *types.Block, genesis *rollup.Genesis) (eth.L2BlockRe
 // falling back to genesis information if necessary.
 func PayloadToBlockRef(payload *ExecutionPayload, genesis *rollup.Genesis) (eth.L2BlockRef, error) {
 	var l1Origin eth.BlockID
+	var sequenceNumber uint64
 	if uint64(payload.BlockNumber) == genesis.L2.Number {
 		if payload.BlockHash != genesis.L2.Hash {
 			return eth.L2BlockRef{}, fmt.Errorf("expected L2 genesis hash to match L2 block at genesis block number %d: %s <> %s", genesis.L2.Number, payload.BlockHash, genesis.L2.Hash)
 		}
 		l1Origin = genesis.L1
+		sequenceNumber = 0
 	} else {
 		if len(payload.Transactions) == 0 {
 			return eth.L2BlockRef{}, fmt.Errorf("l2 block is missing L1 info deposit tx, block hash: %s", payload.BlockHash)
@@ -231,18 +239,78 @@ func PayloadToBlockRef(payload *ExecutionPayload, genesis *rollup.Genesis) (eth.
 		if tx.Type() != types.DepositTxType {
 			return eth.L2BlockRef{}, fmt.Errorf("first payload tx has unexpected tx type: %d", tx.Type())
 		}
-		l1Number, _, _, l1Hash, err := derive.L1InfoDepositTxData(tx.Data())
+		info, err := derive.L1InfoDepositTxData(tx.Data())
 		if err != nil {
 			return eth.L2BlockRef{}, fmt.Errorf("failed to parse L1 info deposit tx from L2 block: %v", err)
 		}
-		l1Origin = eth.BlockID{Hash: l1Hash, Number: l1Number}
+		l1Origin = eth.BlockID{Hash: info.BlockHash, Number: info.Number}
+		sequenceNumber = info.SequenceNumber
 	}
 
 	return eth.L2BlockRef{
-		Hash:       payload.BlockHash,
-		Number:     uint64(payload.BlockNumber),
-		ParentHash: payload.ParentHash,
-		Time:       uint64(payload.Timestamp),
-		L1Origin:   l1Origin,
+		Hash:           payload.BlockHash,
+		Number:         uint64(payload.BlockNumber),
+		ParentHash:     payload.ParentHash,
+		Time:           uint64(payload.Timestamp),
+		L1Origin:       l1Origin,
+		SequenceNumber: sequenceNumber,
 	}, nil
+}
+
+type ReadOnlySource struct {
+	rpc     *rpc.Client       // raw RPC client. Used for methods that do not already have bindings
+	client  *ethclient.Client // go-ethereum's wrapper around the rpc client for the eth namespace
+	genesis *rollup.Genesis
+	log     log.Logger
+}
+
+func NewReadOnlySource(l2Node *rpc.Client, genesis *rollup.Genesis, log log.Logger) (*ReadOnlySource, error) {
+	return &ReadOnlySource{
+		rpc:     l2Node,
+		client:  ethclient.NewClient(l2Node),
+		genesis: genesis,
+		log:     log,
+	}, nil
+}
+
+// TODO: de-duplicate Source and ReadOnlySource.
+// We should really have a L1-downloader like binding that is more configurable and has caching.
+
+// L2BlockRefByNumber returns the canonical block and parent ids.
+func (s *ReadOnlySource) L2BlockRefByNumber(ctx context.Context, l2Num *big.Int) (eth.L2BlockRef, error) {
+	block, err := s.client.BlockByNumber(ctx, l2Num)
+	if err != nil {
+		// w%: wrap the error, we still need to detect if a canonical block is not found, a.k.a. end of chain.
+		return eth.L2BlockRef{}, fmt.Errorf("failed to determine block-hash of height %v, could not get header: %w", l2Num, err)
+	}
+	return blockToBlockRef(block, s.genesis)
+}
+
+// L2BlockRefByHash returns the block & parent ids based on the supplied hash. The returned BlockRef may not be in the canonical chain
+func (s *ReadOnlySource) L2BlockRefByHash(ctx context.Context, l2Hash common.Hash) (eth.L2BlockRef, error) {
+	block, err := s.client.BlockByHash(ctx, l2Hash)
+	if err != nil {
+		// w%: wrap the error, we still need to detect if a canonical block is not found, a.k.a. end of chain.
+		return eth.L2BlockRef{}, fmt.Errorf("failed to determine block-hash of height %v, could not get header: %w", l2Hash, err)
+	}
+	return blockToBlockRef(block, s.genesis)
+}
+
+func (s *ReadOnlySource) BlockByNumber(ctx context.Context, number *big.Int) (*types.Block, error) {
+	return s.client.BlockByNumber(ctx, number)
+}
+
+func (s *ReadOnlySource) GetBlockHeader(ctx context.Context, blockTag string) (*types.Header, error) {
+	var head *types.Header
+	err := s.rpc.CallContext(ctx, &head, "eth_getBlockByNumber", blockTag, false)
+	return head, err
+}
+
+func (s *ReadOnlySource) GetProof(ctx context.Context, address common.Address, blockTag string) (*AccountResult, error) {
+	var getProofResponse *AccountResult
+	err := s.rpc.CallContext(ctx, &getProofResponse, "eth_getProof", address, []common.Hash{}, blockTag)
+	if err == nil && getProofResponse == nil {
+		err = ethereum.NotFound
+	}
+	return getProofResponse, err
 }

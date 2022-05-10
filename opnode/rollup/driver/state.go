@@ -2,17 +2,13 @@ package driver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	gosync "sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum"
-
 	"github.com/ethereum-optimism/optimistic-specs/opnode/eth"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
-	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup/derive"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup/sync"
 	"github.com/ethereum/go-ethereum/log"
 )
@@ -30,11 +26,12 @@ type state struct {
 	sequencer bool
 
 	// Connections (in/out)
-	l1Heads <-chan eth.L1BlockRef
-	l1      L1Chain
-	l2      L2Chain
-	output  outputInterface
-	bss     BatchSubmitter
+	l1Heads          chan eth.L1BlockRef
+	unsafeL2Payloads chan *l2.ExecutionPayload
+	l1               L1Chain
+	l2               L2Chain
+	output           outputInterface
+	network          Network // may be nil, network for is optional
 
 	log  log.Logger
 	done chan struct{}
@@ -42,22 +39,26 @@ type state struct {
 	wg gosync.WaitGroup
 }
 
-func NewState(log log.Logger, config rollup.Config, l1 L1Chain, l2 L2Chain, output outputInterface, submitter BatchSubmitter, sequencer bool) *state {
+// NewState creates a new driver state. State changes take effect though the given output.
+// Optionally a network can be provided to publish things to other nodes than the engine of the driver.
+func NewState(log log.Logger, config rollup.Config, l1Chain L1Chain, l2Chain L2Chain, output outputInterface, network Network, sequencer bool) *state {
 	return &state{
-		Config:    config,
-		done:      make(chan struct{}),
-		log:       log,
-		l1:        l1,
-		l2:        l2,
-		output:    output,
-		bss:       submitter,
-		sequencer: sequencer,
+		Config:           config,
+		done:             make(chan struct{}),
+		log:              log,
+		l1:               l1Chain,
+		l2:               l2Chain,
+		output:           output,
+		network:          network,
+		sequencer:        sequencer,
+		l1Heads:          make(chan eth.L1BlockRef, 10),
+		unsafeL2Payloads: make(chan *l2.ExecutionPayload, 10),
 	}
 }
 
-// Start starts up the state loop. The context is only for initilization.
+// Start starts up the state loop. The context is only for initialization.
 // The loop will have been started iff err is not nil.
-func (s *state) Start(ctx context.Context, l1Heads <-chan eth.L1BlockRef) error {
+func (s *state) Start(ctx context.Context) error {
 	l1Head, err := s.l1.L1HeadBlockRef(ctx)
 	if err != nil {
 		return err
@@ -84,17 +85,17 @@ func (s *state) Start(ctx context.Context, l1Heads <-chan eth.L1BlockRef) error 
 		// TODO: Test this codepath. That requires setting up L1, letting it run, and then creating the L2 genesis from there.
 		// Note: This will not work for setting the the genesis normally, but if the L1 node is not yet synced we could get this case.
 		l2genesis := eth.L2BlockRef{
-			Hash:     s.Config.Genesis.L2.Hash,
-			Number:   s.Config.Genesis.L2.Number,
-			Time:     s.Config.Genesis.L2Time,
-			L1Origin: s.Config.Genesis.L1,
+			Hash:           s.Config.Genesis.L2.Hash,
+			Number:         s.Config.Genesis.L2.Number,
+			Time:           s.Config.Genesis.L2Time,
+			L1Origin:       s.Config.Genesis.L1,
+			SequenceNumber: 0,
 		}
 		s.l2Head = l2genesis
 		s.l2SafeHead = l2genesis
 	}
 
 	s.l1Head = l1Head
-	s.l1Heads = l1Heads
 
 	s.wg.Add(1)
 	go s.loop()
@@ -105,6 +106,24 @@ func (s *state) Close() error {
 	close(s.done)
 	s.wg.Wait()
 	return nil
+}
+
+func (s *state) OnL1Head(ctx context.Context, head eth.L1BlockRef) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case s.l1Heads <- head:
+		return nil
+	}
+}
+
+func (s *state) OnUnsafeL2Payload(ctx context.Context, payload *l2.ExecutionPayload) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case s.unsafeL2Payloads <- payload:
+		return nil
+	}
 }
 
 // l1WindowBufEnd returns the last block that should be used as `base` to L1ChainWindow.
@@ -185,7 +204,8 @@ func (s *state) findL1Origin(ctx context.Context) (eth.L1BlockRef, error) {
 	// Attempt to find the next L1 origin block, where the next origin is the immediate child of
 	// the current origin block.
 	nextOrigin, err := s.l1.L1BlockRefByNumber(ctx, currentOrigin.Number+1)
-	if errors.Is(err, ethereum.NotFound) {
+	if err != nil {
+		s.log.Error("Failed to get next origin. Falling back to current origin", "err", err)
 		return currentOrigin, nil
 	}
 
@@ -214,8 +234,8 @@ func (s *state) createNewL2Block(ctx context.Context) error {
 
 	// Rollup is configured to not start producing blocks until a specific L1 block has been
 	// reached. Don't produce any blocks until we're at that genesis block.
-	if l1Origin.Number <= s.Config.Genesis.L1.Number {
-		s.log.Info("Skipping block production because the next L1 Origin is behind the L1 genesis")
+	if l1Origin.Number < s.Config.Genesis.L1.Number {
+		s.log.Info("Skipping block production because the next L1 Origin is behind the L1 genesis", "next", l1Origin.ID(), "genesis", s.Config.Genesis.L1)
 		return nil
 	}
 
@@ -229,7 +249,7 @@ func (s *state) createNewL2Block(ctx context.Context) error {
 	}
 
 	// Actually create the new block.
-	newUnsafeL2Head, batch, err := s.output.createNewBlock(ctx, s.l2Head, s.l2SafeHead.ID(), s.l2Finalized, l1Origin)
+	newUnsafeL2Head, payload, err := s.output.createNewBlock(ctx, s.l2Head, s.l2SafeHead.ID(), s.l2Finalized, l1Origin)
 	if err != nil {
 		s.log.Error("Could not extend chain as sequencer", "err", err, "l2UnsafeHead", s.l2Head, "l1Origin", l1Origin)
 		return err
@@ -237,19 +257,14 @@ func (s *state) createNewL2Block(ctx context.Context) error {
 
 	// Update our L2 head block based on the new unsafe block we just generated.
 	s.l2Head = newUnsafeL2Head
-	s.log.Info("Sequenced new l2 block", "l2Head", s.l2Head, "l1Origin", s.l2Head.L1Origin, "txs", len(batch.Transactions), "time", s.l2Head.Time)
+	s.log.Info("Sequenced new l2 block", "l2Head", s.l2Head, "l1Origin", s.l2Head.L1Origin, "txs", len(payload.Transactions), "time", s.l2Head.Time)
 
-	// Submit batch to L1. Right now this is part of the Sequencer loop inside of the rollup node
-	// but it's much cleaner to have it in a separate service. Will be removed from this loop
-	// before Bedrock goes into production.
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		_, err := s.bss.Submit(&s.Config, []*derive.BatchData{batch}) // TODO: submit multiple batches
-		if err != nil {
-			s.log.Error("Error submitting batch", "err", err)
+	if s.network != nil {
+		if err := s.network.PublishL2Payload(ctx, payload); err != nil {
+			s.log.Warn("failed to publish newly created block", "id", payload.ID(), "err", err)
+			return err
 		}
-	}()
+	}
 
 	return nil
 }
@@ -296,6 +311,31 @@ func (s *state) handleEpoch(ctx context.Context) (bool, error) {
 	// TODO: l2Finalized
 	return reorg, nil
 
+}
+
+func (s *state) handleUnsafeL2Payload(ctx context.Context, payload *l2.ExecutionPayload) error {
+	if s.l2SafeHead.Number > uint64(payload.BlockNumber) {
+		s.log.Info("ignoring unsafe L2 execution payload, already have safe payload", "id", payload.ID())
+		return nil
+	}
+
+	// Note that the payload may cause reorgs. The l2SafeHead may get out of sync because of this.
+	// The engine should never reorg past the finalized block hash however.
+	// The engine may attempt syncing via p2p if there is a larger gap in the L2 chain.
+
+	l2Ref, err := l2.PayloadToBlockRef(payload, &s.Config.Genesis)
+	if err != nil {
+		return fmt.Errorf("failed to derive L2 block ref from payload: %v", err)
+	}
+
+	if err := s.output.processBlock(ctx, s.l2Head, s.l2SafeHead.ID(), s.l2Finalized, payload); err != nil {
+		return fmt.Errorf("failed to process unsafe L2 payload: %v", err)
+	}
+
+	// We successfully processed the block, so update the safe head, while leaving the safe head etc. the same.
+	s.l2Head = l2Ref
+
+	return nil
 }
 
 // loop is the event loop that responds to L1 changes and internal timers to produce L2 blocks.
@@ -366,7 +406,15 @@ func (s *state) loop() {
 			// TODO: If we want to consider confirmations, need to consider here too.
 			if s.l1Head.Number > s.l2Head.L1Origin.Number {
 				s.log.Trace("Asking for a second L2 block asap", "l2Head", s.l2Head)
-				reqL2BlockCreation()
+				// But not too quickly to minimize busy-waiting for new blocks
+				time.AfterFunc(time.Millisecond*10, reqL2BlockCreation)
+			}
+
+		case payload := <-s.unsafeL2Payloads:
+			s.log.Info("Optimistically processing unsafe L2 execution payload", "id", payload.ID())
+			err := s.handleUnsafeL2Payload(ctx, payload)
+			if err != nil {
+				s.log.Warn("Failed to process L2 execution payload received from p2p", "err", err)
 			}
 
 		case newL1Head := <-s.l1Heads:

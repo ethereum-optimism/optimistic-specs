@@ -3,10 +3,14 @@ package test
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"math/big"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/ethereum-optimism/optimistic-specs/bss"
+	"github.com/ethereum-optimism/optimistic-specs/l2os"
 	"github.com/ethereum-optimism/optimistic-specs/l2os/bindings/l2oo"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/p2p"
 	mocknet "github.com/libp2p/go-libp2p/p2p/net/mock"
@@ -14,6 +18,7 @@ import (
 	"github.com/ethereum-optimism/optimistic-specs/opnode/contracts/deposit"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/contracts/l1block"
 	rollupNode "github.com/ethereum-optimism/optimistic-specs/opnode/node"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/predeploy"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -66,6 +71,7 @@ type SystemConfig struct {
 	CliqueSignerDerivationPath string
 	L2OutputHDPath             string
 	BatchSubmitterHDPath       string
+	P2PSignerHDPath            string
 	DeployerHDPath             string
 	L1InfoPredeployAddress     common.Address
 
@@ -76,7 +82,7 @@ type SystemConfig struct {
 	L1WsPort     int
 	L1ChainID    *big.Int
 	L2ChainID    *big.Int
-	Nodes        map[string]rollupNode.Config // Per node config. Don't use populate rollup.Config
+	Nodes        map[string]*rollupNode.Config // Per node config. Don't use populate rollup.Config
 	Loggers      map[string]log.Logger
 	RollupConfig rollup.Config // Shared rollup configs
 
@@ -95,14 +101,17 @@ type System struct {
 	wallet *hdwallet.Wallet
 
 	// Connections to running nodes
-	nodes               map[string]*node.Node
-	backends            map[string]*eth.Ethereum
-	Clients             map[string]*ethclient.Client
-	RolupGenesis        rollup.Genesis
-	rollupNodes         map[string]*rollupNode.OpNode
-	L2OOContractAddr    common.Address
-	DepositContractAddr common.Address
-	Mocknet             mocknet.Mocknet
+	nodes                      map[string]*node.Node
+	backends                   map[string]*eth.Ethereum
+	Clients                    map[string]*ethclient.Client
+	RolupGenesis               rollup.Genesis
+	rollupNodes                map[string]*rollupNode.OpNode
+	l2OutputSubmitter          *l2os.L2OutputSubmitter
+	sequencerHistoryDBFileName string
+	batchSubmitter             *bss.BatchSubmitter
+	L2OOContractAddr           common.Address
+	DepositContractAddr        common.Address
+	Mocknet                    mocknet.Mocknet
 }
 
 func precompileAlloc() core.GenesisAlloc {
@@ -132,8 +141,18 @@ func cliqueExtraData(w accounts.Wallet, signers []string) []byte {
 }
 
 func (sys *System) Close() {
+	if sys.l2OutputSubmitter != nil {
+		sys.l2OutputSubmitter.Stop()
+	}
+	if sys.batchSubmitter != nil {
+		sys.batchSubmitter.Stop()
+	}
+	if sys.sequencerHistoryDBFileName != "" {
+		_ = os.Remove(sys.sequencerHistoryDBFileName)
+	}
+
 	for _, node := range sys.rollupNodes {
-		node.Stop()
+		node.Close()
 	}
 	for _, node := range sys.nodes {
 		node.Close()
@@ -153,7 +172,7 @@ func (cfg SystemConfig) start() (*System, error) {
 	defer func() {
 		if didErrAfterStart {
 			for _, node := range sys.rollupNodes {
-				node.Stop()
+				node.Close()
 			}
 			for _, node := range sys.nodes {
 				node.Close()
@@ -178,6 +197,16 @@ func (cfg SystemConfig) start() (*System, error) {
 		return nil, err
 	}
 	batchSubmitterAddr := crypto.PubkeyToAddress(bssPrivKey.PublicKey)
+
+	p2pSignerPrivKey, err := wallet.PrivateKey(accounts.Account{
+		URL: accounts.URL{
+			Path: cfg.P2PSignerHDPath,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	p2pSignerAddr := crypto.PubkeyToAddress(p2pSignerPrivKey.PublicKey)
 
 	// Create the L2 Outputsubmitter Address and set it here because it needs to be derived from the accounts
 	l2OOSubmitter, err := wallet.PrivateKey(accounts.Account{
@@ -205,6 +234,7 @@ func (cfg SystemConfig) start() (*System, error) {
 	}
 
 	l2Alloc[cfg.L1InfoPredeployAddress] = core.GenesisAccount{Code: common.FromHex(l1block.L1blockDeployedBin), Balance: common.Big0}
+	l2Alloc[predeploy.WithdrawalContractAddress] = core.GenesisAccount{Code: []byte{}, Balance: common.Big0}
 
 	genesisTimestamp := uint64(time.Now().Unix())
 
@@ -334,6 +364,7 @@ func (cfg SystemConfig) start() (*System, error) {
 
 	sys.cfg.RollupConfig.Genesis = sys.RolupGenesis
 	sys.cfg.RollupConfig.BatchSenderAddress = batchSubmitterAddr
+	sys.cfg.RollupConfig.P2PSequencerAddress = p2pSignerAddr
 	sys.cfg.L2OOCfg.L2StartTime = new(big.Int).SetUint64(l2GenesisTime)
 
 	// Deploy Deposit Contract
@@ -414,10 +445,7 @@ func (cfg SystemConfig) start() (*System, error) {
 				return nil, fmt.Errorf("failed to setup mocknet peer %s", k)
 			}
 			for _, v := range vs {
-				unconnected := strings.HasPrefix(v, "~")
-				if unconnected {
-					v = v[1:]
-				}
+				v = strings.TrimPrefix(v, "~")
 				peerB, err := initHostMaybe(v)
 				if err != nil {
 					return nil, fmt.Errorf("failed to setup mocknet peer %s (peer of %s)", v, k)
@@ -425,24 +453,22 @@ func (cfg SystemConfig) start() (*System, error) {
 				if _, err := sys.Mocknet.LinkPeers(peerA.HostP2P.ID(), peerB.HostP2P.ID()); err != nil {
 					return nil, fmt.Errorf("failed to setup mocknet link between %s and %s", k, v)
 				}
-				if !unconnected {
-					if _, err := sys.Mocknet.ConnectPeers(peerA.HostP2P.ID(), peerB.HostP2P.ID()); err != nil {
-						return nil, fmt.Errorf("failed to setup mocknet connection between %s and %s", k, v)
-					}
-				}
+				// connect the peers after starting the full rollup node
 			}
 		}
 	}
 	// Rollup nodes
 	for name, nodeConfig := range cfg.Nodes {
-		c := nodeConfig
+		c := *nodeConfig // copy
 		c.Rollup = sys.cfg.RollupConfig
 		c.Rollup.DepositContractAddress = sys.DepositContractAddr
-		if c.Sequencer {
-			c.SubmitterPrivKey = bssPrivKey
-		}
+
 		if p, ok := p2pNodes[name]; ok {
 			c.P2P = p
+
+			if c.Sequencer {
+				c.P2PSigner = &p2p.PreparedSigner{Signer: p2p.NewLocalSigner(p2pSignerPrivKey)}
+			}
 		}
 
 		node, err := rollupNode.New(context.Background(), &c, cfg.Loggers[name], "")
@@ -456,7 +482,92 @@ func (cfg SystemConfig) start() (*System, error) {
 			return nil, err
 		}
 		sys.rollupNodes[name] = node
+	}
 
+	if cfg.P2PTopology != nil {
+		// We only set up the connections after starting the actual nodes,
+		// so GossipSub and other p2p protocols can be started before the connections go live.
+		// This way protocol negotiation happens correctly.
+		for k, vs := range cfg.P2PTopology {
+			peerA := p2pNodes[k]
+			for _, v := range vs {
+				unconnected := strings.HasPrefix(v, "~")
+				if unconnected {
+					v = v[1:]
+				}
+				if !unconnected {
+					peerB := p2pNodes[v]
+					if _, err := sys.Mocknet.ConnectPeers(peerA.HostP2P.ID(), peerB.HostP2P.ID()); err != nil {
+						return nil, fmt.Errorf("failed to setup mocknet connection between %s and %s", k, v)
+					}
+				}
+			}
+		}
+	}
+
+	rollupEndpoint := fmt.Sprintf(
+		"http://%s:%d",
+		sys.cfg.Nodes["sequencer"].RPC.ListenAddr,
+		sys.cfg.Nodes["sequencer"].RPC.ListenPort,
+	)
+
+	// L2Output Submitter
+	sys.l2OutputSubmitter, err = l2os.NewL2OutputSubmitter(l2os.Config{
+		L1EthRpc:                  "ws://127.0.0.1:9090",
+		L2EthRpc:                  sys.cfg.Nodes["sequencer"].L2NodeAddr,
+		RollupRpc:                 rollupEndpoint,
+		L2OOAddress:               sys.L2OOContractAddr.String(),
+		PollInterval:              50 * time.Millisecond,
+		NumConfirmations:          1,
+		ResubmissionTimeout:       3 * time.Second,
+		SafeAbortNonceTooLowCount: 3,
+		LogLevel:                  "info",
+		LogTerminal:               true,
+		Mnemonic:                  sys.cfg.Mnemonic,
+		L2OutputHDPath:            sys.cfg.L2OutputHDPath,
+	}, "", log.New())
+	if err != nil {
+		return nil, fmt.Errorf("unable to setup l2 output submitter: %w", err)
+	}
+
+	if err := sys.l2OutputSubmitter.Start(); err != nil {
+		return nil, fmt.Errorf("unable to start l2 output submitter: %w", err)
+	}
+
+	sequencerHistoryDBFile, err := ioutil.TempFile("", "bss.*.json")
+	if err != nil {
+		return nil, fmt.Errorf("unable to create sequencer history db file: %w", err)
+	}
+	sys.sequencerHistoryDBFileName = sequencerHistoryDBFile.Name()
+	if err = sequencerHistoryDBFile.Close(); err != nil {
+		return nil, fmt.Errorf("unable to close sequencer history db file: %w", err)
+	}
+
+	// Batch Submitter
+	sys.batchSubmitter, err = bss.NewBatchSubmitter(bss.Config{
+		L1EthRpc:                   "ws://127.0.0.1:9090",
+		L2EthRpc:                   sys.cfg.Nodes["sequencer"].L2NodeAddr,
+		RollupRpc:                  rollupEndpoint,
+		MinL1TxSize:                1,
+		MaxL1TxSize:                120000,
+		PollInterval:               50 * time.Millisecond,
+		NumConfirmations:           1,
+		ResubmissionTimeout:        5 * time.Second,
+		SafeAbortNonceTooLowCount:  3,
+		LogLevel:                   "info",
+		LogTerminal:                true,
+		Mnemonic:                   sys.cfg.Mnemonic,
+		SequencerHDPath:            sys.cfg.BatchSubmitterHDPath,
+		SequencerHistoryDBFilename: sys.sequencerHistoryDBFileName,
+		SequencerGenesisHash:       sys.RolupGenesis.L2.Hash.String(),
+		SequencerBatchInboxAddress: sys.cfg.RollupConfig.BatchInboxAddress.String(),
+	}, "", log.New())
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup batch submitter: %w", err)
+	}
+
+	if err := sys.batchSubmitter.Start(); err != nil {
+		return nil, fmt.Errorf("unable to start batch submitter: %w", err)
 	}
 
 	return sys, nil

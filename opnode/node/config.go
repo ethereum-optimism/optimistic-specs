@@ -1,13 +1,11 @@
 package node
 
 import (
-	"crypto/ecdsa"
 	"fmt"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/p2p"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
-	"github.com/ethereum/go-ethereum/common"
 )
 
 type Config struct {
@@ -26,14 +24,21 @@ type Config struct {
 	// Sequencer flag, enables sequencing
 	Sequencer bool
 
-	// SubmitterPrivKey, temporary config var while the batch-submitter is part of the rollup node
-	SubmitterPrivKey *ecdsa.PrivateKey
+	// P2PSigner will be used for signing off on published content
+	// if the node is sequencing and if the p2p stack is enabled
+	P2PSigner p2p.SignerSetup
 
-	RPCListenAddr          string
-	RPCListenPort          int
-	WithdrawalContractAddr common.Address
+	RPC RPCConfig
 
 	P2P p2p.SetupP2P
+
+	// Optional
+	Tracer Tracer
+}
+
+type RPCConfig struct {
+	ListenAddr string
+	ListenPort int
 }
 
 // Check verifies that the given configuration makes sense

@@ -2,19 +2,21 @@ package test
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"math/big"
 	"testing"
 	"time"
 
-	"github.com/ethereum-optimism/optimistic-specs/l2os"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/l2"
+	"github.com/libp2p/go-libp2p-core/peer"
+
 	"github.com/ethereum-optimism/optimistic-specs/l2os/bindings/l2oo"
 	"github.com/ethereum-optimism/optimistic-specs/l2os/rollupclient"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/contracts/deposit"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/contracts/l1block"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/internal/testlog"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/node"
 	rollupNode "github.com/ethereum-optimism/optimistic-specs/opnode/node"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/rollup/derive"
@@ -52,6 +54,11 @@ const (
 	transactorHDPath   = "m/44'/60'/0'/0/1"
 	l2OutputHDPath     = "m/44'/60'/0'/0/3"
 	bssHDPath          = "m/44'/60'/0'/0/4"
+	p2pSignerHDPath    = "m/44'/60'/0'/0/5"
+)
+
+var (
+	batchInboxAddress = common.Address{0xff, 0x02}
 )
 
 func defaultSystemConfig(t *testing.T) SystemConfig {
@@ -74,6 +81,7 @@ func defaultSystemConfig(t *testing.T) SystemConfig {
 		},
 		L2OutputHDPath:             l2OutputHDPath,
 		BatchSubmitterHDPath:       bssHDPath,
+		P2PSignerHDPath:            p2pSignerHDPath,
 		DeployerHDPath:             l2OutputHDPath,
 		CliqueSignerDerivationPath: cliqueSignerHDPath,
 		L1InfoPredeployAddress:     derive.L1InfoPredeployAddr,
@@ -82,7 +90,7 @@ func defaultSystemConfig(t *testing.T) SystemConfig {
 		L1WsPort:                   9090,
 		L1ChainID:                  big.NewInt(900),
 		L2ChainID:                  big.NewInt(901),
-		Nodes: map[string]rollupNode.Config{
+		Nodes: map[string]*rollupNode.Config{
 			"verifier": {
 				L1NodeAddr:    "ws://127.0.0.1:9090",
 				L2EngineAddrs: []string{"ws://127.0.0.1:9091"},
@@ -96,22 +104,26 @@ func defaultSystemConfig(t *testing.T) SystemConfig {
 				L1TrustRPC:    false,
 				Sequencer:     true,
 				// Submitter PrivKey is set in system start for rollup nodes where sequencer = true
-				RPCListenAddr: "127.0.0.1",
-				RPCListenPort: 9093,
+				RPC: node.RPCConfig{
+					ListenAddr: "127.0.0.1",
+					ListenPort: 9093,
+				},
 			},
 		},
 		Loggers: map[string]log.Logger{
-			"verifier":  testlog.Logger(t, log.LvlError),
-			"sequencer": testlog.Logger(t, log.LvlError),
+			"verifier":  testlog.Logger(t, log.LvlError).New("role", "verifier"),
+			"sequencer": testlog.Logger(t, log.LvlError).New("role", "sequencer"),
 		},
 		RollupConfig: rollup.Config{
 			BlockTime:         1,
 			MaxSequencerDrift: 10,
 			SeqWindowSize:     2,
 			L1ChainID:         big.NewInt(900),
+			L2ChainID:         big.NewInt(901),
 			// TODO pick defaults
+			P2PSequencerAddress: common.Address{}, // TODO configure sequencer p2p key
 			FeeRecipientAddress: common.Address{0xff, 0x01},
-			BatchInboxAddress:   common.Address{0xff, 0x02},
+			BatchInboxAddress:   batchInboxAddress,
 			// Batch Sender address is filled out in system start
 			DepositContractAddress: MockDepositContractAddr,
 		},
@@ -132,7 +144,7 @@ func TestL2OutputSubmitter(t *testing.T) {
 
 	l1Client := sys.Clients["l1"]
 
-	rollupRPCClient, err := rpc.DialContext(context.Background(), fmt.Sprintf("http://%s:%d", cfg.Nodes["sequencer"].RPCListenAddr, cfg.Nodes["sequencer"].RPCListenPort))
+	rollupRPCClient, err := rpc.DialContext(context.Background(), fmt.Sprintf("http://%s:%d", cfg.Nodes["sequencer"].RPC.ListenAddr, cfg.Nodes["sequencer"].RPC.ListenPort))
 	require.Nil(t, err)
 	rollupClient := rollupclient.NewRollupClient(rollupRPCClient)
 
@@ -142,26 +154,6 @@ func TestL2OutputSubmitter(t *testing.T) {
 
 	initialSroTimestamp, err := l2OutputOracle.LatestBlockTimestamp(&bind.CallOpts{})
 	require.Nil(t, err)
-
-	// L2Output Submitter
-	l2OutputSubmitter, err := l2os.NewL2OutputSubmitter(l2os.Config{
-		L1EthRpc:                  "ws://127.0.0.1:9090",
-		L2EthRpc:                  cfg.Nodes["sequencer"].L2NodeAddr,
-		RollupRpc:                 fmt.Sprintf("http://%s:%d", cfg.Nodes["sequencer"].RPCListenAddr, cfg.Nodes["sequencer"].RPCListenPort),
-		L2OOAddress:               sys.L2OOContractAddr.String(),
-		PollInterval:              2 * time.Second,
-		NumConfirmations:          1,
-		ResubmissionTimeout:       3 * time.Second,
-		SafeAbortNonceTooLowCount: 3,
-		LogLevel:                  "error",
-		Mnemonic:                  cfg.Mnemonic,
-		L2OutputHDPath:            l2OutputHDPath,
-	}, "")
-	require.Nil(t, err)
-
-	err = l2OutputSubmitter.Start()
-	require.Nil(t, err)
-	defer l2OutputSubmitter.Stop()
 
 	// Wait for batch submitter to update L2 output oracle.
 	timeoutCh := time.After(15 * time.Second)
@@ -212,6 +204,7 @@ func TestSystemE2E(t *testing.T) {
 	if !verboseGethNodes {
 		log.Root().SetHandler(log.DiscardHandler())
 	}
+
 	cfg := defaultSystemConfig(t)
 
 	sys, err := cfg.start()
@@ -383,8 +376,6 @@ func TestMissingBatchE2E(t *testing.T) {
 	cfg := defaultSystemConfig(t)
 	// Specifically set batch submitter balance to stop batches from being included
 	cfg.Premine[bssHDPath] = 0
-	// Don't pollute log with expected "Error submitting batch" logs
-	cfg.Loggers["sequencer"] = testlog.Logger(t, log.LvlCrit)
 
 	sys, err := cfg.start()
 	require.Nil(t, err, "Error starting up system")
@@ -447,25 +438,15 @@ func L1InfoFromState(ctx context.Context, contract *l1block.L1Block, l2Number *b
 		Context:     ctx,
 	}
 
-	number, err := contract.Number(&opts)
+	out.Number, err = contract.Number(&opts)
 	if err != nil {
 		return derive.L1BlockInfo{}, fmt.Errorf("failed to get number: %w", err)
 	}
-	if !number.IsUint64() {
-		return derive.L1BlockInfo{}, errors.New("number does not fit in a uint64")
 
-	}
-	out.Number = number.Uint64()
-
-	time, err := contract.Timestamp(&opts)
+	out.Time, err = contract.Timestamp(&opts)
 	if err != nil {
 		return derive.L1BlockInfo{}, fmt.Errorf("failed to get timestamp: %w", err)
 	}
-	if !time.IsUint64() {
-		return derive.L1BlockInfo{}, errors.New("time does not fit in a uint64")
-
-	}
-	out.Time = time.Uint64()
 
 	out.BaseFee, err = contract.Basefee(&opts)
 	if err != nil {
@@ -478,6 +459,11 @@ func L1InfoFromState(ctx context.Context, contract *l1block.L1Block, l2Number *b
 	}
 	out.BlockHash = common.BytesToHash(blockHashBytes[:])
 
+	out.SequenceNumber, err = contract.SequenceNumber(&opts)
+	if err != nil {
+		return derive.L1BlockInfo{}, fmt.Errorf("failed to get sequence number: %w", err)
+	}
+
 	return out, nil
 }
 
@@ -489,20 +475,70 @@ func TestSystemMockP2P(t *testing.T) {
 	}
 
 	cfg := defaultSystemConfig(t)
-	// slow down L1 blocks so we can see the L2 blocks arrive before the L1 blocks do.
+	// slow down L1 blocks so we can see the L2 blocks arrive well before the L1 blocks do.
+	// Keep the seq window small so the L2 chain is started quick
 	cfg.L1BlockTime = 10
+
 	// connect the nodes
 	cfg.P2PTopology = map[string][]string{
 		"verifier": []string{"sequencer"},
 	}
 
+	var published, received []common.Hash
+	seqTracer, verifTracer := new(FnTracer), new(FnTracer)
+	seqTracer.OnPublishL2PayloadFn = func(ctx context.Context, payload *l2.ExecutionPayload) {
+		published = append(published, payload.BlockHash)
+	}
+	verifTracer.OnUnsafeL2PayloadFn = func(ctx context.Context, from peer.ID, payload *l2.ExecutionPayload) {
+		received = append(received, payload.BlockHash)
+	}
+	cfg.Nodes["sequencer"].Tracer = seqTracer
+	cfg.Nodes["verifier"].Tracer = verifTracer
+
 	sys, err := cfg.start()
 	require.Nil(t, err, "Error starting up system")
 	defer sys.Close()
 
-	t.Log("successfully set up network")
+	l2Seq := sys.Clients["sequencer"]
+	l2Verif := sys.Clients["verifier"]
 
-	// TODO: await L2 blocks going from sequencer to verifier, ahead of L1
+	// Transactor Account
+	ethPrivKey, err := sys.wallet.PrivateKey(accounts.Account{
+		URL: accounts.URL{
+			Path: transactorHDPath,
+		},
+	})
+	require.Nil(t, err)
+
+	// Submit TX to L2 sequencer node
+	toAddr := common.Address{0xff, 0xff}
+	tx := types.MustSignNewTx(ethPrivKey, types.LatestSignerForChainID(cfg.L2ChainID), &types.DynamicFeeTx{
+		ChainID:   cfg.L2ChainID,
+		Nonce:     0,
+		To:        &toAddr,
+		Value:     big.NewInt(1_000_000_000),
+		GasTipCap: big.NewInt(10),
+		GasFeeCap: big.NewInt(200),
+		Gas:       21000,
+	})
+	err = l2Seq.SendTransaction(context.Background(), tx)
+	require.Nil(t, err, "Sending L2 tx to sequencer")
+
+	// Wait for tx to be mined on the L2 sequencer chain
+	receiptSeq, err := waitForTransaction(tx.Hash(), l2Seq, 3*time.Duration(cfg.RollupConfig.BlockTime)*time.Second)
+	require.Nil(t, err, "Waiting for L2 tx on sequencer")
+
+	// Wait until the block it was first included in shows up in the safe chain on the verifier
+	receiptVerif, err := waitForTransaction(tx.Hash(), l2Verif, 3*time.Duration(cfg.RollupConfig.BlockTime)*time.Second)
+	require.Nil(t, err, "Waiting for L2 tx on verifier")
+
+	require.Equal(t, receiptSeq, receiptVerif)
+
+	// Verify that everything that was published was received
+	require.Equal(t, published, received)
+
+	// Verify that the tx was received via p2p
+	require.Contains(t, published, receiptVerif.BlockHash)
 }
 
 func TestL1InfoContract(t *testing.T) {
@@ -539,8 +575,8 @@ func TestL1InfoContract(t *testing.T) {
 	fillInfoLists := func(start *types.Block, contract *l1block.L1Block, client *ethclient.Client) ([]derive.L1BlockInfo, []derive.L1BlockInfo) {
 		var txList, stateList []derive.L1BlockInfo
 		for b := start; ; {
-			infoFromTx, err := derive.L1InfoDepositTxDataToStruct(b.Transactions()[0].Data())
-			require.Nil(t, err)
+			var infoFromTx derive.L1BlockInfo
+			require.NoError(t, infoFromTx.UnmarshalBinary(b.Transactions()[0].Data()))
 			txList = append(txList, infoFromTx)
 
 			infoFromState, err := L1InfoFromState(ctx, contract, b.Number())
@@ -566,10 +602,11 @@ func TestL1InfoContract(t *testing.T) {
 		require.Nil(t, err)
 
 		l1blocks[h] = derive.L1BlockInfo{
-			Number:    b.NumberU64(),
-			Time:      b.Time(),
-			BaseFee:   b.BaseFee(),
-			BlockHash: h,
+			Number:         b.NumberU64(),
+			Time:           b.Time(),
+			BaseFee:        b.BaseFee(),
+			BlockHash:      h,
+			SequenceNumber: 0, // ignored, will be overwritten
 		}
 
 		h = b.ParentHash()
@@ -581,9 +618,9 @@ func TestL1InfoContract(t *testing.T) {
 	checkInfoList := func(name string, list []derive.L1BlockInfo) {
 		for _, info := range list {
 			if expected, ok := l1blocks[info.BlockHash]; ok {
+				expected.SequenceNumber = info.SequenceNumber // the seq nr is not part of the L1 info we know in advance, so we ignore it.
 				require.Equal(t, expected, info)
 			} else {
-
 				t.Fatalf("Did not find block hash for L1 Info: %v in test %s", info, name)
 			}
 		}

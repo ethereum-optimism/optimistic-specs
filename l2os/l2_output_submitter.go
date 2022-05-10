@@ -34,23 +34,39 @@ func Main(version string) func(ctx *cli.Context) error {
 	return func(ctx *cli.Context) error {
 		cfg := NewConfig(ctx)
 
-		log.Info("Initializing L2 Output Submitter")
+		// Set up our logging to stdout.
+		var logHandler log.Handler
+		if cfg.LogTerminal {
+			logHandler = log.StreamHandler(os.Stdout, log.TerminalFormat(true))
+		} else {
+			logHandler = log.StreamHandler(os.Stdout, log.JSONFormat())
+		}
 
-		l2OutputSubmitter, err := NewL2OutputSubmitter(cfg, version)
+		logLevel, err := log.LvlFromString(cfg.LogLevel)
 		if err != nil {
-			log.Error("Unable to create L2 Output Submitter", "error", err)
 			return err
 		}
 
-		log.Info("Starting L2 Output Submitter")
+		l := log.New()
+		l.SetHandler(log.LvlFilterHandler(logLevel, logHandler))
+
+		l.Info("Initializing L2 Output Submitter")
+
+		l2OutputSubmitter, err := NewL2OutputSubmitter(cfg, version, l)
+		if err != nil {
+			l.Error("Unable to create L2 Output Submitter", "error", err)
+			return err
+		}
+
+		l.Info("Starting L2 Output Submitter")
 
 		if err := l2OutputSubmitter.Start(); err != nil {
-			log.Error("Unable to start L2 Output Submitter", "error", err)
+			l.Error("Unable to start L2 Output Submitter", "error", err)
 			return err
 		}
 		defer l2OutputSubmitter.Stop()
 
-		log.Info("L2 Output Submitter started")
+		l.Info("L2 Output Submitter started")
 
 		interruptChannel := make(chan os.Signal, 1)
 		signal.Notify(interruptChannel, []os.Signal{
@@ -74,18 +90,13 @@ type L2OutputSubmitter struct {
 
 // NewL2OutputSubmitter initializes the L2OutputSubmitter, gathering any resources
 // that will be needed during operation.
-func NewL2OutputSubmitter(cfg Config, gitVersion string) (*L2OutputSubmitter, error) {
+func NewL2OutputSubmitter(
+	cfg Config,
+	gitVersion string,
+	l log.Logger,
+) (*L2OutputSubmitter, error) {
+
 	ctx := context.Background()
-
-	// Set up our logging to stdout.
-	logHandler := log.StreamHandler(os.Stdout, log.TerminalFormat(true))
-
-	logLevel, err := log.LvlFromString(cfg.LogLevel)
-	if err != nil {
-		return nil, err
-	}
-
-	log.Root().SetHandler(log.LvlFilterHandler(logLevel, logHandler))
 
 	// Parse l2output wallet private key and L2OO contract address.
 	wallet, err := hdwallet.NewFromMnemonic(cfg.Mnemonic)
@@ -119,7 +130,7 @@ func NewL2OutputSubmitter(cfg Config, gitVersion string) (*L2OutputSubmitter, er
 		return nil, err
 	}
 
-	rollupClient, err := dialRpcClientWithTimeout(ctx, cfg.RollupRpc)
+	rollupClient, err := dialRollupClientWithTimeout(ctx, cfg.RollupRpc)
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +141,8 @@ func NewL2OutputSubmitter(cfg Config, gitVersion string) (*L2OutputSubmitter, er
 	}
 
 	txManagerConfig := txmgr.Config{
+		Log:                       l,
+		Name:                      "L2Output Submitter",
 		ResubmissionTimeout:       cfg.ResubmissionTimeout,
 		ReceiptQueryInterval:      time.Second,
 		NumConfirmations:          cfg.NumConfirmations,
@@ -137,10 +150,11 @@ func NewL2OutputSubmitter(cfg Config, gitVersion string) (*L2OutputSubmitter, er
 	}
 
 	l2OutputDriver, err := l2output.NewDriver(l2output.Config{
+		Log:          l,
 		Name:         "L2Output Submitter",
 		L1Client:     l1Client,
 		L2Client:     l2Client,
-		RollupClient: rollupclient.NewRollupClient(rollupClient),
+		RollupClient: rollupClient,
 		L2OOAddr:     l2ooAddress,
 		ChainID:      chainID,
 		PrivKey:      l2OutputPrivKey,
@@ -150,6 +164,7 @@ func NewL2OutputSubmitter(cfg Config, gitVersion string) (*L2OutputSubmitter, er
 	}
 
 	l2OutputService := NewService(ServiceConfig{
+		Log:             l,
 		Context:         ctx,
 		Driver:          l2OutputDriver,
 		PollInterval:    cfg.PollInterval,
@@ -183,14 +198,19 @@ func dialEthClientWithTimeout(ctx context.Context, url string) (
 	return ethclient.DialContext(ctxt, url)
 }
 
-// dialRpcClientWithTimeout attempts to dial the RPC provider using the provided
+// dialRollupClientWithTimeout attempts to dial the RPC provider using the provided
 // URL. If the dial doesn't complete within defaultDialTimeout seconds, this
 // method will return an error.
-func dialRpcClientWithTimeout(ctx context.Context, url string) (*rpc.Client, error) {
+func dialRollupClientWithTimeout(ctx context.Context, url string) (*rollupclient.RollupClient, error) {
 	ctxt, cancel := context.WithTimeout(ctx, defaultDialTimeout)
 	defer cancel()
 
-	return rpc.DialContext(ctxt, url)
+	client, err := rpc.DialContext(ctxt, url)
+	if err != nil {
+		return nil, err
+	}
+
+	return rollupclient.NewRollupClient(client), nil
 }
 
 // parseAddress parses an ETH address from a hex string. This method will fail if
