@@ -292,6 +292,12 @@ abstract contract StandardBridge {
     /**
      * @notice Check to make sure that the token pair is an OptimismMintable
      * token pair.
+     * The selector 0x1d1d8b63 represents the ERC165 representation of
+     * the methods l1Token(), mint(address,uint256), burn(address,uint256)
+     * the selector 0x0bc32271 represents the ERC165 representation of
+     * remoteToken(), mint(address,uint256), burn(address,uint256).
+     * Both are required as l1Token() is a legacy function, prefer calling
+     * remoteToken()
      */
     function _isOptimismMintable(address _localToken, address _remoteToken)
         internal
