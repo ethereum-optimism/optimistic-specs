@@ -3,6 +3,7 @@ package opnode
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/log"
 	"os"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/flags"
@@ -83,7 +84,7 @@ func NewLogConfig(ctx *cli.Context) (node.LogConfig, error) {
 
 func NewSnapshotLogger(ctx *cli.Context) (log.Logger, error) {
 	snapshotFile := ctx.GlobalString(flags.SnapshotLog.Name)
-	handler := log.StreamHandler(os.Stdout, log.JSONFormat())
+	handler := log.DiscardHandler()
 	if snapshotFile != "" {
 		var err error
 		handler, err = log.FileHandler(snapshotFile, log.JSONFormat())

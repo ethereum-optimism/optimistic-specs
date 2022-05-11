@@ -74,7 +74,7 @@ func NewDriver(cfg rollup.Config, l2 *l2.Source, l1 *l1.Source, network Network,
 		log:    log,
 	}
 	return &Driver{
-		s: NewState(log, cfg, l1, l2, output, network, snapshotLog sequencer),
+		s: NewState(log, snapshotLog, cfg, l1, l2, output, network, sequencer),
 	}
 }
 
