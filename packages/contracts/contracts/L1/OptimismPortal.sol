@@ -16,11 +16,6 @@ contract OptimismPortal {
      **********/
 
     /**
-     * @notice Error emitted when attempting to finalize a withdrawal too early.
-     */
-    error NotYetFinal();
-
-    /**
      * @notice Error emitted when the output root proof is invalid.
      */
     error InvalidOutputRootProof();
@@ -186,7 +181,7 @@ contract OptimismPortal {
         // before allowing a withdrawal. A fault proof should be submitted
         // before this check is allowed to pass.
         require(
-            block.timestamp < proposal.timestamp + FINALIZATION_PERIOD,
+            block.timestamp > proposal.timestamp + FINALIZATION_PERIOD,
             "Proposal is not yet finalized."
         );
 
