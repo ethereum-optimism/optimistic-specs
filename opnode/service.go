@@ -3,8 +3,9 @@ package opnode
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ethereum/go-ethereum/log"
 	"os"
+
+	"github.com/ethereum/go-ethereum/log"
 
 	"github.com/ethereum-optimism/optimistic-specs/opnode/flags"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/node"
