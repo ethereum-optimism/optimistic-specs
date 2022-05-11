@@ -178,7 +178,7 @@ func TestL2OutputSubmitter(t *testing.T) {
 			require.Nil(t, err)
 			require.Len(t, l2Output, 2)
 
-			require.Equal(t, l2Output[1][:], committedL2Output[:])
+			require.Equal(t, l2Output[1][:], committedL2Output.OutputRoot[:])
 			break
 		}
 
