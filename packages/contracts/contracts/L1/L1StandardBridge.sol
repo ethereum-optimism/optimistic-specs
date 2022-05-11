@@ -62,7 +62,8 @@ contract L1StandardBridge is StandardBridge {
     }
 
     /**
-     * @dev get the address of the corresponding L2 bridge contract.
+     * @dev Get the address of the corresponding L2 bridge contract.
+     *      This is a legacy getter, provided for backwards compatibility.
      * @return Address of the corresponding L2 bridge contract.
      */
     function l2TokenBridge() external returns (address) {

@@ -65,6 +65,8 @@ contract L2ToL1MessagePasser {
 
     /**
      * @notice Initiates a withdrawal to execute on L1.
+     * TODO: message hashes must be migrated since the legacy
+     * hashes are computed differently
      * @param _target Address to call on L1 execution.
      * @param _gasLimit GasLimit to provide on L1.
      * @param _data Data to forward to L1 target.

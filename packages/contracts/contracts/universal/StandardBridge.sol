@@ -19,6 +19,7 @@ import { OptimismMintableERC20 } from "./OptimismMintableERC20.sol";
  * @title StandardBridge
  * This contract can manage a 1:1 bridge between two domains for both
  * ETH (native asset) and ERC20s.
+ * This contract should be deployed behind a proxy.
  * TODO: do we want a donateERC20 function as well?
  */
 abstract contract StandardBridge {
@@ -90,8 +91,8 @@ abstract contract StandardBridge {
     }
 
     /**
-     * @notice Ensures that the caller is the portal, and that it has the l2Sender value
-     * set to the address of the L2 Token Bridge.
+     * @notice Ensures that the caller is the messenger, and that
+     * it has the l2Sender value set to the address of the remote Token Bridge.
      */
     modifier onlyOtherBridge() {
         require(
@@ -227,7 +228,6 @@ abstract contract StandardBridge {
      * on the remote domain
      */
     function _initialize(address payable _messenger, address payable _otherBridge) internal {
-        // TODO: Figure out if we want this behind a proxy with Initializable.
         require(address(messenger) == address(0), "Contract has already been initialized.");
 
         messenger = CrossDomainMessenger(_messenger);
