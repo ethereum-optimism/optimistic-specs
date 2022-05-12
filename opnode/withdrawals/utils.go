@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum-optimism/optimistic-specs/l2os/bindings/l2oo"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/contracts/deposit"
 	"github.com/ethereum-optimism/optimistic-specs/opnode/contracts/withdrawer"
+	"github.com/ethereum-optimism/optimistic-specs/opnode/predeploy"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -20,8 +21,6 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/rpc"
 )
-
-var L2WithdrawalAddr = common.HexToAddress("0x4200000000000000000000000000000000000016")
 
 // WaitForFinalizationPeriod waits until the timestamp has been submitted to the L2 Output Oracle on L1 and
 // then waits for the finalization period to be up.
@@ -167,7 +166,7 @@ func FinalizeWithdrawalParameters(ctx context.Context, l2client ProofClient, txH
 		return FinalizedWithdrawalParameters{}, err
 	}
 	slot := StorageSlotOfWithdrawalHash(withdrawalHash)
-	p, err := l2client.GetProof(ctx, L2WithdrawalAddr, []string{slot.String()}, header.Number)
+	p, err := l2client.GetProof(ctx, predeploy.WithdrawalContractAddress, []string{slot.String()}, header.Number)
 	if err != nil {
 		return FinalizedWithdrawalParameters{}, err
 	}
