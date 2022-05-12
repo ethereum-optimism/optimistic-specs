@@ -50,6 +50,7 @@ transaction types:
 1. They are derived from Layer 1 blocks, and must be included as part of the protocol.
 2. They do not include signature validation (see [User-Deposited Transactions][user-deposited]
    for the rationale).
+3. They do not pay for gas on layer 2 and are metered on layer 1
 
 We define a new [EIP-2718] compatible transaction type with the prefix `0x7E`, and the following
 fields (rlp encoded in the order they appear here):
