@@ -5,10 +5,13 @@ import { L2OutputOracle } from "./L2OutputOracle.sol";
 import { WithdrawalVerifier } from "../libraries/Lib_WithdrawalVerifier.sol";
 import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 import { ExcessivelySafeCall } from "../libraries/ExcessivelySafeCall.sol";
+import { GasMetering } from "./GasMetering.sol";
 
 /**
  * @title OptimismPortal
  * This contract should be deployed behind an upgradable proxy.
+ * TODO: is GasMetering - it changes the storage slots and
+ * therefore makes some tests fail
  */
 contract OptimismPortal {
     /**********
@@ -133,6 +136,9 @@ contract OptimismPortal {
         bool _isCreation,
         bytes memory _data
     ) public payable {
+        // TODO: stack too deep when a modifier
+        // gasMetered(_gasLimit, msg.value);
+
         // Differentiate between sending to address(0)
         // and creating a contract
         if (_isCreation && _to != address(0)) {
