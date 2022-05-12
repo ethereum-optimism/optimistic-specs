@@ -3,14 +3,11 @@ pragma solidity 0.8.10;
 
 import { AddressAliasHelper } from "@eth-optimism/contracts/standards/AddressAliasHelper.sol";
 
-/* Testing utilities */
 import { CommonTest } from "./CommonTest.t.sol";
 
-/* Target contract dependencies */
 import { L2OutputOracle } from "../L1/L2OutputOracle.sol";
-
-/* Target contract */
 import { OptimismPortal } from "../L1/OptimismPortal.sol";
+import { WithdrawalVerifier } from "../libraries/Lib_WithdrawalVerifier.sol";
 
 contract OptimismPortal_Test is CommonTest {
     event TransactionDeposited(
@@ -251,5 +248,53 @@ contract OptimismPortal_Test is CommonTest {
             NON_ZERO_DATA
         );
         assertEq(address(op).balance, NON_ZERO_VALUE);
+    }
+
+    // TODO: test this deeply
+    // function test_verifyWithdrawal() external {}
+
+    function test_cannotVerifyRecentWithdrawal() external {
+        WithdrawalVerifier.OutputRootProof memory outputRootProof = WithdrawalVerifier.OutputRootProof({
+            version: bytes32(0),
+            stateRoot: bytes32(0),
+            withdrawerStorageRoot: bytes32(0),
+            latestBlockhash: bytes32(0)
+        });
+
+        vm.expectRevert("Proposal is not yet finalized.");
+        op.finalizeWithdrawalTransaction(
+            0,
+            alice,
+            alice,
+            0,
+            0,
+            hex"",
+            0,
+            outputRootProof,
+            hex""
+        );
+    }
+
+    function test_invalidWithdrawalProof() external {
+        WithdrawalVerifier.OutputRootProof memory outputRootProof = WithdrawalVerifier.OutputRootProof({
+            version: bytes32(0),
+            stateRoot: bytes32(0),
+            withdrawerStorageRoot: bytes32(0),
+            latestBlockhash: bytes32(0)
+        });
+
+        vm.warp(oracle.nextTimestamp() + op.FINALIZATION_PERIOD());
+        vm.expectRevert(abi.encodeWithSignature("InvalidOutputRootProof()"));
+        op.finalizeWithdrawalTransaction(
+            0,
+            alice,
+            alice,
+            0,
+            0,
+            hex"",
+            0,
+            outputRootProof,
+            hex""
+        );
     }
 }
