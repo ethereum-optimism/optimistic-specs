@@ -9,9 +9,14 @@ import {
 
 /**
  * @title OptimismMintableTokenFactory
- * @dev Factory contract for creating standard L2 token representations of L1 ERC20s
- * compatible with and working on the standard bridge.
- * TODO: need to replace bytecode in state surgery
+ * @dev Factory contract for creating standard remote token representations of
+ * local ERC20s. This can be used to bridge native L1 ERC20s to L2 or native L2
+ * ERC20s to L1. The tokens created through this factory are meant to operate
+ * with the StandardBridge contract for deposits/withdrawals.
+ * This contract is a predeploy on L2 at 0x4200000000000000000000000000000000000012
+ * TODO: deploy to a deterministic address on L1 networks?
+ * TODO: should this be extended for L1/L2 with hardcoded values in
+ * the base contract's initialize?
  */
 contract OptimismMintableTokenFactory {
     event StandardL2TokenCreated(address indexed _remoteToken, address indexed _localToken);
@@ -23,8 +28,11 @@ contract OptimismMintableTokenFactory {
 
     address public bridge;
 
-    // On L2 _bridge should be Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
-    // On L1 _bridge should be the L1StandardBridge
+    /**
+     * @dev Initialize the factory
+     * On L2 _bridge should be Lib_PredeployAddresses.L2_STANDARD_BRIDGE,
+     * On L1 _bridge should be the L1StandardBridge
+     */
     function initialize(address _bridge) public {
         require(bridge == address(0), "Already initialized.");
         bridge = _bridge;

@@ -24,7 +24,7 @@ These contracts are then extended with their legacy APIs to provide backwards
 compatibility for applications that integrated before the Bedrock system
 upgrade.
 
-The `L2CrossDomainMessneger` is a predeploy contract located at
+The `L2CrossDomainMessenger` is a predeploy contract located at
 `0x4200000000000000000000000000000000000007`.
 
 ```solidity

@@ -94,8 +94,10 @@ abstract contract CrossDomainMessenger is
     }
 
     /**
-     * Retrieves the address of the x-domain message sender. Will throw an error if the sender is
-     * not currently set (equal to the default sender).
+     * Retrieves the address of the x-domain message sender. Will throw an error
+     * if the sender is not currently set (equal to the default sender).
+     * This function is meant to be called on the remote side of a cross domain
+     * message so that the account that initiated the call can be known.
      *
      * @return Address of the x-domain message sender.
      */
