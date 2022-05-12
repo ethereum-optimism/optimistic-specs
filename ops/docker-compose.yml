@@ -55,7 +55,7 @@ services:
       --p2p.priv.path=/config/p2p-node-key.txt
     ports:
       - "7545:8545"
-        - "9003:9003"
+      - "9003:9003"
     volumes:
       - ${PWD}/p2p-sequencer-key.txt:/config/p2p-sequencer-key.txt
       - ${PWD}/p2p-node-key.txt:/config/p2p-node-key.txt
