@@ -124,7 +124,7 @@ interface iOVM_DeployerWhitelist {
 ## OVM\_ETH
 
 The `OVM_ETH` contains the ERC20 represented balances of ETH that has been
-deposited to L2. As part of the bedrock upgrade, the balances will be migrated
+deposited to L2. As part of the Bedrock upgrade, the balances will be migrated
 from this contract to the actual Ethereum level accounts to preserve EVM
 equivalence.
 
@@ -335,7 +335,7 @@ Reserved for future use.
 
 [l1-attr-predeploy]: glossary.md#l1-attributes-predeployed-contract
 
-The [L1Attributes](l1-attr-predeploy) was introduced in bedrock and is responsible for
+The [L1Attributes](l1-attr-predeploy) was introduced in Bedrock and is responsible for
 mainting L1 context in L2. This allows for L1 state to be accessed in L2.
 
 ```solidity
