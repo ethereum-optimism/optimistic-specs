@@ -6,11 +6,7 @@ library SlotPacking128x64x64 {
         uint128 a,
         uint64 b,
         uint64 c
-    )
-        internal
-        pure
-        returns (bytes32 slot)
-    {
+    ) internal pure returns (bytes32 slot) {
         assembly {
             slot := or(slot, shl(128, a))
             slot := or(slot, shl(64, b))
@@ -22,7 +18,11 @@ library SlotPacking128x64x64 {
     function get(bytes32 slot)
         internal
         pure
-        returns (uint128 a, uint64 b, uint64 c)
+        returns (
+            uint128 a,
+            uint64 b,
+            uint64 c
+        )
     {
         assembly {
             a := shr(128, slot)
