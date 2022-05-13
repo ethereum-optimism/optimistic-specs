@@ -78,7 +78,7 @@ interface iLegacyOVM_L2ToL1MessagePasser {
 The `OVM_DeployerWhitelist` is a predeploy used to provide additional
 safety during the initial phases of Optimism. It is owned by the
 Optimism team, and defines accounts which are allowed to deploy contracts to the
-network. 
+network.
 
 Arbitrary contract deployment has been enabled and it is not possible to turn
 off. In the legacy system, this contract was hooked into `CREATE` and
@@ -229,7 +229,7 @@ interface SequencerFeeVault {
 }
 ```
 
-## OptimismMintableTokenFactory 
+## OptimismMintableTokenFactory
 
 The `OptimismMintableTokenFactory` can be used to create an ERC20 token contract
 on a remote domain that maps to an ERC20 token contract on the local domain
