@@ -46,7 +46,10 @@ abstract contract GasMetering {
         }
     }
 
-    // TODO: rename variables + update spec with renamed variables
+    /**
+     * @notice
+     * TODO: rename variables + update spec with renamed variables
+     */
     function gasMetered(uint64 requestedGas, uint256 mint) internal {
         (uint128 prevBaseFee, uint64 prevNum, uint64 prevBoughtGas) = SlotPacking128x64x64.get(
             storage1
@@ -55,11 +58,12 @@ abstract contract GasMetering {
         (uint128 gasTargetLimit, uint128 gasSanityLimit) = SlotPacking128x128.get(storage2);
         uint128 gasTarget = gasTargetLimit / ELASTICITY_MULTIPLIER;
 
-        // business logic below
+        // If the gas target is exactly hit, maintain the previous base fee
         uint128 nowBaseFee = prevBaseFee;
         uint64 nowBoughtGas = prevBoughtGas + requestedGas;
         uint64 nowNum = uint64(block.number);
 
+        // Check to see if there has been a deposit
         if (nowNum != prevNum) {
             nowBoughtGas = requestedGas;
             if (prevBoughtGas > gasTarget) {
