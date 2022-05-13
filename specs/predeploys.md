@@ -35,7 +35,7 @@ are one of:
 
 The following table includes each of the predeploys. The system version
 indicates when the predeploy was introduced. The possible values are `Legacy`
-or `Bedrock`.
+or `Bedrock`. Deprecated contracts should not be used.
 
 | Name                         | Address                                    | Introduced | Deprecated |
 | ---------------------------- | ------------------------------------------ | ---------- | ---------- |
