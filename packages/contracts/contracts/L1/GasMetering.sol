@@ -5,6 +5,7 @@ import { console } from "forge-std/console.sol";
 
 import { SlotPacking128x64x64 } from "../libraries/SlotPacking128x64x64.sol";
 import { SlotPacking128x128 } from "../libraries/SlotPacking128x128.sol";
+import { SaturatedMath } from "../libraries/SaturatedMath.sol";
 
 // TODO: update the spec with nicer variable names and then
 // use the variable names 1:1 in the logic so that its easy
@@ -60,34 +61,39 @@ abstract contract GasMetering {
 
         // If the gas target is exactly hit, maintain the previous base fee
         uint128 nowBaseFee = prevBaseFee;
-        uint64 nowBoughtGas = prevBoughtGas + requestedGas;
+        uint64 nowBoughtGas = SaturatedMath.add_u64(prevBoughtGas, requestedGas);
         uint64 nowNum = uint64(block.number);
 
         // Check to see if there has been a deposit
         if (nowNum != prevNum) {
             nowBoughtGas = requestedGas;
             if (prevBoughtGas > gasTarget) {
-                uint128 gasUsedDelta = prevBoughtGas - gasTarget;
+                uint128 gasUsedDelta = SaturatedMath.sub_u128(prevBoughtGas, gasTarget);
+
                 uint128 baseFeePerGasDelta = (prevBaseFee * gasUsedDelta) /
                     gasTarget /
                     BASE_FEE_MAX_CHANGE_DENOMINATOR;
+
                 if (baseFeePerGasDelta == 0) {
                     baseFeePerGasDelta = 1;
                 }
-                nowBaseFee = prevBaseFee - baseFeePerGasDelta;
+                nowBaseFee = SaturatedMath.sub_u128(prevBaseFee, baseFeePerGasDelta);
             } else if (prevBoughtGas < gasTarget) {
-                uint128 gasUsedDelta = gasTarget - prevBoughtGas;
+                uint128 gasUsedDelta = SaturatedMath.sub_u128(gasTarget, prevBoughtGas);
+
                 uint128 baseFeePerGasDelta = (prevBaseFee * gasUsedDelta) /
                     gasTarget /
                     BASE_FEE_MAX_CHANGE_DENOMINATOR;
-                nowBaseFee = prevBaseFee - baseFeePerGasDelta;
+
+                nowBaseFee = SaturatedMath.sub_u128(prevBaseFee, baseFeePerGasDelta);
             }
         }
 
         require(nowBoughtGas < gasSanityLimit, "Cannot buy more L2 gas.");
-        uint256 requiredLockup = mint + (requestedGas * nowBaseFee);
+        uint256 requiredLockup = SaturatedMath.mul_u128(requestedGas, nowBaseFee);
 
         // in payable version:
+        // uint256 requiredLockup = mint + (requestedGas * nowBaseFee);
         // require(msg.value > requiredLockup);
 
         _burnGas(requiredLockup);
