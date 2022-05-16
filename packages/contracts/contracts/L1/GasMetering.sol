@@ -70,6 +70,8 @@ abstract contract GasMetering {
             if (prevBoughtGas > gasTarget) {
                 uint128 gasUsedDelta = SaturatedMath.sub_u128(prevBoughtGas, gasTarget);
 
+                // math.max(baseFeePerGasDelta, 1);
+
                 uint128 baseFeePerGasDelta = (prevBaseFee * gasUsedDelta) /
                     gasTarget /
                     BASE_FEE_MAX_CHANGE_DENOMINATOR;
@@ -92,13 +94,8 @@ abstract contract GasMetering {
         require(nowBoughtGas < gasSanityLimit, "Cannot buy more L2 gas.");
         uint256 requiredLockup = SaturatedMath.mul_u128(requestedGas, nowBaseFee);
 
-        // in payable version:
-        // uint256 requiredLockup = mint + (requestedGas * nowBaseFee);
-        // require(msg.value > requiredLockup);
-
         _burnGas(requiredLockup);
 
-        // TODO: these type conversions are unsafe
         storage1 = SlotPacking128x64x64.set(nowBaseFee, nowNum, nowBoughtGas);
     }
 }
