@@ -108,7 +108,7 @@ When there are stretches where no deposits are executed on L1, the basefee shoul
 If there is the case that the basefee spiked, this mechanism is needed to enable a more accurate decay. It
 uses exponentiation to run in constant (relative to the number of missed blocks) gas.
 
-With the current values, if `n` is greater than 2^32, the exponention will overflow.
+With the current elasticty and change denominator values, if `n` is greater than 2^32, the exponention will overflow.
 
 ## Rationale for burning L1 Gas
 
