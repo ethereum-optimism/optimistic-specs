@@ -96,8 +96,7 @@ else:
     # Skipped multiple blocks. Use an approximation to do constant time gas updating
     n = now_num - prev_num
     # Apply 7/8 reduction to prev_basefee for the n empty blocks in a row.
-    base_fee_per_gas_delta = prev_basefee * 7**n / 8**n
-    now_basefee_wide = prev_basefee + base_fee_per_gas_delta
+    now_basefee_wide = prev_basefee * 7**n / 8**n
 
     now_basefee = clamp(now_basefee_wide, min=1000, max=UINT_64_MAX_VALUE)
     now_bought_gas =  requested_gas
