@@ -77,11 +77,12 @@ def clamp(v: i256, min: u64, max: u64) -> u64:
     else:
         return u64(v)
 
-
+# If this is a new block, update the basefee and reset the total gas
+# If not, just update the total gas
 if prev_num == now_num:
     now_basefee = prev_basefee
     now_bought_gas = prev_bought_gas + requested_gas
-elif prev_num == now_num + 1:
+elif prev_num != now_num :
     # New formula
     # Width extension and conversion to signed integer math
     gas_used_delta = int128(prev_bought_gas) - int128(GAS_TARGET)
@@ -92,14 +93,16 @@ elif prev_num == now_num + 1:
 
     now_basefee = clamp(now_basefee_wide, min=1000, max=UINT_64_MAX_VALUE)
     now_bought_gas =  requested_gas
-else:
-    # Skipped multiple blocks. Use an approximation to do constant time gas updating
-    n = now_num - prev_num
+
+# If we skipped multiple blocks between the previous block and now update the basefee again.
+# This is not exactly the same as iterating the above function, but quite close for reasonable
+# gas target values. It is also constant time wrt the number of missed blocks which is important
+# for keeping gas usage stable.
+if prev_num + 1 < now_num:
+    n = now_num - prev_num - 1
     # Apply 7/8 reduction to prev_basefee for the n empty blocks in a row.
     now_basefee_wide = prev_basefee * 7**n / 8**n
-
     now_basefee = clamp(now_basefee_wide, min=1000, max=UINT_64_MAX_VALUE)
-    now_bought_gas =  requested_gas
 
 require(now_bought_gas < GUARANTEED_GAS_LIMIT)
 
