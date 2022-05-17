@@ -25,6 +25,12 @@ there may not be any ETH left to refund.
 The **guaranteed gas** is composed of a gas stipend, and of any guaranteed gas the user
 would like to purchase (on L1) on top of that.
 
+Guaranteed gas on L2 is bought in the following manner. An L2 gas price is calculated
+via a 1559 style gas market. The total amount of ETH required to buy that gas is then
+calculated (`guaranteed gas * L2 deposit basefee`). The contract then accepts that
+amount of ETH (in a future upgrade) or (only method right now), burns an amount of
+L1 gas that corresponds to the L2 cost (`L2 cost / L1 Basefee`).
+
 ## Gas Stipend
 
 To offset the gas spent on the deposit event, we credit (TODO AMOUNT) gas times the
