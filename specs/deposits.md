@@ -143,8 +143,8 @@ follows:
 - `context.gas` set to `gasLimit`
 - `context.value` set to `sendValue`
 
-No gas is bought on L2 and no refund is provided. TODO: The gas used for the deposit **is**
-subtracted from the gas pool.
+No gas is bought on L2 and no refund is provided. The gas used for the deposit is subtracted from
+the gas pool on L2.
 
 #### Nonce Handling
 
@@ -171,7 +171,7 @@ This transaction MUST have the following values:
    contract][predeploy]).
 3. `mint` is `0`
 4. `value` is `0`
-5. `gasLimit` is set to TODO VALUE. PROBABLY SHOULD NOT BE THE MAX.
+5. `gasLimit` is set to 35,000.
 6. `data` is an [ABI] encoded call to the [L1 attributes predeployed contract][predeploy]'s
    `setL1BlockValues()` function with correct values associated with the corresponding L1 block (cf.
    [reference implementation][l1-attr-ref-implem]).
