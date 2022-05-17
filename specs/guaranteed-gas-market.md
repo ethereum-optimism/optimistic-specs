@@ -7,6 +7,7 @@
 - [Gas Stipend](#gas-stipend)
 - [Limiting Guaranteed Gas](#limiting-guaranteed-gas)
 - [1559 Fee Market](#1559-fee-market)
+  - [Exponent Based Fee Reduction](#exponent-based-fee-reduction)
 - [Rationale for burning L1 Gas](#rationale-for-burning-l1-gas)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
@@ -45,7 +46,6 @@ L2 gas target that we expect.
 To reduce [Priority Gas Auctions](./glossary.md#priority-gas-auction) and accurately price gas,
 we implement a 1559 style fee market on L1 with the following pseudocode. We also use this
 opporunity to place a hard limit on the amount of guaranteed gas that is provided.
-
 
 ```python
 # Pseudocode to update the L2 Deposit Basefee and cap the amount of guaranteed gas
