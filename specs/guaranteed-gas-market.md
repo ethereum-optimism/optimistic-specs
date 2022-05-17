@@ -26,15 +26,10 @@ would like to purchase (on L1) on top of that.
 
 ## Gas Stipend
 
-Because there is some cost to submitting the transaction and updating the basefee,
-we provide transactions with a small amount of free gas.
-
-If the user requests more `guaranteedGas` than the `gasStipend`, that gas will
-be bought with L1 ETH via a gas burn or by buying it directly. If they request
-less gas than the stipend, they will not be charged.
-
-We provide XX,XXX amount of gas in the stipend. TODO - should this be price
-rather than gas based??
+To offset the gas spent on the deposit event, we credit (TODO AMOUNT) gas times the
+current basefee to the cost of the L2 gas. The amount of gas is selected to represent
+the cost to the user. If the ETH price of the gas (gas times current L1 baseefee) is
+greater than the requested guaranteed gas times the L2 gas price, no L1 gas is burnt.
 
 ## Limiting Guaranteed Gas
 
@@ -42,93 +37,78 @@ The total amount of guaranteed gas that can be bought in a single L1 block must
 be limited to prevent a denial of service attack against L2 as well as allow the
 total amount of guaranteed gas to be below the L2 block gas limit.
 
-We set limit the total amount of gas buyable via a contract method. It will initially
-be controlled by the Optimism Multisig before being handed over to governance.
-TODO - check that this is the actual plan.
+We set a guaranteed gas limit of 2,500,000 gas per L1 block. This corresponds to the
+L2 gas target that we expect.
 
 ## 1559 Fee Market
 
-To reduce [Priority Gas Auctions](./glossary.md#priority-gas-auction) and accurately price gas, we implement a 1559
-style fee market on L1 with the following pseudocode. We also use this opporunity to
-place a hard limit on the amount of guaranteed gas that is provided.
+To reduce [Priority Gas Auctions](./glossary.md#priority-gas-auction) and accurately price gas,
+we implement a 1559 style fee market on L1 with the following pseudocode. We also use this
+opporunity to place a hard limit on the amount of guaranteed gas that is provided.
 
-```text
-BASE_FEE_MAX_CHANGE_DENOMINATOR = 8
-ELASTICITY_MULTIPLIER = 2
-
-curr_basefee: u128, curr_num: u64, curr_bought_gas: u64 = load_and_unpack_storage()
-GUARANTEED_GAS_LIMIT: u64, SANITY_GAS_LIMIT: u64 = load_and_unpack_storage2()
-gas_target = GUARANTEED_GAS_LIMIT // ELASTICITY_MULTIPLIER
-
-# // implies floor division, however because gas_delta is always positive, it is the same as truncating (aka round to 0) division
-# If first deposit of this block, calculate the new basefee and store other info as well.
-if curr_num != block.number {
-    if curr_bought_gas == gas_target {
-        new_basefee := curr_basefee
-    } else if curr_bought_gas > gas_target {
-        gas_delta     := curr_bought_gas - gas_target
-        basefee_delta := gas_delta * curr_basefee // gas_target // BASE_FEE_MAX_CHANGE_DENOMINATOR
-        basefee_delta := max(basefee_delta, 1) # TODO: Why does 1559 have this asymmetry?
-        new_basefee   := curr_basefee + basefee_delta
-    } else {
-        gas_delta     := gas_target - curr_bought_gas
-        basefee_delta := gas_delta * curr_basefee // gas_target // BASE_FEE_MAX_CHANGE_DENOMINATOR
-    # Fun fact, geth doesn't let the new_basefee get below 0 and while not in the EIP spec, we should add this as well.
-        new_basefee   := curr_basefee - basefee_delta
-    }
-    curr_basefee := new_basefee
-    curr_number := block.number
-    curr_bought_gas := 0
-   
-}
-
-curr_bought_gas += required_gas
-require(curr_bought_gas <= min(GUARANTEED_GAS_LIMIT, SANITY_GAS_LIMIT)
-gas_cost = requested_gas * curr_basefee
-
-burn(gas_cost) OR pay_to_contract(gas_cost) # Depends if payable or non-payable version
-
-pack_and_store(curr_basefee, curr_number, curr_bought_gas)
-```
 
 ```python
+# Pseudocode to update the L2 Deposit Basefee and cap the amount of guaranteed gas
+# bought in a block. Calling code must handle the gas burn and validity checks on
+# the ability of the account to afford this gas.
 BASE_FEE_MAX_CHANGE_DENOMINATOR = 8
-
+ELASTICITY_MULTIPLIER = 2
+GUARANTEED_GAS_LIMIT = 2,500,000
+GAS_TARGET = GUARANTEED_GAS_LIMIT / ELASTICITY_MULTIPLIER
+    
+# All values are uint64s
 prev_basefee, prev_num, prev_bought_gas = load_and_unpack_storage()
-
-gas_target_limit, gas_sanity_limit = load_and_unpack_storage2()
-
-
-gas_cost = requested_gas * prev_basefee
-
-now_basefee = prev_basefee
 now_num = block.number
-now_bought_gas = prev_bought_gas + requested_gas
-# update only if we are in a new block
-if now_num != prev_num:
-  now_bought_gas = requested_gas
-  # update basefee if we are using more or less than the target
-  if prev_bought_gas < gas_target:
-      gas_used_delta = prev_bought_gas - gas_target
-      base_fee_per_gas_delta = max(prev_basefee * gas_used_delta // gas_target // BASE_FEE_MAX_CHANGE_DENOMINATOR, 1)
-      now_basefee = prev_basefee + base_fee_per_gas_delta
-  elif prev_bought_gas > gas_target:
-      gas_used_delta = gas_target - prev_bought_gas
-      base_fee_per_gas_delta = prev_basefee * gas_used_delta // gas_target // BASE_FEE_MAX_CHANGE_DENOMINATOR
-      now_basefee = prev_basefee - base_fee_per_gas_delta
 
-  # TODO: we can reduce now_basefee if now_num > prev_num by multiple blocks,
-  #   since that means we had some rest on L2
-  
-  # optional: maybe reduce gas cost a little bit for spending gas on above math work
+# Clamp the full basefee to a specific range. The minimum value in the range should be around 100-1000
+# to enable faster responses in the basefee. This replaces the `max` mechanism in the ethereum 1559
+# implementation (it also serves to enable the basefee to increase if it is very small).
+def clamp(v: i256, min: u64, max: u64) -> u64:
+    if v < i256(min):
+        return min
+    elif v > i256(max):
+        return max
+    else:
+        return u64(v)
 
-require(now_bought_gas < gas_sanity_limit)  # limit how much can be bought per L1 block
 
-required_lockup = mint + (requested_gas * now_basefee)
-require(msg.value >= required_lockup)
+if prev_num == now_num:
+    now_basefee = prev_basefee
+    now_bought_gas = prev_bought_gas + requested_gas
+elif prev_num == now_num + 1:
+    # New formula
+    # Width extension and conversion to signed integer math
+    gas_used_delta = int128(prev_bought_gas) - int128(GAS_TARGET)
+    # Use truncating (round to 0) division - solidity's default.
+    # Sign extend gas_used_delta & prev_basefee to 256 bits to avoid overflows here.
+    base_fee_per_gas_delta = prev_basefee * gas_used_delta / GAS_TARGET / BASE_FEE_MAX_CHANGE_DENOMINATOR
+    now_basefee_wide = prev_basefee + base_fee_per_gas_delta
+
+    now_basefee = clamp(now_basefee_wide, min=1000, max=UINT_64_MAX_VALUE)
+    now_bought_gas =  requested_gas
+else:
+    # Skipped multiple blocks. Use an approximation to do constant time gas updating
+    n = now_num - prev_num
+    # Apply 7/8 reduction to prev_basefee for the n empty blocks in a row.
+    base_fee_per_gas_delta = prev_basefee * 7**n / 8**n
+    now_basefee_wide = prev_basefee + base_fee_per_gas_delta
+
+    now_basefee = clamp(now_basefee_wide, min=1000, max=UINT_64_MAX_VALUE)
+    now_bought_gas =  requested_gas
+
+require(now_bought_gas < GUARANTEED_GAS_LIMIT)
+
 
 pack_and_store(now_basefee, now_num, now_bought_gas)
 ```
+
+### Exponent Based Fee Reduction
+
+When there are stretches where no deposits are executed on L1, the basefee should be decaying, but is not.
+If there is the case that the basefee spiked, this mechanism is needed to enable a more accurate decay. It
+uses exponentiation to run in constant (relative to the number of missed blocks) gas.
+
+With the current values, if `n` is greater than 2^32, the exponention will overflow.
 
 ## Rationale for burning L1 Gas
 
@@ -139,5 +119,7 @@ As such, we provide two options to buy L2 gas:
 1. Burn L1 Gas
 2. Send ETH to the Optimism Portal
 
-The payable version (Option 2) will have a TODO discout applied to it (or conversly, #1 has a premium
+The payable version (Option 2) will likely have discout applied to it (or conversly, #1 has a premium
 applied to it).
+
+For the initial release of bedrock, only #1 is supported.
