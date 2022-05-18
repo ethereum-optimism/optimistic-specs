@@ -50,7 +50,7 @@ transaction types:
 1. They are derived from Layer 1 blocks, and must be included as part of the protocol.
 2. They do not include signature validation (see [User-Deposited Transactions][user-deposited]
    for the rationale).
-3. They buy their L2 gas on L1 and as such, the L2 gas is not refundable.
+3. They buy their L2 gas on L1 and, as such, the L2 gas is not refundable.
 
 We define a new [EIP-2718] compatible transaction type with the prefix `0x7E`, and then a versioned
 byte sequence. The first version has `0x00` as the version byte and then as the following fields
