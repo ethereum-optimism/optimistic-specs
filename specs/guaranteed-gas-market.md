@@ -58,23 +58,24 @@ to place a hard limit on the amount of guaranteed gas that is provided.
 # the ability of the account to afford this gas.
 BASE_FEE_MAX_CHANGE_DENOMINATOR = 8
 ELASTICITY_MULTIPLIER = 2
-GUARANTEED_GAS_LIMIT = 2,500,000
-GAS_TARGET = GUARANTEED_GAS_LIMIT / ELASTICITY_MULTIPLIER
+MAX_RESOURCE_LIMIT = 2,500,000
+TARGET_RESOURCE_LIMIT = MAX_RESOURCE_LIMIT / ELASTICITY_MULTIPLIER
+MINIMUM_BASEFEE=10000
     
-# All values are uint64s
-prev_basefee, prev_num, prev_bought_gas = load_and_unpack_storage()
+# prev_basefee is a u128, prev_bought_gas and prev_num are u64s
+prev_basefee, prev_bought_gas, prev_num = load_and_unpack_storage()
 now_num = block.number
 
 # Clamp the full basefee to a specific range. The minimum value in the range should be around 100-1000
 # to enable faster responses in the basefee. This replaces the `max` mechanism in the ethereum 1559
 # implementation (it also serves to enable the basefee to increase if it is very small).
-def clamp(v: i256, min: u64, max: u64) -> u64:
+def clamp(v: i256, min: u128, max: u128) -> u128:
     if v < i256(min):
         return min
     elif v > i256(max):
         return max
     else:
-        return u64(v)
+        return u128(v)
 
 # If this is a new block, update the basefee and reset the total gas
 # If not, just update the total gas
@@ -84,30 +85,37 @@ if prev_num == now_num:
 elif prev_num != now_num :
     # New formula
     # Width extension and conversion to signed integer math
-    gas_used_delta = int128(prev_bought_gas) - int128(GAS_TARGET)
+    gas_used_delta = int128(prev_bought_gas) - int128(TARGET_RESOURCE_LIMIT)
     # Use truncating (round to 0) division - solidity's default.
     # Sign extend gas_used_delta & prev_basefee to 256 bits to avoid overflows here.
-    base_fee_per_gas_delta = prev_basefee * gas_used_delta / GAS_TARGET / BASE_FEE_MAX_CHANGE_DENOMINATOR
+    base_fee_per_gas_delta = prev_basefee * gas_used_delta / TARGET_RESOURCE_LIMIT / BASE_FEE_MAX_CHANGE_DENOMINATOR
     now_basefee_wide = prev_basefee + base_fee_per_gas_delta
 
-    now_basefee = clamp(now_basefee_wide, min=1000, max=UINT_64_MAX_VALUE)
+    now_basefee = clamp(now_basefee_wide, min=MINIMUM_BASEFEE, max=UINT_64_MAX_VALUE)
     now_bought_gas =  requested_gas
 
 # If we skipped multiple blocks between the previous block and now update the basefee again.
 # This is not exactly the same as iterating the above function, but quite close for reasonable
 # gas target values. It is also constant time wrt the number of missed blocks which is important
 # for keeping gas usage stable.
+# TODO: Update this to a fixed point exponentiation for constant time results. This loop is currently
+# bounded to take no more than 12 iterations to exit.
 if prev_num + 1 < now_num:
     n = now_num - prev_num - 1
     # Apply 7/8 reduction to prev_basefee for the n empty blocks in a row.
     # TODO: Make sure this doesn't overflow
-    now_basefee_wide = prev_basefee * 7**n / 8**n
-    now_basefee = clamp(now_basefee_wide, min=1000, max=UINT_64_MAX_VALUE)
+    while i < n:
+        x = min(n - i, 40)
+        i+=x
+        now_basefee_wide = prev_basefee * 7**x / 8**x
+        if now_basefee_wide <= MINIMUM_BASE_FEE:
+            break # break while loop.
+    now_basefee = clamp(now_basefee_wide, min=MINIMUM_BASEFEE, max=UINT_64_MAX_VALUE)
 
-require(now_bought_gas < GUARANTEED_GAS_LIMIT)
+require(now_bought_gas < MAX_RESOURCE_LIMIT)
 
 
-pack_and_store(now_basefee, now_num, now_bought_gas)
+pack_and_store(now_basefee, now_bought_gas, now_num)
 ```
 
 ### Exponent Based Fee Reduction
@@ -117,8 +125,9 @@ is not. If there is the case that the basefee spiked, this mechanism is needed t
 accurate decay. It uses exponentiation to run in constant (relative to the number of missed blocks)
 gas.
 
-With the current elasticty and change denominator values, if `n` is greater than 42, the
-exponention will overflow. TODO: Use exponent/logarithm library for this.
+The current loop based approach will always converge in no more than 12 steps, however it is possible
+to go to a loopless form (with slightly more error), but adpoting a fixed point exponentiation
+algorithm.
 
 ## Rationale for burning L1 Gas
 
