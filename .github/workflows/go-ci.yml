@@ -104,16 +104,10 @@ jobs:
           cd packages/contracts
           yarn install
 
-      - name: op-node Contracts
+      - name: op-bindings Contracts
         run: |
-          cd op-node/contracts
+          cd op-bindings
           make
-          git diff --exit-code
-
-      - name: op-proposer Bindings
-        run: |
-          cd op-proposer
-          make bindings
           git diff --exit-code
 
   op-node-fuzz:
