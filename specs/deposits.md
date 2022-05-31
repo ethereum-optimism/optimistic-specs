@@ -144,7 +144,9 @@ follows:
 - `context.value` set to `sendValue`
 
 No gas is bought on L2 and no refund is provided. The gas used for the deposit is subtracted from
-the gas pool on L2.
+the gas pool on L2. Gas usage exactly matches other transaction types (including intrinsic gas).
+If a deposit runs out of gas or has some other failure, the mint will succeed and the nonce of the
+account will be increased, but no other state transition will occur.
 
 #### Nonce Handling
 
