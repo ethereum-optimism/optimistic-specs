@@ -27,11 +27,11 @@ deployed-bin-optimism-portal: bindings-optimism-portal
 
 deployed-bin-L2ToL1MessagePasser: bindings-L2ToL1MessagePasser
 	$(eval deployedBytecode := $(shell cat bin/l2_to_l1_message_passer.hex))
-	echo "// Code generated - DO NOT EDIT." > withdrawer/withdrawer_deployed.go
-	echo "// This file is a generated binding and any manual changes will be lost." >> withdrawer/withdrawer_deployed.go
-	echo "package withdrawer" >> withdrawer/withdrawer_deployed.go
-	echo "var WithdrawerDeployedBin = \"$(deployedBytecode)\""  >> withdrawer/withdrawer_deployed.go
-	gofmt -s -w withdrawer/withdrawer_deployed.go
+	echo "// Code generated - DO NOT EDIT." > message_passer/message_passer_deployed.go
+	echo "// This file is a generated binding and any manual changes will be lost." >> message_passer/message_passer_deployed.go
+	echo "package message_passer" >> message_passer/message_passer_deployed.go
+	echo "var MessagePasserDeployedBin = \"$(deployedBytecode)\""  >> message_passer/message_passer_deployed.go
+	gofmt -s -w message_passer/message_passer_deployed.go
 
 bindings-l1-block-info:
 	$(eval temp := $(shell mktemp -d))
@@ -55,15 +55,15 @@ bindings-L2ToL1MessagePasser:
 	mkdir -p bin
 	cd $(CONTRACTS_PATH); \
 		forge build \
-		&& forge inspect L2ToL1MessagePasser abi > $(temp)/Withdrawer.abi \
-		&& forge inspect L2ToL1MessagePasser bytecode > $(temp)/Withdrawer.bin \
+		&& forge inspect L2ToL1MessagePasser abi > $(temp)/MessagePasser.abi \
+		&& forge inspect L2ToL1MessagePasser bytecode > $(temp)/MessagePasser.bin \
 		&& forge inspect L2ToL1MessagePasser deployedBytecode > $(cwd)/bin/l2_to_l1_message_passer.hex
 	abigen \
-		--abi $(temp)/Withdrawer.abi \
-		--bin $(temp)/Withdrawer.bin \
-		--pkg withdrawer \
-		--type Withdrawer \
-		--out ./withdrawer/withdrawer_raw.go
+		--abi $(temp)/MessagePasser.abi \
+		--bin $(temp)/MessagePasser.bin \
+		--pkg messagePasser \
+		--type messagePasser \
+		--out ./message_passer/message_passer_raw.go
 
 
 
