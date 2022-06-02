@@ -205,7 +205,7 @@ contract OptimismPortal {
         if (
             WithdrawalVerifier._verifyWithdrawalInclusion(
                 withdrawalHash,
-                _outputRootProof.withdrawerStorageRoot,
+                _outputRootProof.messagePasserStorageRoot,
                 _withdrawalProof
             ) == false
         ) {

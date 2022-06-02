@@ -18,12 +18,13 @@ library WithdrawalVerifier {
     struct OutputRootProof {
         bytes32 version;
         bytes32 stateRoot;
-        bytes32 withdrawerStorageRoot;
+        bytes32 messagePasserStorageRoot;
         bytes32 latestBlockhash;
     }
 
     /**
-     * @notice Derives the withdrawal hash according to the encoding in the L2 Withdrawer contract
+     * @notice Derives the withdrawal hash according to the encoding in the L2ToL1MessagePasser
+     *         contract.
      * @param _nonce Nonce for the provided message.
      * @param _sender Message sender address on L2.
      * @param _target Target address on L1.
@@ -57,29 +58,29 @@ library WithdrawalVerifier {
                 abi.encode(
                     _outputRootProof.version,
                     _outputRootProof.stateRoot,
-                    _outputRootProof.withdrawerStorageRoot,
+                    _outputRootProof.messagePasserStorageRoot,
                     _outputRootProof.latestBlockhash
                 )
             );
     }
 
     /**
-     * @notice Verifies a proof that a given withdrawal hash is present in the Withdrawer contract's
-     * withdrawals mapping.
+     * @notice Verifies a proof that a given withdrawal hash is present in the L2ToL1MessagePasser
+     *         contract's withdrawals mapping.
      * @param _withdrawalHash Keccak256 hash of the withdrawal transaction data.
-     * @param _withdrawerStorageRoot Storage root of the withdrawer predeploy contract.
+     * @param _messagePasserStorageRoot Storage root of the L2ToL1MessagePasser predeploy contract.
      * @param _withdrawalProof Merkle trie inclusion proof for the desired node.
      * @return Whether or not the inclusion proof was successful.
      */
     function _verifyWithdrawalInclusion(
         bytes32 _withdrawalHash,
-        bytes32 _withdrawerStorageRoot,
+        bytes32 _messagePasserStorageRoot,
         bytes memory _withdrawalProof
     ) internal pure returns (bool) {
         bytes32 storageKey = keccak256(
             abi.encode(
                 _withdrawalHash,
-                uint256(0) // The withdrawals mapping is at the first slot in the layout.
+                uint256(0) // The sentMessages mapping is at the first slot in the layout.
             )
         );
 
@@ -88,7 +89,7 @@ library WithdrawalVerifier {
                 abi.encode(storageKey),
                 hex"01",
                 _withdrawalProof,
-                _withdrawerStorageRoot
+                _messagePasserStorageRoot
             );
     }
 }

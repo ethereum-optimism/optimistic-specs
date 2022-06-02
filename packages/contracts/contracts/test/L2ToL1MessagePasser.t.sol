@@ -17,7 +17,7 @@ contract L2ToL1MessagePasserTest is CommonTest {
         bytes data
     );
 
-    event WithdrawerBalanceBurnt(uint256 indexed amount);
+    event MessagePasserBalanceBurnt(uint256 indexed amount);
 
     function setUp() virtual public {
         messagePasser = new L2ToL1MessagePasser();
@@ -95,10 +95,10 @@ contract L2ToL1MessagePasserTest is CommonTest {
 
         assertEq(address(messagePasser).balance, NON_ZERO_VALUE);
         vm.expectEmit(true, false, false, false);
-        emit WithdrawerBalanceBurnt(NON_ZERO_VALUE);
+        emit MessagePasserBalanceBurnt(NON_ZERO_VALUE);
         messagePasser.burn();
 
-        // The Withdrawer should have no balance
+        // The MessagePasser should have no balance
         assertEq(address(messagePasser).balance, 0);
     }
 }

@@ -257,7 +257,7 @@ contract OptimismPortal_Test is CommonTest {
         WithdrawalVerifier.OutputRootProof memory outputRootProof = WithdrawalVerifier.OutputRootProof({
             version: bytes32(0),
             stateRoot: bytes32(0),
-            withdrawerStorageRoot: bytes32(0),
+            messagePasserStorageRoot: bytes32(0),
             latestBlockhash: bytes32(0)
         });
 
@@ -279,7 +279,7 @@ contract OptimismPortal_Test is CommonTest {
         WithdrawalVerifier.OutputRootProof memory outputRootProof = WithdrawalVerifier.OutputRootProof({
             version: bytes32(0),
             stateRoot: bytes32(0),
-            withdrawerStorageRoot: bytes32(0),
+            messagePasserStorageRoot: bytes32(0),
             latestBlockhash: bytes32(0)
         });
 

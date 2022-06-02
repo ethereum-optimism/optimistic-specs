@@ -46,7 +46,7 @@ contract L2StandardBridge_Test is Bridge_Initializer {
     // withdraw
     // - token is burned
     // - emits WithdrawalInitiated
-    // - calls Withdrawer.initiateWithdrawal
+    // - calls MessagePasser.initiateWithdrawal
     function test_withdraw() external {
         // Alice has 100 L2Token
         deal(address(L2Token), alice, 100, true);
@@ -68,7 +68,7 @@ contract L2StandardBridge_Test is Bridge_Initializer {
     // withdrawTo
     // - token is burned
     // - emits WithdrawalInitiated w/ correct recipient
-    // - calls Withdrawer.initiateWithdrawal
+    // - calls MessagePasser.initiateWithdrawal
     function test_withdrawTo() external {
         deal(address(L2Token), alice, 100, true);
 
@@ -90,7 +90,7 @@ contract L2StandardBridge_Test is Bridge_Initializer {
     // - only callable by l1TokenBridge
     // - supported token pair emits DepositFinalized
     // - invalid deposit emits DepositFailed
-    // - invalid deposit calls Withdrawer.initiateWithdrawal
+    // - invalid deposit calls MessagePasser.initiateWithdrawal
     function test_finalizeDeposit() external {
         // TODO: events and calls
 

@@ -34,7 +34,7 @@ contract L2ToL1MessagePasser {
     /**
      * @notice Emitted when the balance of this contract is burned.
      */
-    event WithdrawerBalanceBurnt(uint256 indexed amount);
+    event MessagePasserBalanceBurnt(uint256 indexed amount);
 
     /*************
      * Variables *
@@ -102,6 +102,6 @@ contract L2ToL1MessagePasser {
     function burn() external {
         uint256 balance = address(this).balance;
         new Burner{ value: balance }();
-        emit WithdrawerBalanceBurnt(balance);
+        emit MessagePasserBalanceBurnt(balance);
     }
 }
