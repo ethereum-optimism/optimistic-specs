@@ -57,8 +57,8 @@ to place a hard limit on the amount of guaranteed gas that is provided.
 # bought in a block. Calling code must handle the gas burn and validity checks on
 # the ability of the account to afford this gas.
 BASE_FEE_MAX_CHANGE_DENOMINATOR = 8
-ELASTICITY_MULTIPLIER = 2
-MAX_RESOURCE_LIMIT = 2,500,000
+ELASTICITY_MULTIPLIER = 4
+MAX_RESOURCE_LIMIT = 8,000,000
 TARGET_RESOURCE_LIMIT = MAX_RESOURCE_LIMIT / ELASTICITY_MULTIPLIER
 MINIMUM_BASEFEE=10000
     
@@ -103,13 +103,7 @@ elif prev_num != now_num :
 if prev_num + 1 < now_num:
     n = now_num - prev_num - 1
     # Apply 7/8 reduction to prev_basefee for the n empty blocks in a row.
-    # TODO: Make sure this doesn't overflow
-    while i < n:
-        x = min(n - i, 40)
-        i+=x
-        now_basefee_wide = prev_basefee * 7**x / 8**x
-        if now_basefee_wide <= MINIMUM_BASE_FEE:
-            break # break while loop.
+    now_basefee_wide = prev_basefee * pow(1-(1/BASE_FEE_MAX_CHANGE_DENOMINATOR), n)
     now_basefee = clamp(now_basefee_wide, min=MINIMUM_BASEFEE, max=UINT_64_MAX_VALUE)
 
 require(now_bought_gas < MAX_RESOURCE_LIMIT)
