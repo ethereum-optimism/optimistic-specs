@@ -26,25 +26,25 @@ jobs:
           version: v1.45.2  # version of golangci-lint, not the action
           working-directory: op-node
           # rules: https://golangci-lint.run/usage/quick-start/
-          args: -E asciicheck,goimports,misspell
+          args: -E asciicheck,goimports,misspell --timeout 3m --verbose
       - name: golangci-lint op-proposer
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.45.2  # version of golangci-lint, not the action
           working-directory: op-proposer
-          args: -E asciicheck,goimports,misspell
+          args: -E asciicheck,goimports,misspell --timeout 3m --verbose
       - name: golangci-lint op-batcher
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.45.2  # version of golangci-lint, not the action
           working-directory: op-batcher
-          args: -E asciicheck,goimports,misspell
+          args: -E asciicheck,goimports,misspell --timeout 3m --verbose
       - name: golangci-lint op-e2e
         uses: golangci/golangci-lint-action@v3
         with:
           version: v1.45.2  # version of golangci-lint, not the action
           working-directory: op-e2e
-          args: -E asciicheck,goimports,misspell
+          args: -E asciicheck,goimports,misspell --timeout 3m --verbose
       - name: Test op-node
         run: |
           cd op-node
